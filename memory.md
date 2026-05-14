@@ -294,7 +294,7 @@ Every agent writes a `confidence_score` (0–100) to `pipeline-state.json`.
 - **Single codebase** within Hermes (local)
 - **Single repo** — all agents, orchestrator, UI, and brain tools live together
 - This enables the Memory Agent to learn cross-cutting patterns (secrets, PII, stack) that apply to the codebase itself
-- Language: to be decided (Python preferred for agent logic; Node/React for UI)
+- Language: Python for agent logic; Node/React for UI
 - Hermes integration: local MCP server already running with Telegram
 
 ---
@@ -316,13 +316,42 @@ Every agent writes a `confidence_score` (0–100) to `pipeline-state.json`.
 
 ## 15. Open Questions / Decisions Pending
 
-- [ ] Primary language for agent codebase (Python vs Node)?
-- [ ] How are Docker sandboxes provisioned for the Tester Agent?
-- [ ] Telegram bot token and notification formatting (to be configured)
-- [ ] Heartbeat times — confirm 2AM / 2PM or adjust
-- [ ] Who assigns IDs — manual by owner, or auto-incremented by Orchestrator?
-- [ ] Should the Orchestrator be able to create new `ID-XXX/` directories automatically?
-- [ ] UI hosting — local only, or accessible remotely?
+- [x] Primary language for agent codebase (Python vs Node)?
+- [x] How are Docker sandboxes provisioned for the Tester Agent?
+- [x] Telegram bot token and notification formatting (to be configured)
+- [x] Heartbeat times — confirm 2AM / 2PM or adjust
+- [x] Who assigns IDs — manual by owner, or auto-incremented by Orchestrator?
+- [x] Should the Orchestrator be able to create new `ID-XXX/` directories automatically?
+- [x] UI hosting — local only, or accessible remotely?
+
+---
+
+## 17. Resolved Implementation Decisions
+
+### Language Stack
+- **Agent Logic**: Python (preferred for automation and AI integration)
+- **UI**: Node/React (for responsive web interface)
+
+### Docker Sandbox Provisioning
+- **Tester Agent**: Docker Compose for on-demand sandbox provisioning
+
+### Telegram Integration
+- **Bot Configuration**: Using existing Hermes Telegram integration
+- **Heartbeat Times**: Daily at 10 PM (adjustable to 4 times/day later)
+
+### ID Management
+- **Assignment**: Auto-incremented by Orchestrator based on existing ideas count
+- **Directory Creation**: Orchestrator will automatically create new `ID-XXX/` directories
+
+### UI Hosting
+- **Access**: Local hosting only for security and simplicity
+
+### Implementation Approach
+- **Single codebase** within Hermes (local)
+- **Single repo** — all agents, orchestrator, UI, and brain tools live together
+- This enables the Memory Agent to learn cross-cutting patterns (secrets, PII, stack) that apply to the codebase itself
+- Language: Python for agent logic; Node/React for UI
+- Hermes integration: local MCP server already running with Telegram
 
 ---
 

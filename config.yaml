@@ -1,0 +1,10 @@
+heartbeat:
+  time: "22:00"    # Daily at 10 PM
+  enabled: true
+
+paths:
+  project_root: "."
+  ideas_file: "automation-ideas/ideas.md"
+  pipeline_state: "automation-ideas/pipeline-state.json"
+  requirements_dir: "automation-ideas/requirements"
+  brain_patterns: "automation-ideas/brain/patterns.md"
