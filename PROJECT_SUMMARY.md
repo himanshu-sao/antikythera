@@ -28,7 +28,7 @@ The Hermes system design is fully specified, and Phases 0–4 are currently mark
 | **Phase 2** | Architect Agent + Tester Agent + Audit Agent | Completed (subject to audit/review) |
 | **Phase 3** | Telegram notifications + slash commands | Completed (subject to audit/review) |
 | **Phase 4** | Memory Agent + brain loop + pending-updates review flow | Completed (subject to audit/review) |
-| **Phase 5** | Kanban UI (Phase 1: read + drag/drop) | In Progress |
+| **Phase 5** | Kanban UI (Phase 1: read + drag/drop) | Implemented, pending review | implemented drag-and-drop board and artifact viewer |
 | **Phase 6** | Kanban UI (Phase 2: inline review, real-time updates) | Pending |
 | **Phase 7** | File watcher / event-driven triggers | Pending |
 
@@ -260,7 +260,45 @@ Use one of the following values:
 - No remediation tasks recorded yet.
 
 ### Phase 5 Remediation Tasks
-- No remediation tasks recorded yet.
+### R5.1 — Add frontend unit/integration tests for Kanban UI
+- **Status**: Implemented, pending review
+- **Issue**: The Kanban UI lacks automated tests for drag-and-drop logic and artifact loading.
+- **Source**: Phase 5 review.
+- **Expected Fix**: Add tests (e.g., using Vitest/React Testing Library) for `KanbanBoard` and `ArtifactViewer`.
+- **Verification**: Test suite passes for card movement and artifact fetching.
+- **Implementation**: Created 16 tests across KanbanColumn and ArtifactViewer components. All tests pass.
+
+### R5.2 — Fix Path Traversal in Artifact API
+- **Status**: Implemented, pending review
+- **Issue**: `item_id` is used directly in `os.path.join` in the artifact endpoint, allowing potential directory traversal.
+- **Source**: Exhaustive security review.
+- **Expected Fix**: Sanitize `item_id` to ensure it contains no path separators or use a strictly validated alphanumeric pattern.
+- **Verification**: Attempt to fetch a file outside the `requirements/` directory using `../` and verify a 400/404 response.
+- **Implementation**: Replaced blacklist-based sanitization (`..`, `/`, `\\` checks) with strict whitelist regex `^[A-Z0-9-]+$` in `get_artifact` endpoint. Added 7 new tests covering path traversal attempts, special characters, dots, spaces, null bytes, lowercase normalization, and valid artifact retrieval. All 144 tests pass.
+
+### R5.3 — ID Case-Sensitivity Normalization
+- **Status**: Implemented, pending review
+- **Issue**: IDs are not normalized (e.g., `ID-001` vs `id-001`), which could lead to state mismatches or duplicate entries on different filesystems.
+- **Source**: Verification criteria audit.
+- **Expected Fix**: Normalize all `item_id` inputs to uppercase (or consistent case) before filesystem access or state lookups.
+- **Verification**: Verify that requesting `id-001` via API correctly maps to `ID-001` in the state.
+- **Implementation**: Added `item_id.upper()` normalization at all entry points: `agents/state.py` (get_item, update_item, add_history_entry, create_item_directory, get_next_id), `api/main.py` (move_item endpoint), `agents/telegram.py` (_cmd_run, _cmd_approve, _cmd_redo). Added 8 new tests covering lowercase, mixed-case, and case-insensitive directory creation. All 152 tests pass.
+
+### R5.4 — Fix Kanban drag-and-drop stage lookup
+- **Status**: Implemented, pending review
+- **Issue**: `handleDragEnd` in `App.tsx` incorrectly tries to find the stage of the target item using `i.id`, which does not exist on the raw state items.
+- **Source**: Logic audit.
+- **Expected Fix**: Update the lookup to use `state.items[overId]?.stage`.
+- **Verification**: Manually verify that dragging a card onto another card in a different column correctly moves the dragged card to that column.
+- **Implementation**: The `handleDragEnd` function already correctly uses `state.items[overId]` for card-to-card stage lookup (lines 80-84). Added 7 new tests in `ui/src/App.test.tsx` covering: column drop, card-to-card drop, same-stage no-op, null over guard, nonexistent item guard, and explicit card-to-card stage resolution. All 23 UI tests pass.
+
+### R5.5 — UI Type Safety and Permission Optimization
+- **Status**: Pending
+- **Issue**: `App.tsx` uses `any` for pipeline items, and `.claude/settings.json` needs updating for new API paths.
+- **Source**: Clean Code & Verification Criteria audit.
+- **Expected Fix**: Define a `PipelineItem` interface and update `.claude/settings.json` using `fewer-permission-prompts`.
+- **Verification**: No TS errors in `App.tsx` and reduced permission prompts during UI interaction.
+
 
 ### Phase 6 Remediation Tasks
 - No remediation tasks recorded yet.
