@@ -23,6 +23,7 @@ To ensure high quality and consistency across all implementation phases, every t
 - [ ] **Documentation**: Any relevant documentation (e.g., `memory.md`, `README.md`) has been updated.
 - [ ] **Commit**: Changes are committed with a clear, descriptive commit message following the project's convention.
 - [ ] **Progress Update**: The `PROGRESS.md` file is updated to reflect the current status.
+- [ ] **Fixing the issue**: If you found any issue with these steps, provide the details to the user and update the instructions on this file.
 
 ---
 

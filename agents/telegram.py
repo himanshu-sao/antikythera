@@ -6,10 +6,12 @@ incoming slash commands to interact with the pipeline state.
 """
 
 import logging
+import re
 from agents import state as state_module
 from agents import orchestrator
 
 logger = logging.getLogger(__name__)
+
 
 class TelegramHandler:
     def __init__(self, config=None):
@@ -63,26 +65,34 @@ class TelegramHandler:
         if not command_text.startswith("/"):
             return "Invalid command format. Please use /command."
 
-        parts = command_text.split()
-        cmd = parts[0].lower()
-        args = parts[1:]
+        # Use regex to strictly validate ID format (e.g., ID-001)
+        # We match against the original text to preserve case for the ID
+        match = re.match(r"^/(\w+)(?:\s+([a-zA-Z0-9-]+))?$", command_text)
+        if not match:
+            return "Invalid command format. Use /command [ID-XXX]"
 
-        if cmd == "/status":
+        cmd, item_id = match.groups()
+        cmd = cmd.lower()
+
+
+
+        if cmd == "status":
             return self._cmd_status()
-        elif cmd == "/run":
-            if not args:
+        elif cmd == "run":
+            if not item_id:
                 return "Usage: /run ID-XXX"
-            return self._cmd_run(args[0])
-        elif cmd == "/approve":
-            if not args:
+            return self._cmd_run(item_id)
+        elif cmd == "approve":
+            if not item_id:
                 return "Usage: /approve ID-XXX"
-            return self._cmd_approve(args[0])
-        elif cmd == "/redo":
-            if not args:
+            return self._cmd_approve(item_id)
+        elif cmd == "redo":
+            if not item_id:
                 return "Usage: /redo ID-XXX"
-            return self._cmd_redo(args[0])
+            return self._cmd_redo(item_id)
         else:
-            return f"Unknown command: {cmd}. Available: /status, /run, /approve, /redo"
+            return f"Unknown command: /{cmd}. Available: /status, /run, /approve, /redo"
+
 
     def _cmd_status(self):
         """Summarize the current state of the pipeline."""
