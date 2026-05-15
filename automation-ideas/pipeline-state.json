@@ -4,9 +4,9 @@
     "ID-001": {
       "title": "Shell script to auto assign and move vulnerability tickets",
       "priority": "High",
-      "stage": "INTAKE",
+      "stage": "REFINEMENT",
       "created_at": "2026-05-14T00:00:00Z",
-      "updated_at": "2026-05-14T00:00:00Z",
+      "updated_at": "2026-05-15T15:02:43.824731Z",
       "assigned_agent": null,
       "confidence_score": null,
       "blocked_reason": null,
