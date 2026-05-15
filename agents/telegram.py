@@ -34,6 +34,21 @@ class TelegramHandler:
         logger.info("[Telegram] Sending message to %s: %s", self.chat_id, text)
         return True
 
+    def send_brain_update_notification(self, proposal_count):
+        """
+        Notifies the owner that the Memory Agent has proposed new patterns for the brain.
+        """
+        if not self.enabled:
+            return
+
+        msg = (
+            f"🧠 [Hermes Brain] Memory Agent has identified {proposal_count} new patterns!\n\n"
+            f"Proposed updates are waiting for your review in:\n"
+            f"automation-ideas/brain/pending-updates.md\n\n"
+            f"Please mark them as APPROVED or REJECTED to evolve the system brain."
+        )
+        self._send_message(msg)
+
     def send_notification(self, item_id, stage, title, confidence=None):
         """
         Sends a formatted notification to the owner based on the pipeline stage.

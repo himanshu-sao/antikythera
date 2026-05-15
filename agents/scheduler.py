@@ -111,6 +111,8 @@ def start_scheduler():
 
     # Schedule recurring execution
     schedule.every().day.at(heartbeat_time).do(run_heartbeat)
+    schedule.every().day.at("03:00").do(brain_loop.run_nightly_loop)
+
 
     _scheduler_running = True
     logger.info("Scheduler running. Next heartbeat at %s", heartbeat_time)

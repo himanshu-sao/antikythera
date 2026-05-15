@@ -15,5 +15,5 @@ This document tracks the implementation status of the Hermes Multi-Agent Automat
 | **Phase 6** | Kanban UI (Phase 2: inline review, real-time updates) | 🕒 Pending | |
 | **Phase 7** | File watcher / event-driven triggers | 🕒 Pending | |
 
-## Current Focus: Phase 3
-**Goal**: Implement Telegram notifications and slash commands for system interaction.
+## Current Focus: Phase 5
+**Goal**: Implement the Kanban UI (Phase 1: read + drag/drop) for managing pipeline items.
