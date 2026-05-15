@@ -1,0 +1,11 @@
+# Lightweight Python sandbox for running tests
+FROM python:3.11-slim
+
+# Install basic testing tools
+RUN pip install --no-cache-dir pytest pytest-cov
+
+# Set working directory
+WORKDIR /workspace
+
+# Default command: run tests
+CMD ["pytest", "-v"]

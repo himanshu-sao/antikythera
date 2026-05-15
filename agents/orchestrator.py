@@ -10,6 +10,9 @@ import logging
 
 from agents import state as state_module
 from agents import refiner
+from agents import architect
+from agents import tester
+from agents import audit as audit_module
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +120,14 @@ def handle_refinement(item, state, item_id):
         confidence = refiner.refine_idea(item_id, title)
         item["confidence_score"] = confidence
         logger.info("Refiner completed for %s with confidence %d", item_id, confidence)
+        audit_module.log_action(
+            agent_name="refiner",
+            idea_id=item_id,
+            stage="REFINEMENT",
+            action="Generated spec.md from one-liner",
+            inputs=f"Title: {title}",
+            outputs=f"requirements/{item_id}/spec.md (confidence: {confidence})",
+        )
     except Exception as e:
         logger.error("Refiner failed for %s: %s", item_id, str(e))
         item["blocked_reason"] = f"Refiner failed: {str(e)}"
@@ -138,50 +149,84 @@ def handle_review_spec(item, state, item_id):
 
 
 def handle_architecture(item, state, item_id):
-    """Handle ARCHITECTURE stage: placeholder, transition to REVIEW_ARCH."""
-    logger.info("Processing %s at ARCHITECTURE stage (placeholder)", item_id)
+    """Handle ARCHITECTURE stage: run Architect Agent, transition to REVIEW_ARCH."""
+    logger.info("Processing %s at ARCHITECTURE stage", item_id)
+    try:
+        confidence = architect.architect_idea(item_id)
+        item["confidence_score"] = confidence
+        logger.info("Architect completed for %s with confidence %d", item_id, confidence)
+        audit_module.log_action(
+            agent_name="architect",
+            idea_id=item_id,
+            stage="ARCHITECTURE",
+            action="Generated architecture.md from spec.md",
+            inputs=f"requirements/{item_id}/spec.md, brain/patterns.md",
+            outputs=f"requirements/{item_id}/architecture.md (confidence: {confidence})",
+        )
+    except Exception as e:
+        logger.error("Architect failed for %s: %s", item_id, str(e))
+        item["blocked_reason"] = f"Architect failed: {str(e)}"
     transition_stage(item, "REVIEW_ARCH", state, item_id)
 
 
 def handle_review_arch(item, state, item_id):
-    """Handle REVIEW_ARCH stage: placeholder, check review_status."""
-    logger.info("Processing %s at REVIEW_ARCH stage (placeholder)", item_id)
+    """Handle REVIEW_ARCH stage: check review_status."""
+    logger.info("Processing %s at REVIEW_ARCH stage", item_id)
     review_status = item.get("review_status", "PENDING")
     if review_status == "APPROVED":
+        logger.info("%s architecture review approved, transitioning to TESTING", item_id)
         transition_stage(item, "TESTING", state, item_id)
     elif review_status == "NEEDS_REVISION":
+        logger.info("%s architecture needs revision, transitioning back to ARCHITECTURE", item_id)
         transition_stage(item, "ARCHITECTURE", state, item_id)
     else:
         logger.info("%s architecture review pending, waiting for owner", item_id)
 
 
 def handle_testing(item, state, item_id):
-    """Handle TESTING stage: placeholder, transition to REVIEW_TEST."""
-    logger.info("Processing %s at TESTING stage (placeholder)", item_id)
+    """Handle TESTING stage: run Tester Agent, transition to REVIEW_TEST."""
+    logger.info("Processing %s at TESTING stage", item_id)
+    try:
+        confidence = tester.tester_idea(item_id, use_docker=False)
+        item["confidence_score"] = confidence
+        logger.info("Tester completed for %s with confidence %d", item_id, confidence)
+        audit_module.log_action(
+            agent_name="tester",
+            idea_id=item_id,
+            stage="TESTING",
+            action="Generated tests.md from spec.md and architecture.md",
+            inputs=f"requirements/{item_id}/spec.md, requirements/{item_id}/architecture.md",
+            outputs=f"requirements/{item_id}/tests.md (confidence: {confidence})",
+        )
+    except Exception as e:
+        logger.error("Tester failed for %s: %s", item_id, str(e))
+        item["blocked_reason"] = f"Tester failed: {str(e)}"
     transition_stage(item, "REVIEW_TEST", state, item_id)
 
 
 def handle_review_test(item, state, item_id):
-    """Handle REVIEW_TEST stage: placeholder, check review_status."""
-    logger.info("Processing %s at REVIEW_TEST stage (placeholder)", item_id)
+    """Handle REVIEW_TEST stage: check review_status."""
+    logger.info("Processing %s at REVIEW_TEST stage", item_id)
     review_status = item.get("review_status", "PENDING")
     if review_status == "APPROVED":
+        logger.info("%s test review approved, transitioning to APPROVED", item_id)
         transition_stage(item, "APPROVED", state, item_id)
     elif review_status == "NEEDS_REVISION":
+        logger.info("%s tests need revision, transitioning back to TESTING", item_id)
         transition_stage(item, "TESTING", state, item_id)
     else:
         logger.info("%s test review pending, waiting for owner", item_id)
 
 
 def handle_approved(item, state, item_id):
-    """Handle APPROVED stage: placeholder, transition to EXECUTING."""
-    logger.info("Processing %s at APPROVED stage (placeholder)", item_id)
+    """Handle APPROVED stage: transition to EXECUTING."""
+    logger.info("Processing %s at APPROVED stage", item_id)
     transition_stage(item, "EXECUTING", state, item_id)
 
 
 def handle_executing(item, state, item_id):
-    """Handle EXECUTING stage: placeholder, transition to DONE."""
-    logger.info("Processing %s at EXECUTING stage (placeholder)", item_id)
+    """Handle EXECUTING stage: transition to DONE."""
+    logger.info("Processing %s at EXECUTING stage", item_id)
     transition_stage(item, "DONE", state, item_id)
 
 

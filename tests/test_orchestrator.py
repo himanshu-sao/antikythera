@@ -174,6 +174,138 @@ class TestStageHandlers:
         assert item["stage"] == "DONE"
 
 
+class TestArchitectureStageHandler:
+    @patch("agents.orchestrator.architect.architect_idea")
+    def test_handle_architecture_calls_architect(self, mock_architect):
+        """handle_architecture should call architect.architect_idea."""
+        mock_architect.return_value = 90
+        item = _make_item(stage="ARCHITECTURE")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_architecture(item, state, "ID-001")
+        mock_architect.assert_called_once_with("ID-001")
+        assert item["stage"] == "REVIEW_ARCH"
+        assert item["confidence_score"] == 90
+
+    @patch("agents.orchestrator.architect.architect_idea")
+    def test_handle_architecture_sets_blocked_on_failure(self, mock_architect):
+        """handle_architecture should set blocked_reason on failure."""
+        mock_architect.side_effect = FileNotFoundError("spec.md not found")
+        item = _make_item(stage="ARCHITECTURE")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_architecture(item, state, "ID-001")
+        assert item["blocked_reason"] is not None
+        assert "spec.md not found" in item["blocked_reason"]
+
+    def test_handle_review_arch_approved(self):
+        """handle_review_arch with APPROVED should transition to TESTING."""
+        item = _make_item(stage="REVIEW_ARCH", review_status="APPROVED")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_review_arch(item, state, "ID-001")
+        assert item["stage"] == "TESTING"
+
+    def test_handle_review_arch_needs_revision(self):
+        """handle_review_arch with NEEDS_REVISION should transition to ARCHITECTURE."""
+        item = _make_item(stage="REVIEW_ARCH", review_status="NEEDS_REVISION")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_review_arch(item, state, "ID-001")
+        assert item["stage"] == "ARCHITECTURE"
+
+    def test_handle_review_arch_pending(self):
+        """handle_review_arch with PENDING should not transition."""
+        item = _make_item(stage="REVIEW_ARCH", review_status="PENDING")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_review_arch(item, state, "ID-001")
+        assert item["stage"] == "REVIEW_ARCH"
+
+
+class TestTestingStageHandler:
+    @patch("agents.orchestrator.tester.tester_idea")
+    def test_handle_testing_calls_tester(self, mock_tester):
+        """handle_testing should call tester.tester_idea."""
+        mock_tester.return_value = 85
+        item = _make_item(stage="TESTING")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_testing(item, state, "ID-001")
+        mock_tester.assert_called_once_with("ID-001", use_docker=False)
+        assert item["stage"] == "REVIEW_TEST"
+        assert item["confidence_score"] == 85
+
+    @patch("agents.orchestrator.tester.tester_idea")
+    def test_handle_testing_sets_blocked_on_failure(self, mock_tester):
+        """handle_testing should set blocked_reason on failure."""
+        mock_tester.side_effect = FileNotFoundError("architecture.md not found")
+        item = _make_item(stage="TESTING")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_testing(item, state, "ID-001")
+        assert item["blocked_reason"] is not None
+        assert "architecture.md not found" in item["blocked_reason"]
+
+    def test_handle_review_test_approved(self):
+        """handle_review_test with APPROVED should transition to APPROVED."""
+        item = _make_item(stage="REVIEW_TEST", review_status="APPROVED")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_review_test(item, state, "ID-001")
+        assert item["stage"] == "APPROVED"
+
+    def test_handle_review_test_needs_revision(self):
+        """handle_review_test with NEEDS_REVISION should transition to TESTING."""
+        item = _make_item(stage="REVIEW_TEST", review_status="NEEDS_REVISION")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_review_test(item, state, "ID-001")
+        assert item["stage"] == "TESTING"
+
+    def test_handle_review_test_pending(self):
+        """handle_review_test with PENDING should not transition."""
+        item = _make_item(stage="REVIEW_TEST", review_status="PENDING")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_review_test(item, state, "ID-001")
+        assert item["stage"] == "REVIEW_TEST"
+
+
+class TestAuditIntegration:
+    @patch("agents.orchestrator.audit_module.log_action")
+    @patch("agents.orchestrator.refiner.refine_idea")
+    def test_refinement_logs_audit(self, mock_refine, mock_audit):
+        """handle_refinement should log an audit entry."""
+        mock_refine.return_value = 85
+        item = _make_item(stage="REFINEMENT", title="Test idea")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_refinement(item, state, "ID-001")
+        mock_audit.assert_called_once()
+        call_args = mock_audit.call_args[1]
+        assert call_args["agent_name"] == "refiner"
+        assert call_args["idea_id"] == "ID-001"
+        assert call_args["stage"] == "REFINEMENT"
+
+    @patch("agents.orchestrator.audit_module.log_action")
+    @patch("agents.orchestrator.architect.architect_idea")
+    def test_architecture_logs_audit(self, mock_architect, mock_audit):
+        """handle_architecture should log an audit entry."""
+        mock_architect.return_value = 90
+        item = _make_item(stage="ARCHITECTURE")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_architecture(item, state, "ID-001")
+        mock_audit.assert_called_once()
+        call_args = mock_audit.call_args[1]
+        assert call_args["agent_name"] == "architect"
+        assert call_args["idea_id"] == "ID-001"
+        assert call_args["stage"] == "ARCHITECTURE"
+
+    @patch("agents.orchestrator.audit_module.log_action")
+    @patch("agents.orchestrator.tester.tester_idea")
+    def test_testing_logs_audit(self, mock_tester, mock_audit):
+        """handle_testing should log an audit entry."""
+        mock_tester.return_value = 85
+        item = _make_item(stage="TESTING")
+        state = _make_items({"ID-001": item})
+        orchestrator.handle_testing(item, state, "ID-001")
+        mock_audit.assert_called_once()
+        call_args = mock_audit.call_args[1]
+        assert call_args["agent_name"] == "tester"
+        assert call_args["idea_id"] == "ID-001"
+        assert call_args["stage"] == "TESTING"
+
+
 class TestRunPipeline:
     @patch("agents.orchestrator.state_module.load_state")
     @patch("agents.orchestrator.state_module.save_state")
@@ -207,6 +339,45 @@ class TestRunPipeline:
         assert result == 0
         # save_state should still be called to update last_heartbeat
         mock_save.assert_called_once()
+
+    @patch("agents.orchestrator.state_module.load_state")
+    @patch("agents.orchestrator.state_module.save_state")
+    def test_run_pipeline_full_flow(self, mock_save, mock_load):
+        """run_pipeline should handle full INTAKE to REVIEW_TEST flow with mocks."""
+        state = _make_items({
+            "ID-001": _make_item(stage="INTAKE", priority="High"),
+        })
+        mock_load.return_value = state
+
+        # Simulate multiple pipeline runs to advance through stages
+        # Run 1: INTAKE -> REFINEMENT -> REVIEW_SPEC
+        orchestrator.run_pipeline()
+        assert state["items"]["ID-001"]["stage"] == "REFINEMENT"
+
+        # Run 2: REFINEMENT -> REVIEW_SPEC (refiner runs)
+        with patch("agents.orchestrator.refiner.refine_idea", return_value=85):
+            orchestrator.run_pipeline()
+        assert state["items"]["ID-001"]["stage"] == "REVIEW_SPEC"
+
+        # Run 3: REVIEW_SPEC approved -> ARCHITECTURE
+        state["items"]["ID-001"]["review_status"] = "APPROVED"
+        orchestrator.run_pipeline()
+        assert state["items"]["ID-001"]["stage"] == "ARCHITECTURE"
+
+        # Run 4: ARCHITECTURE -> REVIEW_ARCH (architect runs)
+        with patch("agents.orchestrator.architect.architect_idea", return_value=90):
+            orchestrator.run_pipeline()
+        assert state["items"]["ID-001"]["stage"] == "REVIEW_ARCH"
+
+        # Run 5: REVIEW_ARCH approved -> TESTING
+        state["items"]["ID-001"]["review_status"] = "APPROVED"
+        orchestrator.run_pipeline()
+        assert state["items"]["ID-001"]["stage"] == "TESTING"
+
+        # Run 6: TESTING -> REVIEW_TEST (tester runs)
+        with patch("agents.orchestrator.tester.tester_idea", return_value=85):
+            orchestrator.run_pipeline()
+        assert state["items"]["ID-001"]["stage"] == "REVIEW_TEST"
 
 
 def _make_items(items_dict):

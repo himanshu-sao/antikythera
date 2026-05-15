@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  tester-sandbox:
+    build:
+      context: .
+      dockerfile: Dockerfile.sandbox
+    container_name: hermes-tester-sandbox
+    volumes:
+      - ../automation-ideas/requirements:/workspace/requirements
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    working_dir: /workspace
+    command: ["pytest", "-v", "requirements/"]
+    restart: "no"
