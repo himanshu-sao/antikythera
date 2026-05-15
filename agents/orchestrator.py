@@ -13,8 +13,10 @@ from agents import refiner
 from agents import architect
 from agents import tester
 from agents import audit as audit_module
+from agents import telegram
 
 logger = logging.getLogger(__name__)
+
 
 # All pipeline stages in order
 PIPELINE_STAGES = [
@@ -100,6 +102,23 @@ def transition_stage(item, new_stage, state, item_id=None):
 
     if item_id:
         state_module.add_history_entry(state, item_id, new_stage, agent=agent)
+
+        # --- Telegram Notification ---
+        try:
+            import yaml
+            with open("config.yaml", "r") as f:
+                config = yaml.safe_load(f)
+
+            tg = telegram.TelegramHandler(config)
+            if new_stage in REVIEW_STAGES or new_stage == "DONE":
+                tg.send_notification(
+                    item_id=item_id,
+                    stage=new_stage,
+                    title=item.get("title", "Untitled"),
+                    confidence=item.get("confidence_score")
+                )
+        except Exception as e:
+            logger.error("Failed to send Telegram notification for %s: %s", item_id, str(e))
 
     logger.info("Transitioned %s: %s -> %s (agent: %s)", item_id or "?", old_stage, new_stage, agent or "none")
 
