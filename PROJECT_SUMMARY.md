@@ -223,11 +223,12 @@ Expected outcome:
 - **Implementation**: Added per-file timestamp tracking in `HermesFileHandler` to enforce a 2-second debounce interval. Verified with `tests/test_watcher.py`.
 
 ### R7.4 — Write tests for file watcher
-- **Status**: Pending
+- **Status**: Verified
 - **Issue**: File watcher needs comprehensive unit and integration tests
 - **Source**: Phase 7 implementation.
 - **Expected Fix**: Write tests covering file creation, modification, and deletion events.
 - **Verification**: All file watcher tests should pass.
+- **Implementation**: Implemented unit tests in `tests/test_watcher.py` and integration tests in `tests/test_watcher_integration.py`. All tests pass.
 
 ### Phase 1 Remediation Tasks
 - No remediation tasks recorded yet.

@@ -18,7 +18,7 @@ This document tracks the implementation status of the Hermes Multi-Agent Automat
 ## Current Focus: Phase 7 Implementation
 **Goal**: Implement file watcher / event-driven triggers for the Hermes system.
 
-| **Phase 7** | File watcher / event-driven triggers | Implemented, pending review | Wired watcher to Orchestrator and implemented debouncing. |
+| **Phase 7** | File watcher / event-driven triggers | ✅ Verified | Integration tests pass; wired to Orchestrator with debouncing. |
 
 ### Phase 7 Progress
 - ✅ Created `agents/watcher.py` file watcher implementation
@@ -26,7 +26,7 @@ This document tracks the implementation status of the Hermes Multi-Agent Automat
 - ✅ All watcher tests passing
 - ✅ Wire file watcher events to Orchestrator
 - ✅ Implement debounce/throttle mechanism
-- ⬜ Write comprehensive integration tests
+- ✅ Write comprehensive integration tests
 
 ## Current Focus: Phase 7 Implementation
 **Goal**: Implement file watcher / event-driven triggers for the Hermes system.
