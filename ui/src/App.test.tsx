@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import App from './App';
+import type { PipelineState, KanbanCardData } from './types';
 
 // Mock @dnd-kit/core and @dnd-kit/sortable
 vi.mock('@dnd-kit/core', () => ({
-  DndContext: ({ children, onDragEnd }: any) => {
+  DndContext: ({ children, onDragEnd }: { children: React.ReactNode; onDragEnd: (event: { active: { id: string }; over: { id: string } | null }) => void }) => {
     // Expose onDragEnd for testing
-    (window as any).__dndOnDragEnd = onDragEnd;
+    (window as Record<string, unknown>).__dndOnDragEnd = onDragEnd;
     return <div data-testid="dnd-context">{children}</div>;
   },
   closestCorners: vi.fn(),
@@ -18,16 +19,16 @@ vi.mock('@dnd-kit/core', () => ({
 }));
 
 vi.mock('@dnd-kit/sortable', () => ({
-  SortableContext: ({ children }: any) => <div data-testid="sortable-context">{children}</div>,
+  SortableContext: ({ children }: { children: React.ReactNode }) => <div data-testid="sortable-context">{children}</div>,
   sortableKeyboardCoordinates: vi.fn(),
 }));
 
 vi.mock('./components/KanbanColumn', () => ({
-  KanbanColumn: ({ id, items, onCardClick }: any) => (
+  KanbanColumn: ({ id, items, onCardClick }: { id: string; items: KanbanCardData[]; onCardClick: (id: string) => void }) => (
     <div data-testid={`column-${id}`}>
       <span>{id}</span>
       <span data-testid={`column-count-${id}`}>{items.length}</span>
-      {items.map((item: any) => (
+      {items.map((item: KanbanCardData) => (
         <div key={item.id} data-testid={`card-${item.id}`} onClick={() => onCardClick(item.id)}>
           {item.id} - {item.title}
         </div>
@@ -37,7 +38,7 @@ vi.mock('./components/KanbanColumn', () => ({
 }));
 
 vi.mock('./components/ArtifactViewer', () => ({
-  ArtifactViewer: ({ itemId, onClose }: any) => (
+  ArtifactViewer: ({ itemId, onClose }: { itemId: string; onClose: () => void }) => (
     <div data-testid="artifact-viewer">
       <span>{itemId}</span>
       <button onClick={onClose} data-testid="close-viewer">Close</button>
@@ -45,7 +46,7 @@ vi.mock('./components/ArtifactViewer', () => ({
   ),
 }));
 
-const mockState = {
+const mockState: PipelineState = {
   items: {
     'ID-001': {
       id: 'ID-001',
@@ -77,7 +78,7 @@ const mockState = {
 describe('App drag-and-drop handleDragEnd', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (window as any).__dndOnDragEnd = undefined;
+    (window as Record<string, unknown>).__dndOnDragEnd = undefined;
 
     // Mock fetch for initial state load
     vi.spyOn(global, 'fetch').mockResolvedValue({
@@ -116,21 +117,23 @@ describe('App drag-and-drop handleDragEnd', () => {
     });
 
     // Simulate drag end: drop ID-001 onto REVIEW_SPEC column
-    const handleDragEnd = (window as any).__dndOnDragEnd;
+    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd({
+    await handleDragEnd!({
       active: { id: 'ID-001' },
       over: { id: 'REVIEW_SPEC' },
     });
 
     // Should call move API with new stage
     const moveCall = mockFetch.mock.calls.find(
-      (call: any[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
     expect(moveCall).toBeDefined();
-    expect(moveCall[1].method).toBe('POST');
-    expect(JSON.parse(moveCall[1].body)).toEqual({
+    expect((moveCall as unknown[])[1]).toMatchObject({
+      method: 'POST',
+    });
+    expect(JSON.parse((moveCall as unknown[])[1].body as string)).toEqual({
       item_id: 'ID-001',
       new_stage: 'REVIEW_SPEC',
     });
@@ -150,21 +153,23 @@ describe('App drag-and-drop handleDragEnd', () => {
     });
 
     // Simulate drag end: drop ID-001 (INTAKE) onto ID-002 (REVIEW_SPEC)
-    const handleDragEnd = (window as any).__dndOnDragEnd;
+    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd({
+    await handleDragEnd!({
       active: { id: 'ID-001' },
       over: { id: 'ID-002' },
     });
 
     // Should call move API with REVIEW_SPEC (ID-002's stage)
     const moveCall = mockFetch.mock.calls.find(
-      (call: any[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
     expect(moveCall).toBeDefined();
-    expect(moveCall[1].method).toBe('POST');
-    expect(JSON.parse(moveCall[1].body)).toEqual({
+    expect((moveCall as unknown[])[1]).toMatchObject({
+      method: 'POST',
+    });
+    expect(JSON.parse((moveCall as unknown[])[1].body as string)).toEqual({
       item_id: 'ID-001',
       new_stage: 'REVIEW_SPEC',
     });
@@ -183,17 +188,17 @@ describe('App drag-and-drop handleDragEnd', () => {
     });
 
     // Simulate drag end: drop ID-001 onto INTAKE column (same stage)
-    const handleDragEnd = (window as any).__dndOnDragEnd;
+    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd({
+    await handleDragEnd!({
       active: { id: 'ID-001' },
       over: { id: 'INTAKE' },
     });
 
     // Should NOT call move API (same stage)
-    const moveCalls = mockFetch.mock.calls.filter(
-      (call: any[]) => call[0] === 'http://localhost:8000/api/move'
+const moveCalls = mockFetch.mock.calls.filter(
+      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
     expect(moveCalls.length).toBe(0);
   });
@@ -210,16 +215,16 @@ describe('App drag-and-drop handleDragEnd', () => {
       expect(screen.getByTestId('column-INTAKE')).toBeInTheDocument();
     });
 
-    const handleDragEnd = (window as any).__dndOnDragEnd;
+    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd({
+    await handleDragEnd!({
       active: { id: 'ID-001' },
       over: null,
     });
 
     const moveCalls = mockFetch.mock.calls.filter(
-      (call: any[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
     expect(moveCalls.length).toBe(0);
   });
@@ -236,16 +241,16 @@ describe('App drag-and-drop handleDragEnd', () => {
       expect(screen.getByTestId('column-INTAKE')).toBeInTheDocument();
     });
 
-    const handleDragEnd = (window as any).__dndOnDragEnd;
+    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd({
+    await handleDragEnd!({
       active: { id: 'ID-NONEXISTENT' },
       over: { id: 'REVIEW_SPEC' },
     });
 
     const moveCalls = mockFetch.mock.calls.filter(
-      (call: any[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
     expect(moveCalls.length).toBe(0);
   });
@@ -265,21 +270,21 @@ describe('App drag-and-drop handleDragEnd', () => {
       expect(screen.getByTestId('column-INTAKE')).toBeInTheDocument();
     });
 
-    const handleDragEnd = (window as any).__dndOnDragEnd;
+    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
     // Drop ID-001 (INTAKE) onto ID-003 (REVIEW_SPEC)
-    await handleDragEnd({
+    await handleDragEnd!({
       active: { id: 'ID-001' },
       over: { id: 'ID-003' },
     });
 
     // Verify the move API was called with REVIEW_SPEC (ID-003's stage)
     const moveCall = mockFetch.mock.calls.find(
-      (call: any[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
     expect(moveCall).toBeDefined();
-    expect(JSON.parse(moveCall[1].body)).toEqual({
+    expect(JSON.parse((moveCall as unknown[])[1].body as string)).toEqual({
       item_id: 'ID-001',
       new_stage: 'REVIEW_SPEC',
     });
