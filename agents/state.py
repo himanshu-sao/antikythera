@@ -57,7 +57,7 @@ def get_item(state, item_id):
 
     Args:
         state (dict): The pipeline state.
-        item_id (str): The item ID (e.g. "ID-001").
+        item_id (str): The item ID (e.g. "ID-001"). Case-insensitive — will be normalized to uppercase.
 
     Returns:
         dict: The item data.
@@ -65,6 +65,7 @@ def get_item(state, item_id):
     Raises:
         KeyError: If the item ID does not exist.
     """
+    item_id = item_id.upper()
     if item_id not in state.get("items", {}):
         raise KeyError(f"Item {item_id} not found in pipeline state")
     return state["items"][item_id]
@@ -76,12 +77,13 @@ def update_item(state, item_id, updates):
 
     Args:
         state (dict): The pipeline state.
-        item_id (str): The item ID.
+        item_id (str): The item ID. Case-insensitive — will be normalized to uppercase.
         updates (dict): Fields to update on the item.
 
     Raises:
         KeyError: If the item ID does not exist.
     """
+    item_id = item_id.upper()
     if item_id not in state.get("items", {}):
         raise KeyError(f"Item {item_id} not found in pipeline state")
     now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -95,13 +97,14 @@ def add_history_entry(state, item_id, stage, agent=None):
 
     Args:
         state (dict): The pipeline state.
-        item_id (str): The item ID.
+        item_id (str): The item ID. Case-insensitive — will be normalized to uppercase.
         stage (str): The stage name.
         agent (str, optional): The agent that performed the action.
 
     Raises:
         KeyError: If the item ID does not exist.
     """
+    item_id = item_id.upper()
     if item_id not in state.get("items", {}):
         raise KeyError(f"Item {item_id} not found in pipeline state")
     now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -119,14 +122,15 @@ def get_next_id(state):
         state (dict): The pipeline state.
 
     Returns:
-        str: The next ID (e.g. "ID-005").
+        str: The next ID (e.g. "ID-005"). Always uppercase.
     """
     items = state.get("items", {})
     max_num = 0
     for key in items:
-        if key.startswith("ID-"):
+        upper_key = key.upper()
+        if upper_key.startswith("ID-"):
             try:
-                num = int(key.split("-")[1])
+                num = int(upper_key.split("-")[1])
                 if num > max_num:
                     max_num = num
             except (IndexError, ValueError):
@@ -140,11 +144,12 @@ def create_item_directory(item_id):
     Create the requirements directory for a pipeline item.
 
     Args:
-        item_id (str): The item ID (e.g. "ID-001").
+        item_id (str): The item ID (e.g. "ID-001"). Case-insensitive — will be normalized to uppercase.
 
     Returns:
         str: The path to the created directory.
     """
+    item_id = item_id.upper()
     dir_path = os.path.join(REQUIREMENTS_DIR, item_id)
     os.makedirs(dir_path, exist_ok=True)
     return dir_path

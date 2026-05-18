@@ -11,8 +11,8 @@ This document tracks the implementation status of the Hermes Multi-Agent Automat
 | **Phase 2** | Architect Agent + Tester Agent + Audit Agent | ✅ Verified | Audited against memory.md and VERIFICATION_CRITERIA.md. |
 | **Phase 3** | Telegram notifications + slash commands | ✅ Verified | Audited against memory.md and VERIFICATION_CRITERIA.md. |
 | **Phase 4** | Memory Agent + brain loop + pending-updates review flow | ✅ Verified | Audited against memory.md and VERIFICATION_CRITERIA.md. |
-| **Phase 5** | Kanban UI (Phase 1: read + drag/drop) | ✅ Verified | Backend API and Frontend UI verified. R5.1-R5.5 remediations implemented and tests passing. |
-| **Phase 6** | Kanban UI (Phase 2: inline review, real-time updates) | 🕒 Implemented, pending review | Inline review editing and real-time polling implemented. |
+| **Phase 5** | Kanban UI (Phase 1: read + drag/drop) | Remediation In Progress | Backend API and Frontend UI verified. R5.1 verification failed (ArtifactViewer tests). See R5.6. |
+| **Phase 6** | Kanban UI (Phase 2: inline review, real-time updates) | Implemented, pending review | Inline review editing and real-time polling implemented. Tests for editing added (R6.1). |
 | **Phase 7** | File watcher / event-driven triggers | 🕒 Pending | |
 
 ## Current Focus: Phase 5 Remediation

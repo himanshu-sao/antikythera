@@ -18,18 +18,20 @@ class StateManager:
             json.dump(state, f, indent=2)
 
     def update_item_stage(self, item_id: str, new_stage: str) -> bool:
+        item_id = item_id.upper()
         state = self.load_state()
         items = state.get("items", {})
-        
+
         if item_id not in items:
             return False
-        
+
         items[item_id]["stage"] = new_stage
         items[item_id]["updated_at"] = datetime.utcnow().isoformat() + "Z"
-        
+
         self.save_state(state)
         return True
 
     def get_item_details(self, item_id: str) -> Optional[Dict[str, Any]]:
+        item_id = item_id.upper()
         state = self.load_state()
         return state.get("items", {}).get(item_id)

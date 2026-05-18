@@ -267,12 +267,19 @@ Use one of the following values:
 
 ### Phase 5 Remediation Tasks
 ### R5.1 — Add frontend unit/integration tests for Kanban UI
-- **Status**: Implemented, pending review
+- **Status**: Implemented, verification failed
 - **Issue**: The Kanban UI lacks automated tests for drag-and-drop logic and artifact loading.
 - **Source**: Phase 5 review.
 - **Expected Fix**: Add tests (e.g., using Vitest/React Testing Library) for `KanbanBoard` and `ArtifactViewer`.
 - **Verification**: Test suite passes for card movement and artifact fetching.
 - **Implementation**: Created 16 tests across KanbanColumn and ArtifactViewer components. All tests pass.
+
+### R5.6 — Fix ArtifactViewer fetch logic
+- **Status**: Pending (Low Priority - address at end of Phase 5/6)
+- **Issue**: `ArtifactViewer` fails tests with `TypeError: res.text is not a function` during artifact retrieval.
+- **Source**: Phase 5 review (R5.1 verification).
+- **Expected Fix**: Ensure the fetch response is handled correctly in `ArtifactViewer.tsx`.
+- **Verification**: All `ArtifactViewer.test.tsx` tests pass.
 
 ### R5.2 — Fix Path Traversal in Artifact API
 - **Status**: Verified
@@ -308,7 +315,19 @@ Use one of the following values:
 
 
 ### Phase 6 Remediation Tasks
-- No remediation tasks recorded yet.
+### R6.1 — Add frontend tests for inline review editing
+- **Status**: Pending
+- **Issue**: There are no automated tests for the inline review editing flow, debounced saving, or backend integration in `ArtifactViewer`.
+- **Source**: Phase 6 review.
+- **Expected Fix**: Add Vitest/React Testing Library tests to verify that editing `review.md` triggers the correct API calls with the correct content.
+- **Verification**: Tests pass for editing, debouncing, and saving states.
+
+### R6.2 — Add frontend tests for real-time polling
+- **Status**: Pending
+- **Issue**: The 10s polling and Page Visibility API logic in `App.tsx` is not covered by tests.
+- **Source**: Phase 6 review.
+- **Expected Fix**: Add tests to verify `fetchState` is called periodically and stops when `document.visibilityState === 'hidden'`.
+- **Verification**: Test suite confirms polling behavior and visibility-based pausing.
 
 ### Phase 7 Remediation Tasks
 - No remediation tasks recorded yet.

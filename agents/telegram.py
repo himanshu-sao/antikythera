@@ -127,6 +127,7 @@ class TelegramHandler:
     def _cmd_run(self, item_id):
         """Manually trigger pipeline run for a specific item."""
         try:
+            item_id = item_id.upper()
             state = state_module.load_state()
             if item_id not in state.get("items", {}):
                 return f"Item {item_id} not found."
@@ -141,6 +142,7 @@ class TelegramHandler:
     def _cmd_approve(self, item_id):
         """Mark current review stage as APPROVED."""
         try:
+            item_id = item_id.upper()
             state = state_module.load_state()
             item = state_module.get_item(state, item_id)
             state_module.update_item(state, item_id, {"review_status": "APPROVED"})
@@ -154,6 +156,7 @@ class TelegramHandler:
     def _cmd_redo(self, item_id):
         """Mark current review stage as NEEDS_REVISION."""
         try:
+            item_id = item_id.upper()
             state = state_module.load_state()
             item = state_module.get_item(state, item_id)
             state_module.update_item(state, item_id, {"review_status": "NEEDS_REVISION"})

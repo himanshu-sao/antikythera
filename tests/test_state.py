@@ -160,3 +160,71 @@ def test_create_item_directory_creates_dir():
             expected = os.path.join(tmpdir, "ID-999")
             assert os.path.isdir(expected)
             assert result == expected
+
+
+# --- ID Case-Sensitivity Normalization Tests (R5.3) ---
+
+def test_get_item_case_insensitive():
+    """get_item should normalize lowercase item_id to uppercase."""
+    state_data = {
+        "items": {
+            "ID-001": {"title": "Test", "stage": "INTAKE"},
+        }
+    }
+    result = state.get_item(state_data, "id-001")
+    assert result["title"] == "Test"
+
+
+def test_get_item_case_insensitive_mixed_case():
+    """get_item should normalize mixed-case item_id to uppercase."""
+    state_data = {
+        "items": {
+            "ID-001": {"title": "Test", "stage": "INTAKE"},
+        }
+    }
+    result = state.get_item(state_data, "Id-001")
+    assert result["title"] == "Test"
+
+
+def test_update_item_case_insensitive():
+    """update_item should normalize lowercase item_id to uppercase."""
+    state_data = {
+        "items": {
+            "ID-001": {"title": "Test", "stage": "INTAKE", "updated_at": "old"},
+        }
+    }
+    state.update_item(state_data, "id-001", {"stage": "REFINEMENT"})
+    assert state_data["items"]["ID-001"]["stage"] == "REFINEMENT"
+
+
+def test_add_history_entry_case_insensitive():
+    """add_history_entry should normalize lowercase item_id to uppercase."""
+    state_data = {
+        "items": {
+            "ID-001": {"title": "Test", "history": []},
+        }
+    }
+    state.add_history_entry(state_data, "id-001", "REFINEMENT", agent="refiner")
+    assert len(state_data["items"]["ID-001"]["history"]) == 1
+    assert state_data["items"]["ID-001"]["history"][0]["stage"] == "REFINEMENT"
+
+
+def test_create_item_directory_case_insensitive():
+    """create_item_directory should normalize lowercase item_id to uppercase."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch("agents.state.REQUIREMENTS_DIR", tmpdir):
+            result = state.create_item_directory("id-999")
+            expected = os.path.join(tmpdir, "ID-999")
+            assert os.path.isdir(expected)
+            assert result == expected
+
+
+def test_get_next_id_case_insensitive_keys():
+    """get_next_id should handle lowercase keys in state."""
+    state_data = {
+        "items": {
+            "id-001": {},
+            "id-002": {},
+        }
+    }
+    assert state.get_next_id(state_data) == "ID-003"
