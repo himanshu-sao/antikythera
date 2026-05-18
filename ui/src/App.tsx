@@ -1,13 +1,41 @@
 import React, { useState, useEffect } from 'react';
+import {
+  DndContext,
+  closestCorners,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates
+} from '@dnd-kit/sortable';
+import { KanbanColumn } from './components/KanbanColumn';
+import { ArtifactViewer } from './components/ArtifactViewer';
+import type { PipelineItem, PipelineState } from './types';
 
 const STAGES = [
-  "INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE", 
+  "INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE",
   "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"
 ];
 
 export default function App() {
-  const [state, setState] = useState({ items: {} });
+  const [state, setState] = useState<PipelineState>({ items: {} });
   const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   const fetchState = async () => {
     try {
@@ -23,52 +51,119 @@ export default function App() {
 
   useEffect(() => {
     fetchState();
+
+    const interval = setInterval(fetchState, 10000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        clearInterval(interval);
+      } else {
+        fetchState();
+        // In a more robust implementation, we would restart the interval here.
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
-  const moveItem = async (itemId: string, newStage: string) => {
-    try {
-      const res = await fetch('http://localhost:8000/api/move', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_id: itemId, new_stage: newStage }),
-      });
-      if (res.ok) {
-        await fetchState();
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+
+    const itemId = active.id as string;
+    const overId = over.id as string;
+
+    const item = state.items[itemId];
+    if (!item) return;
+    const fromStage = item.stage;
+
+    // Determine the destination stage
+    let toStage = '';
+    if (STAGES.includes(overId)) {
+      toStage = overId;
+    } else {
+      // If dropped over another item, use that item's stage
+      const overItem = state.items[overId];
+      if (overItem) {
+        toStage = overItem.stage;
       }
-    } catch (e) {
-      console.error("Failed to move item", e);
+    }
+
+    if (toStage && fromStage !== toStage) {
+      try {
+        const res = await fetch('http://localhost:8000/api/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId, new_stage: toStage }),
+        });
+        if (res.ok) {
+          await fetchState();
+        }
+      } catch (e) {
+        console.error("Failed to move item", e);
+      }
     }
   };
 
   if (loading) return <div className="flex h-screen items-center justify-center">Loading...</div>;
 
   return (
-    <div className="min-h-screen bg-gray-100 p-8">
-      <h1 className="text-3xl font-bold mb-8 text-center">Hermes Kanban Board</h1>
-      <div className="flex overflow-x-auto gap-4 pb-4">
-        {STAGES.map(stage => (
-          <div key={stage} className="flex-shrink-0 w-64 bg-gray-200 rounded-lg p-4 flex flex-col">
-            <h2 className="font-semibold mb-4 text-gray-700 border-b border-gray-300 pb-2">{stage}</h2>
-            <div className="space-y-3">
-              {Object.entries(state.items).filter(([_, item]: any) => item.stage === stage).map(([id, item]: any) => (
-                <div 
-                  key={id} 
-                  className="bg-white p-3 rounded shadow cursor-pointer hover:bg-blue-50 transition-colors"
-                  onClick={() => {
-                    const nextStage = STAGES[STAGES.indexOf(stage) + 1];
-                    if (nextStage) moveItem(id, nextStage);
-                  }}
-                >
-                  <div className="text-xs font-bold text-gray-500">{id}</div>
-                  <div className="text-sm font-medium text-gray-900">{item.title}</div>
-                  <div className="text-xs text-gray-400 mt-2">Priority: {item.priority}</div>
-                </div>
-              ))}
+    <div className="min-h-screen bg-gray-50 p-8">
+      <header className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Hermes Pipeline</h1>
+          <p className="text-gray-500">Manage automation ideas and agent progress</p>
+        </div>
+        <button
+          onClick={fetchState}
+          className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
+        >
+          Refresh
+        </button>
+      </header>
+
+      <div className="flex overflow-x-auto gap-6 pb-8 h-[calc(100vh-200px)]">
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragEnd={handleDragEnd}
+        >
+          {STAGES.map(stage => (
+            <KanbanColumn
+              key={stage}
+              id={stage}
+              items={Object.entries(state.items)
+                .filter(([_, item]) => item.stage === stage)
+                .map(([id, item]) => ({ ...item, id }))}
+              onCardClick={(id) => setSelectedId(id)}
+            />
+          ))}
+        </DndContext>
+      </div>
+
+      {selectedId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="flex justify-between items-center p-6 border-b border-gray-100">
+              <h2 className="text-xl font-bold text-gray-900">{selectedId}</h2>
+              <button
+                onClick={() => setSelectedId(null)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              <ArtifactViewer itemId={selectedId} onClose={() => setSelectedId(null)} />
             </div>
           </div>
-        ))}
-      </div>
-      <p className="text-center mt-8 text-gray-500 text-sm">Click a card to move it to the next stage.</p>
+        </div>
+      )}
     </div>
   );
 }

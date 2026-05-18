@@ -1,0 +1,34 @@
+/** Pipeline item as stored in pipeline-state.json */
+export interface PipelineItem {
+  id: string;
+  title: string;
+  priority: string;
+  stage: string;
+  confidence_score: number;
+  updated_at: string;
+  created_at?: string;
+  assigned_agent?: string | null;
+  blocked_reason?: string | null;
+  review_status?: string;
+  history?: Array<{ stage: string; at: string; agent?: string }>;
+}
+
+/** Pipeline state returned by the API */
+export interface PipelineState {
+  items: Record<string, PipelineItem>;
+  last_heartbeat?: string;
+}
+
+/** Card data passed to KanbanColumn */
+export interface KanbanCardData {
+  id: string;
+  title: string;
+  priority: string;
+  confidence_score: number;
+}
+
+/** Drag end event handler type */
+export type DragEndHandler = (event: {
+  active: { id: string };
+  over: { id: string } | null;
+}) => void | Promise<void>;

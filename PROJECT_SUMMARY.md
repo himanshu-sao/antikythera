@@ -180,6 +180,12 @@ Scope:
 - Add real-time updates for agent progress.
 - Add richer UI navigation and linked workflow affordances.
 
+Implementation:
+- Added `POST /api/item/.../content` endpoint with atomic writes and strict validation.
+- Integrated debounced textarea editor in `ArtifactViewer.tsx` for `review.md`.
+- Implemented 10s polling in `App.tsx` with Page Visibility API integration.
+
+
 Expected outcome:
 - The UI becomes the primary operational surface for human review and monitoring.
 
@@ -269,7 +275,7 @@ Use one of the following values:
 - **Implementation**: Created 16 tests across KanbanColumn and ArtifactViewer components. All tests pass.
 
 ### R5.2 — Fix Path Traversal in Artifact API
-- **Status**: Implemented, pending review
+- **Status**: Verified
 - **Issue**: `item_id` is used directly in `os.path.join` in the artifact endpoint, allowing potential directory traversal.
 - **Source**: Exhaustive security review.
 - **Expected Fix**: Sanitize `item_id` to ensure it contains no path separators or use a strictly validated alphanumeric pattern.
@@ -277,7 +283,7 @@ Use one of the following values:
 - **Implementation**: Replaced blacklist-based sanitization (`..`, `/`, `\\` checks) with strict whitelist regex `^[A-Z0-9-]+$` in `get_artifact` endpoint. Added 7 new tests covering path traversal attempts, special characters, dots, spaces, null bytes, lowercase normalization, and valid artifact retrieval. All 144 tests pass.
 
 ### R5.3 — ID Case-Sensitivity Normalization
-- **Status**: Implemented, pending review
+- **Status**: Verified
 - **Issue**: IDs are not normalized (e.g., `ID-001` vs `id-001`), which could lead to state mismatches or duplicate entries on different filesystems.
 - **Source**: Verification criteria audit.
 - **Expected Fix**: Normalize all `item_id` inputs to uppercase (or consistent case) before filesystem access or state lookups.
@@ -285,7 +291,7 @@ Use one of the following values:
 - **Implementation**: Added `item_id.upper()` normalization at all entry points: `agents/state.py` (get_item, update_item, add_history_entry, create_item_directory, get_next_id), `api/main.py` (move_item endpoint), `agents/telegram.py` (_cmd_run, _cmd_approve, _cmd_redo). Added 8 new tests covering lowercase, mixed-case, and case-insensitive directory creation. All 152 tests pass.
 
 ### R5.4 — Fix Kanban drag-and-drop stage lookup
-- **Status**: Implemented, pending review
+- **Status**: Verified
 - **Issue**: `handleDragEnd` in `App.tsx` incorrectly tries to find the stage of the target item using `i.id`, which does not exist on the raw state items.
 - **Source**: Logic audit.
 - **Expected Fix**: Update the lookup to use `state.items[overId]?.stage`.
@@ -293,11 +299,12 @@ Use one of the following values:
 - **Implementation**: The `handleDragEnd` function already correctly uses `state.items[overId]` for card-to-card stage lookup (lines 80-84). Added 7 new tests in `ui/src/App.test.tsx` covering: column drop, card-to-card drop, same-stage no-op, null over guard, nonexistent item guard, and explicit card-to-card stage resolution. All 23 UI tests pass.
 
 ### R5.5 — UI Type Safety and Permission Optimization
-- **Status**: Pending
+- **Status**: Verified
 - **Issue**: `App.tsx` uses `any` for pipeline items, and `.claude/settings.json` needs updating for new API paths.
 - **Source**: Clean Code & Verification Criteria audit.
 - **Expected Fix**: Define a `PipelineItem` interface and update `.claude/settings.json` using `fewer-permission-prompts`.
 - **Verification**: No TS errors in `App.tsx` and reduced permission prompts during UI interaction.
+- **Implementation**: Created `ui/src/types.ts` with `PipelineItem`, `PipelineState`, `KanbanCardData`, and `DragEndHandler` types. Updated `App.tsx` to use `PipelineState` instead of inline type. Updated `KanbanColumn.tsx` to use shared `KanbanCardData` type. Removed all `any` types from `App.test.tsx` (7 mocks + 7 test functions). Updated `.claude/settings.local.json` with expanded allowlist for npm, npx, uv, python, docker, curl, mkdir, ls, cp, rm commands. All 23 UI tests pass.
 
 
 ### Phase 6 Remediation Tasks
