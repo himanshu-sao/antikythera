@@ -84,4 +84,67 @@ describe('ArtifactViewer Editing', () => {
       expect(screen.getByText(/Saved/i)).toBeInTheDocument();
     });
   });
+
+  it('debounces multiple changes to a single API call', async () => {
+    vi.spyOn(global, 'fetch').mockImplementation((url, options) => {
+      if (options?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({ status: 'success' }), { status: 200 }));
+      }
+      if (url.includes('/artifact/review.md')) {
+        return Promise.resolve(new Response(mockArtifacts[0].content, { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify(mockArtifacts), { status: 200 }));
+    });
+
+    render(<ArtifactViewer itemId="ID-001" onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText('review.md')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('review.md'));
+
+    const textarea = screen.getByPlaceholderText(/Write your review here.../i);
+
+    // Rapid fire changes
+    fireEvent.change(textarea, { target: { value: 'Change 1' } });
+    fireEvent.change(textarea, { target: { value: 'Change 2' } });
+    fireEvent.change(textarea, { target: { value: 'Final Change' } });
+
+    vi.advanceTimersByTime(1100);
+    await vi.runAllTimersAsync();
+
+    await waitFor(() => {
+      const postCalls = vi.mocked(global.fetch).mock.calls.filter(call => call[1]?.method === 'POST');
+      expect(postCalls).toHaveLength(1);
+      const body = JSON.parse(postCalls[0][1].body);
+      expect(body.content).toBe('Final Change');
+    });
+  });
+
+  it('handles save API failures gracefully', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(global, 'fetch').mockImplementation((url, options) => {
+      if (options?.method === 'POST') {
+        return Promise.resolve(new Response(null, { status: 500 }));
+      }
+      if (url.includes('/artifact/review.md')) {
+        return Promise.resolve(new Response(mockArtifacts[0].content, { status: 200 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify(mockArtifacts), { status: 200 }));
+    });
+
+    render(<ArtifactViewer itemId="ID-001" onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText('review.md')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('review.md'));
+
+    const textarea = screen.getByPlaceholderText(/Write your review here.../i);
+    fireEvent.change(textarea, { target: { value: 'Failed content' } });
+
+    vi.advanceTimersByTime(1100);
+    await vi.runAllTimersAsync();
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Save error:', expect.any(Error));
+    });
+
+    consoleSpy.mockRestore();
+  });
+
 });

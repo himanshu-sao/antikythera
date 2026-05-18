@@ -267,19 +267,22 @@ Use one of the following values:
 
 ### Phase 5 Remediation Tasks
 ### R5.1 — Add frontend unit/integration tests for Kanban UI
-- **Status**: Implemented, verification failed
-- **Issue**: The Kanban UI lacks automated tests for drag-and-drop logic and artifact loading.
+- **Status**: Verified
+- **Issue**: The Kanban UI now has automated tests for drag-and-drop logic and artifact loading.
 - **Source**: Phase 5 review.
-- **Expected Fix**: Add tests (e.g., using Vitest/React Testing Library) for `KanbanBoard` and `ArtifactViewer`.
-- **Verification**: Test suite passes for card movement and artifact fetching.
+- **Expected Fix**: Tests have been implemented using Vitest/React Testing Library for `KanbanBoard` and `ArtifactViewer`.
+- **Verification**: Test suite passes for card movement and artifact fetching. All 16 tests across KanbanColumn and ArtifactViewer components pass successfully.
 - **Implementation**: Created 16 tests across KanbanColumn and ArtifactViewer components. All tests pass.
 
-### R5.6 — Fix ArtifactViewer fetch logic
-- **Status**: Pending (Low Priority - address at end of Phase 5/6)
-- **Issue**: `ArtifactViewer` fails tests with `TypeError: res.text is not a function` during artifact retrieval.
-- **Source**: Phase 5 review (R5.1 verification).
-- **Expected Fix**: Ensure the fetch response is handled correctly in `ArtifactViewer.tsx`.
+### R5.6 — Fix ArtifactViewer fetch logic and tests
+- **Status**: Verified
+- **Issue**: `ArtifactViewer` fails tests due to mock mismatch (expects `json` instead of `text`). Additionally, if all artifact fetches fail, the component renders the "No artifacts" state instead of the "Error" state because errors are caught inside the loop.
+- **Source**: Phase 5 review.
+- **Expected Fix**: 
+  1. Update `ArtifactViewer.test.tsx` to use `res.text()` and match expected content.
+  2. Update `ArtifactViewer.tsx` to track if any fatal error occurred during the batch fetch to trigger the error UI.
 - **Verification**: All `ArtifactViewer.test.tsx` tests pass.
+- **Implementation**: Updated `ArtifactViewer.tsx` to track `hasError` during batch fetch and throw if no artifacts are found while errors occurred. Fixed all mocks in `ArtifactViewer.test.tsx` to use `Response` objects and `res.text()`. All 8 tests pass.
 
 ### R5.2 — Fix Path Traversal in Artifact API
 - **Status**: Verified
@@ -316,14 +319,14 @@ Use one of the following values:
 
 ### Phase 6 Remediation Tasks
 ### R6.1 — Add frontend tests for inline review editing
-- **Status**: Pending
-- **Issue**: There are no automated tests for the inline review editing flow, debounced saving, or backend integration in `ArtifactViewer`.
-- **Source**: Phase 6 review.
-- **Expected Fix**: Add Vitest/React Testing Library tests to verify that editing `review.md` triggers the correct API calls with the correct content.
-- **Verification**: Tests pass for editing, debouncing, and saving states.
+- **Status**: Verified
+- **Issue**: Tests have been implemented in ui/src/components/ArtifactViewer.edit.test.tsx
+- **Source**: Phase 6 review and implementation.
+- **Expected Fix**: Tests already implemented and verified.
+- **Verification**: All 3 tests in ArtifactViewer.edit.test.tsx pass for editing, debouncing, and saving states.
 
 ### R6.2 — Add frontend tests for real-time polling
-- **Status**: Pending
+- **Status**: Verified
 - **Issue**: The 10s polling and Page Visibility API logic in `App.tsx` is not covered by tests.
 - **Source**: Phase 6 review.
 - **Expected Fix**: Add tests to verify `fetchState` is called periodically and stops when `document.visibilityState === 'hidden'`.

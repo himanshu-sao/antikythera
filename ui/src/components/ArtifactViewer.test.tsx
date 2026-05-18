@@ -73,10 +73,16 @@ describe('ArtifactViewer', () => {
   });
 
   it('displays all artifact names in the sidebar', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockArtifacts,
-      text: async () => 'mock content',
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const artifactName = url.split('/').pop();
+      const artifact = mockArtifacts.find(a => a.name === artifactName);
+      if (artifact) {
+        return Promise.resolve(new Response(artifact.content, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        }));
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
     });
 
     render(
@@ -94,10 +100,16 @@ describe('ArtifactViewer', () => {
   });
 
   it('shows artifact content when clicked', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockArtifacts,
-      text: async () => 'mock content',
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const artifactName = url.split('/').pop();
+      const artifact = mockArtifacts.find(a => a.name === artifactName);
+      if (artifact) {
+        return Promise.resolve(new Response(artifact.content, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        }));
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
     });
 
     render(
@@ -120,10 +132,16 @@ describe('ArtifactViewer', () => {
   });
 
   it('highlights selected artifact', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockArtifacts,
-      text: async () => 'mock content',
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const artifactName = url.split('/').pop();
+      const artifact = mockArtifacts.find(a => a.name === artifactName);
+      if (artifact) {
+        return Promise.resolve(new Response(artifact.content, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        }));
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
     });
 
     render(
@@ -161,10 +179,9 @@ describe('ArtifactViewer', () => {
   });
 
   it('shows empty state when no artifacts', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => [],
-    });
+    vi.spyOn(global, 'fetch').mockImplementation(() =>
+      Promise.resolve(new Response(null, { status: 404 }))
+    );
 
     render(
       <ArtifactViewer
@@ -179,9 +196,16 @@ describe('ArtifactViewer', () => {
   });
 
   it('displays artifact type labels', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockArtifacts,
+    vi.spyOn(global, 'fetch').mockImplementation((url) => {
+      const artifactName = url.split('/').pop();
+      const artifact = mockArtifacts.find(a => a.name === artifactName);
+      if (artifact) {
+        return Promise.resolve(new Response(artifact.content, {
+          status: 200,
+          headers: { 'Content-Type': 'text/markdown' },
+        }));
+      }
+      return Promise.resolve(new Response(null, { status: 404 }));
     });
 
     render(

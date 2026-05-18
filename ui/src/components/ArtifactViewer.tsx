@@ -24,6 +24,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
       try {
         const artifactNames = ['spec.md', 'architecture.md', 'tests.md', 'review.md'];
         const fetchedArtifacts: Artifact[] = [];
+        let hasError = false;
 
         for (const name of artifactNames) {
           try {
@@ -35,7 +36,11 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
             }
           } catch (e) {
             console.error(`Failed to fetch ${name}`, e);
+            hasError = true;
           }
+        }
+        if (fetchedArtifacts.length === 0 && hasError) {
+          throw new Error('Failed to load any artifacts');
         }
         setArtifacts(fetchedArtifacts);
       } catch (e) {
