@@ -197,61 +197,37 @@ Scope:
 Expected outcome:
 - The system gains faster responsiveness while preserving safety and review controls.
 
----
+### Phase 7 Remediation Tasks
+### R7.1 — Implement file watcher on `automation-ideas/` directory
+- **Status**: Verified
+- **Issue**: No file watcher implementation exists for the automation-ideas directory
+- **Source**: Phase 7 implementation.
+- **Expected Fix**: Implement file system monitoring for the automation-ideas directory to detect file changes.
+- **Verification**: File watcher should detect creation, modification, and deletion events in the directory.
+- **Implementation**: Implemented using `watchdog` library in `agents/watcher.py`. Verified with `tests/test_watcher.py`.
 
-## Superpowers Workflow Contract
+### R7.2 — Wire file watcher events to Orchestrator
+- **Status**: Implemented, pending review
+- **Issue**: File watcher events need to be integrated with the Orchestrator to trigger pipeline actions
+- **Source**: Phase 7 implementation.
+- **Expected Fix**: Connect file watcher events to the Orchestrator to automatically trigger pipeline when new ideas are added or review files are updated.
+- **Verification**: File events should trigger appropriate pipeline execution.
+- **Implementation**: Refactored `Orchestrator` into a class and integrated `handle_new_idea` and `handle_review_update` methods. Verified with `tests/test_watcher.py`.
 
-This project uses Superpowers in two complementary modes:
+### R7.3 — Implement debounce/throttle mechanism
+- **Status**: Implemented, pending review
+- **Issue**: Rapid file events should be debounced to prevent multiple triggers
+- **Source**: Phase 7 implementation.
+- **Expected Fix**: Implement a debounce mechanism to prevent rapid re-triggers from file system events.
+- **Verification**: Multiple rapid file changes should be properly debounced.
+- **Implementation**: Added per-file timestamp tracking in `HermesFileHandler` to enforce a 2-second debounce interval. Verified with `tests/test_watcher.py`.
 
-### Review Mode
-Driven by `SUPERPOWER-REVIEW.prompt.md`.
-
-Responsibilities:
-- Review one phase or remediation task group at a time.
-- Compare implementation against `memory.md`, this file, `PROGRESS.md`, `REVIEW.md`, and `VERIFICATION_CRITERIA.md`.
-- Identify gaps, contradictions, missing verification, and inaccurate progress claims.
-- Create or refine remediation tasks in the section below.
-- Recommend updates to `PROGRESS.md`.
-
-### Implementation Mode
-Driven by `SUPERPOWER-IMPLEMENT.prompt.md`.
-
-Responsibilities:
-- Select one pending phase or remediation task group.
-- Break it into small, verifiable tasks.
-- Implement the work with tests and validation steps.
-- Update `PROGRESS.md` and, if needed, refine remediation task details in this file.
-- Leave final “Verified” decisions to review mode.
-
----
-
-## Review-Created Remediation Tasks
-
-This section is the canonical place to record gaps discovered during audit or review.
-
-Rules:
-- Superpowers review is allowed to create remediation tasks here.
-- Superpowers implementation is allowed to refine task wording, split tasks into smaller items, or update task status notes here.
-- Remediation tasks should be small, specific, and verifiable.
-- Use IDs like `R<phase>.<index>` such as `R0.1`, `R2.3`, `R5.2`.
-- A remediation task should include:
-  - status
-  - issue summary
-  - why it exists
-  - expected fix
-  - verification expectation
-
-### Status Vocabulary
-Use one of the following values:
-- `Pending`
-- `In Progress`
-- `Implemented, pending review`
-- `Verified`
-- `Deferred`
-- `Blocked`
-
-### Phase 0 Remediation Tasks
-- No remediation tasks recorded yet.
+### R7.4 — Write tests for file watcher
+- **Status**: Pending
+- **Issue**: File watcher needs comprehensive unit and integration tests
+- **Source**: Phase 7 implementation.
+- **Expected Fix**: Write tests covering file creation, modification, and deletion events.
+- **Verification**: All file watcher tests should pass.
 
 ### Phase 1 Remediation Tasks
 - No remediation tasks recorded yet.

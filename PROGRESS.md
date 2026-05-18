@@ -13,7 +13,20 @@ This document tracks the implementation status of the Hermes Multi-Agent Automat
 | **Phase 4** | Memory Agent + brain loop + pending-updates review flow | ✅ Verified | Audited against memory.md and VERIFICATION_CRITERIA.md. |
 | **Phase 5** | Kanban UI (Phase 1: read + drag/drop) | ✅ Verified | Backend API and Frontend UI implemented. All remediation tasks (R5.1-R5.6) are now verified. |
 | **Phase 6** | Kanban UI (Phase 2: inline review, real-time updates) | ✅ Verified | Inline review editing and real-time polling implemented. Tests for editing (R6.1) and polling (R6.2) implemented and verified. |
-| **Phase 7** | File watcher / event-driven triggers | 🕒 Pending | |
+| **Phase 7** | File watcher / event-driven triggers | 🕒 In Progress | Implementation in progress |
+
+## Current Focus: Phase 7 Implementation
+**Goal**: Implement file watcher / event-driven triggers for the Hermes system.
+
+| **Phase 7** | File watcher / event-driven triggers | Implemented, pending review | Wired watcher to Orchestrator and implemented debouncing. |
+
+### Phase 7 Progress
+- ✅ Created `agents/watcher.py` file watcher implementation
+- ✅ Created `tests/test_watcher.py` with unit tests
+- ✅ All watcher tests passing
+- ✅ Wire file watcher events to Orchestrator
+- ✅ Implement debounce/throttle mechanism
+- ⬜ Write comprehensive integration tests
 
 ## Current Focus: Phase 7 Implementation
 **Goal**: Implement file watcher / event-driven triggers for the Hermes system.
