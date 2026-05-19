@@ -251,6 +251,54 @@ class Orchestrator:
         self.logger.info(f"Handling review update event for file: {file_path}")
         self.run_pipeline()
 
+# Instantiate a default orchestrator for module-level access (used by scheduler and tests)
+orchestrator_instance = Orchestrator()
+
+def get_next_actionable_items(state):
+    return orchestrator_instance.get_next_actionable_items(state)
+
+def run_pipeline():
+    return orchestrator_instance.run_pipeline()
+
+def transition_stage(item, new_stage, state, item_id=None):
+    return orchestrator_instance.transition_stage(item, new_stage, state, item_id)
+
+def process_item(item, state, item_id):
+    return orchestrator_instance.process_item(item, state, item_id)
+
+def handle_intake(item, state, item_id):
+    return orchestrator_instance.handle_intake(item, state, item_id)
+
+def handle_refinement(item, state, item_id):
+    return orchestrator_instance.handle_refinement(item, state, item_id)
+
+def handle_review_spec(item, state, item_id):
+    return orchestrator_instance.handle_review_spec(item, state, item_id)
+
+def handle_architecture(item, state, item_id):
+    return orchestrator_instance.handle_architecture(item, state, item_id)
+
+def handle_review_arch(item, state, item_id):
+    return orchestrator_instance.handle_review_arch(item, state, item_id)
+
+def handle_testing(item, state, item_id):
+    return orchestrator_instance.handle_testing(item, state, item_id)
+
+def handle_review_test(item, state, item_id):
+    return orchestrator_instance.handle_review_test(item, state, item_id)
+
+def handle_approved(item, state, item_id):
+    return orchestrator_instance.handle_approved(item, state, item_id)
+
+def handle_executing(item, state, item_id):
+    return orchestrator_instance.handle_executing(item, state, item_id)
+
+def handle_done(item, state, item_id):
+    return orchestrator_instance.handle_done(item, state, item_id)
+
+# For backwards compatibility with tests that might use 'orchestrator' as the instance
+orchestrator = orchestrator_instance
+
 # Stage handler dispatch table - mapping stage to method name
 STAGE_HANDLERS = {
     "INTAKE": "handle_intake",
