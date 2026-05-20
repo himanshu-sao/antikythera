@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { apiUrl } from '../config';
 
 interface Comment {
   id: string;
@@ -23,8 +24,7 @@ export function CommentSection({ itemId, initialComments, onCommentAdded }: Comm
 
     setIsPosting(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/item/${itemId}/comment`, {
-        method: 'POST',
+      const res = await fetch(`${apiUrl}/api/item/${itemId}/comment`, {        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           author: 'Current User',
