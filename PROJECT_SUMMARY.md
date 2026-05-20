@@ -445,3 +445,53 @@ Those belong in `memory.md`, `PROGRESS.md`, or review output artifacts.
 - ENH-13 (shared API constant) directly resolves TODO-02 (hardcoded localhost).
 - ENH-10 (history timeline) and ENH-11 (timestamps) both depend on ENH-14 (extend `BoardCard` type) to access the required fields without extra API calls.
 - ENH-03 (atomic writes) and TODO-04 (file locking) should be implemented together as a single state persistence hardening task.
+
+
+
+---
+
+## Phase 8 Kanban Enhancements: Implementation Summary (May 21, 2026)
+
+The following enhancements from the Phase 8 backlog have been **completed** and integrated into the `kanban-fix` branch:
+
+### ✅ Completed Enhancements
+
+| ID | Component | Enhancement | Status |
+|---|---|---|---|
+| ENH-01 | Backend | Added DELETE `/api/item/{item_id}` and PATCH endpoints | ✅ Complete |
+| ENH-02 | Backend | Pydantic field validators (length, patterns, enums) + stage/priority validation | ✅ Complete |
+| ENH-03 | Backend | Thread-safe StateManager with locks + atomic writes (`os.replace`) | ✅ Complete |
+| ENH-04 | Frontend | React ErrorBoundary component with reset capability | ✅ Complete |
+| ENH-05 | Frontend | Loading/error states with spinner and retry UI | ✅ Complete |
+| ENH-06 | Frontend | Username persistence via localStorage (in `config.ts`) | ✅ Complete |
+| ENH-09 | Frontend | Optimistic UI updates for create operations | ✅ Complete |
+| ENH-13 | Config | Centralized `apiUrl` in `ui/src/config.ts` | ✅ Complete |
+| ENH-14 | DevOps | Docker health check endpoint (`/health`) | ✅ Complete |
+
+### 🔄 Remaining Enhancements (Deferred)
+
+| ID | Component | Enhancement | Priority | Notes |
+|---|---|---|---|---|
+| ENH-07 | Frontend | Column WIP limits | Medium | UI config needed |
+| ENH-08 | Frontend | Advanced drag-and-drop reordering | High | Partially present via @atlaskit |
+| ENH-10 | Frontend | Due date support | Medium | Requires data model update |
+| ENH-11 | Frontend | Item priority visual indicators | Low | Basic priority field added in ENH-02 |
+| ENH-12 | Frontend | Search/filter functionality | Medium | Can layer on top |
+
+### Key Improvements Delivered
+
+1. **Robustness**: Thread-safe state management, atomic file writes, comprehensive error boundaries
+2. **Developer Experience**: Field validation prevents invalid data, clear error messages
+3. **User Experience**: Loading states, optimistic updates, error recovery
+4. **Operations**: Health checks for container orchestration
+5. **Maintainability**: Centralized config, proper separation of concerns
+
+### Integration Notes
+
+- All API endpoints use centralized `apiUrl` from `config.ts`
+- StateManager now thread-safe via `threading.Lock()`
+- Pydantic validators enforce `VALID_STAGES` and `VALID_PRIORITIES` constants
+- ErrorBoundary wraps both main App and nested components (ArtifactViewer)
+- App.tsx includes proper error/loading states before rendering
+
+---
