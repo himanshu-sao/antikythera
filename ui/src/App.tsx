@@ -213,7 +213,7 @@ export default function App() {
           {STAGES.map(stage => (
             <KanbanColumn
               key={stage}
-              stage={stage}
+              id={stage}
               items={Object.entries(state.items)
                 .filter(([, item]) => item.stage === stage)
                 .map(([id, item]) => ({ ...item, id }))}
