@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 
 interface CardEditorProps {
-  itemId: string;
+  item: { id: string; title: string; description?: string; priority: string; confidence_score?: number; stage: string; };
+  onSave: (updates: any) => Promise<void>;
+  onClose: () => void;
+}  itemId: string;
   initialData: {
     title: string;
     description?: string;
@@ -12,9 +15,9 @@ interface CardEditorProps {
   onClose: () => void;
 }
 
-export function CardEditor({ itemId, initialData, onSave, onClose }: CardEditorProps) {
-  const [formData, setFormData] = useState(initialData);
-  const [isSaving, setIsSaving] = useState(false);
+export function CardEditor({ item, onSave, onClose }: CardEditorProps) {
+  const initialData = { title: item.title, description: item.description, priority: item.priority, confidence_score: item.confidence_score ?? 0 };
+  const [formData, setFormData] = useState(initialData);  const [isSaving, setIsSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,8 +39,7 @@ export function CardEditor({ itemId, initialData, onSave, onClose }: CardEditorP
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600">✕</button>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
+            <h3 className="text-lg font-bold text-gray-900">Edit {item.id}</h3>        <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
           <input
             type="text"
