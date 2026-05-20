@@ -48,8 +48,6 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick 
       </div>
     </div>
   );
-}
-
 interface KanbanColumnProps {
   id: string;
   items: KanbanCardData[];
