@@ -19,6 +19,33 @@ export interface PipelineState {
   last_heartbeat?: string;
 }
 
+/** Canonical Board Models */
+export interface BoardColumn {
+  id: string;
+  title: string;
+  order: number;
+  cards: BoardCard[];
+}
+
+export interface BoardCard {
+  id: string;
+  title: string;
+  description?: string;
+  comments?: CardComment[];
+  metadata?: Record<string, unknown>;
+  status: string;
+  order: number;
+  priority: string;
+  confidence_score: number;
+}
+
+export interface CardComment {
+  id: string;
+  author?: string;
+  body: string;
+  createdAt: string;
+}
+
 /** Card data passed to KanbanColumn */
 export interface KanbanCardData {
   id: string;

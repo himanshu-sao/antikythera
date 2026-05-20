@@ -17,7 +17,7 @@ class StateManager:
         with open(self.state_path, "w") as f:
             json.dump(state, f, indent=2)
 
-    def update_item_stage(self, item_id: str, new_stage: str) -> bool:
+    def update_item(self, item_id: str, updates: Dict[str, Any]) -> bool:
         item_id = item_id.upper()
         state = self.load_state()
         items = state.get("items", {})
@@ -25,7 +25,7 @@ class StateManager:
         if item_id not in items:
             return False
 
-        items[item_id]["stage"] = new_stage
+        items[item_id].update(updates)
         items[item_id]["updated_at"] = datetime.utcnow().isoformat() + "Z"
 
         self.save_state(state)
@@ -35,3 +35,45 @@ class StateManager:
         item_id = item_id.upper()
         state = self.load_state()
         return state.get("items", {}).get(item_id)
+
+    def create_item(self, item_id: str, title: str) -> bool:
+        item_id = item_id.upper()
+        state = self.load_state()
+        items = state.get("items", {})
+
+        if item_id in items:
+            return False
+
+        items[item_id] = {
+            "title": title,
+            "stage": "INTAKE",
+            "created_at": datetime.utcnow().isoformat() + "Z",
+            "updated_at": datetime.utcnow().isoformat() + "Z",
+        }
+
+        self.save_state(state)
+        return True
+
+    def add_comment(self, item_id: str, author: str, body: str) -> Optional[Dict[str, Any]]:
+        item_id = item_id.upper()
+        state = self.load_state()
+        items = state.get("items", {})
+
+        if item_id not in items:
+            return None
+
+        if "comments" not in items[item_id]:
+            items[item_id]["comments"] = []
+
+        comment = {
+            "id": f"com_{int(datetime.utcnow().timestamp() * 1000)}",
+            "author": author,
+            "body": body,
+            "createdAt": datetime.utcnow().isoformat() + "Z"
+        }
+
+        items[item_id]["comments"].append(comment)
+        items[item_id]["updated_at"] = datetime.utcnow().isoformat() + "Z"
+
+        self.save_state(state)
+        return comment
