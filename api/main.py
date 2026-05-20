@@ -2,7 +2,7 @@ import re
 from typing import Optional, List
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from api.state_manager import StateManager
 import os
 
@@ -21,9 +21,57 @@ app.add_middleware(
 STATE_PATH = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "pipeline-state.json")
 state_manager = StateManager(STATE_PATH)
 
+# ENH-02: Valid pipeline stages for validation
+VALID_STAGES = [
+    "INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE",
+    "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"
+]
+
+VALID_PRIORITIES = ["low", "medium", "high", "critical"]
+
+
 class CreateItemRequest(BaseModel):
-    item_id: str
-    title: str
+    # ENH-02: Add field length constraints and pattern validation
+    item_id: str = Field(..., min_length=1, max_length=50, pattern=r'^[A-Za-z0-9_-]+$')
+    title: str = Field(..., min_length=1, max_length=200)
+
+    @field_validator('item_id')
+    @classmethod
+    def item_id_uppercase(cls, v: str) -> str:
+        return v.upper()
+
+
+class MoveRequest(BaseModel):
+    item_id: str = Field(..., min_length=1, max_length=50)
+    new_stage: str = Field(...)
+    order: Optional[int] = Field(default=None, ge=0)  # ENH-05: carry target index for reordering
+
+    @field_validator('new_stage')
+    @classmethod
+    def validate_stage(cls, v: str) -> str:
+        if v.upper() not in VALID_STAGES:
+            raise ValueError(f'Invalid stage. Must be one of: {VALID_STAGES}')
+        return v.upper()
+
+
+@app.get("/api/state")
+async def get_state():
+    return state_manager.load_state()
+
+
+class UpdateItemRequest(BaseModel):
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    priority: Optional[str] = Field(default=None)
+    confidence_score: Optional[int] = Field(default=None, ge=0, le=100)
+
+    @field_validator('priority')
+    @classmethod
+    def validate_priority(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v.lower() not in VALID_PRIORITIES:
+            raise ValueError(f'Invalid priority. Must be one of: {VALID_PRIORITIES}')
+        return v
+
 
 @app.post("/api/items")
 async def create_item(request: CreateItemRequest):
@@ -32,20 +80,6 @@ async def create_item(request: CreateItemRequest):
         raise HTTPException(status_code=400, detail="Item already exists")
     return {"status": "success", "message": f"Item {request.item_id} created"}
 
-class MoveRequest(BaseModel):
-    item_id: str
-    new_stage: str
-    order: Optional[int] = None  # ENH-05: carry target index for reordering
-
-@app.get("/api/state")
-async def get_state():
-    return state_manager.load_state()
-
-class UpdateItemRequest(BaseModel):
-    title: Optional[str] = None
-    description: Optional[str] = None
-    priority: Optional[str] = None
-    confidence_score: Optional[int] = None
 
 @app.patch("/api/item/{item_id}")
 async def update_item(item_id: str, request: UpdateItemRequest):
@@ -58,6 +92,7 @@ async def update_item(item_id: str, request: UpdateItemRequest):
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "message": f"Item {normalized_id} updated"}
 
+
 # ENH-01: Delete item endpoint
 @app.delete("/api/item/{item_id}")
 async def delete_item(item_id: str):
@@ -67,9 +102,11 @@ async def delete_item(item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "message": f"Item {normalized_id} deleted"}
 
+
 class CommentRequest(BaseModel):
-    author: str
-    body: str
+    author: str = Field(..., min_length=1, max_length=100)
+    body: str = Field(..., min_length=1, max_length=5000)
+
 
 @app.post("/api/item/{item_id}/comment")
 async def add_comment(item_id: str, request: CommentRequest):
@@ -79,6 +116,7 @@ async def add_comment(item_id: str, request: CommentRequest):
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "comment": comment}
 
+
 # ENH-04: Delete comment endpoint
 @app.delete("/api/item/{item_id}/comment/{comment_id}")
 async def delete_comment(item_id: str, comment_id: str):
@@ -87,6 +125,7 @@ async def delete_comment(item_id: str, comment_id: str):
     if not success:
         raise HTTPException(status_code=404, detail="Item or comment not found")
     return {"status": "success", "message": f"Comment {comment_id} deleted"}
+
 
 @app.post("/api/move")
 async def move_item(request: MoveRequest):
@@ -99,15 +138,25 @@ async def move_item(request: MoveRequest):
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "message": f"Item {normalized_id} moved to {request.new_stage}"}
 
+
 # ENH-05: Bulk reorder endpoint
 class ReorderRequest(BaseModel):
-    stage: str
-    ordered_ids: List[str]
+    stage: str = Field(...)
+    ordered_ids: List[str] = Field(..., min_length=1)
+
+    @field_validator('stage')
+    @classmethod
+    def validate_stage(cls, v: str) -> str:
+        if v.upper() not in VALID_STAGES:
+            raise ValueError(f'Invalid stage. Must be one of: {VALID_STAGES}')
+        return v.upper()
+
 
 @app.post("/api/items/reorder")
 async def reorder_items(request: ReorderRequest):
     state_manager.reorder_items(request.stage, request.ordered_ids)
     return {"status": "success", "message": f"Reordered {len(request.ordered_ids)} items in {request.stage}"}
+
 
 @app.get("/api/item/{item_id}")
 async def get_item(item_id: str):
@@ -117,10 +166,11 @@ async def get_item(item_id: str):
         raise HTTPException(status_code=404, detail="Item not found")
     return item
 
+
 @app.get("/api/item/{item_id}/artifact/{artifact_name}")
 async def get_artifact(item_id: str, artifact_name: str):
     item_id = item_id.upper()
-    if not re.match(r"^[A-Z0-9-]+$", item_id):
+    if not re.match(r'^[A-Z0-9-]+$', item_id):
         raise HTTPException(status_code=400, detail="Invalid item ID")
     valid_artifacts = ["spec.md", "architecture.md", "tests.md", "review.md"]
     if artifact_name not in valid_artifacts:
@@ -131,10 +181,11 @@ async def get_artifact(item_id: str, artifact_name: str):
     from fastapi.responses import FileResponse
     return FileResponse(artifact_path)
 
+
 @app.post("/api/item/{item_id}/artifact/{artifact_name}/content")
 async def update_artifact_content(item_id: str, artifact_name: str, request: dict):
     item_id = item_id.upper()
-    if not re.match(r"^[A-Z0-9-]+$", item_id):
+    if not re.match(r'^[A-Z0-9-]+$', item_id):
         raise HTTPException(status_code=400, detail="Invalid item ID")
     if artifact_name != "review.md":
         raise HTTPException(status_code=400, detail="Only review.md can be edited")
@@ -150,6 +201,7 @@ async def update_artifact_content(item_id: str, artifact_name: str, request: dic
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
     return {"status": "success", "message": f"Updated {artifact_name} for {item_id}"}
+
 
 if __name__ == "__main__":
     import uvicorn
