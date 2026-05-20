@@ -251,8 +251,18 @@ class Orchestrator:
         self.logger.info(f"Handling review update event for file: {file_path}")
         self.run_pipeline()
 
-# Instantiate a default orchestrator for module-level access (used by scheduler and tests)
-orchestrator_instance = Orchestrator()
+# TODO-05: Lazy-init singleton factory - avoids side effects at import time
+_orchestrator_instance = None
+
+def get_orchestrator() -> "Orchestrator":
+    """Return the module-level Orchestrator singleton, creating it on first call."""
+    global _orchestrator_instance
+    if _orchestrator_instance is None:
+        _orchestrator_instance = Orchestrator()
+    return _orchestrator_instance
+
+# Backwards-compatible alias used by scheduler and existing tests
+orchestrator_instance = get_orchestrator()
 
 def get_next_actionable_items(state):
     return orchestrator_instance.get_next_actionable_items(state)
