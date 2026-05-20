@@ -26,11 +26,10 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick 
   }, [id]);
 
   const priorityColor = {
-    High: 'bg-red-100 text-red-800',
-    Medium: 'bg-yellow-100 text-yellow-800',
-    Low: 'bg-green-100 text-green-800',
-  }[priority] || 'bg-gray-100 text-gray-800';
-
+    high: 'bg-red-100 text-red-800',
+    medium: 'bg-yellow-100 text-yellow-800',
+    low: 'bg-green-100 text-green-800',
+  }[priority?.toLowerCase()] || 'bg-gray-100 text-gray-800';
   return (
     <div
       ref={ref}
@@ -91,6 +90,19 @@ export function KanbanColumn({ id, items, onCardClick }: KanbanColumnProps) {
     DONE: 'border-t-green-500',
   };
 
+    const stageTitles: Record<string, string> = {
+    INTAKE: 'Intake',
+    REFINEMENT: 'Refinement',
+    REVIEW_SPEC: 'Review Spec',
+    ARCHITECTURE: 'Architecture',
+    REVIEW_ARCH: 'Review Arch',
+    TESTING: 'Testing',
+    REVIEW_TEST: 'Review Test',
+    APPROVED: 'Approved',
+    EXECUTING: 'Executing',
+    DONE: 'Done',
+  };
+
   const borderColor = stageColors[id] || 'border-t-gray-500';
 
   return (
@@ -99,8 +111,7 @@ export function KanbanColumn({ id, items, onCardClick }: KanbanColumnProps) {
       className={`flex-shrink-0 w-72 bg-gray-100 rounded-lg p-4 flex flex-col h-full border-t-4 transition-colors ${borderColor}`}
     >
       <h2 className="font-semibold mb-4 text-gray-700 border-b border-gray-300 pb-2">
-        {id}
-        <span className="ml-2 text-sm font-normal text-gray-500">({items.length})</span>
+        {stageTitles[id] || id}        <span className="ml-2 text-sm font-normal text-gray-500">({items.length})</span>
       </h2>
       <div className="flex-1 overflow-y-auto min-h-[100px]">
         {items.map((item, index) => (
