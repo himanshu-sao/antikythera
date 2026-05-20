@@ -51,6 +51,9 @@ class StateManager:
             items[item_id] = {
                 "title": title,
                 "stage": "INTAKE",
+                            "priority": "medium",
+            "confidence_score": 0,
+            "description": "",
                 "order": order,
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "updated_at": datetime.utcnow().isoformat() + "Z",
