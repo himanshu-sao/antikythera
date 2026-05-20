@@ -52,6 +52,7 @@ export interface KanbanCardData {
   title: string;
   priority: string;
   confidence_score: number;
+    stage: string;
 }
 
 /** Drag end event handler type */
