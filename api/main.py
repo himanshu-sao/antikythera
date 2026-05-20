@@ -1,4 +1,5 @@
 import re
+from typing import Optional
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from api.state_manager import StateManager
