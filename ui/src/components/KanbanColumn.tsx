@@ -103,7 +103,7 @@ export function KanbanColumn({ id, items, onCardClick }: KanbanColumnProps) {
         <span className="ml-2 text-sm font-normal text-gray-500">({items.length})</span>
       </h2>
       <div className="flex-1 overflow-y-auto min-h-[100px]">
-        {items.map((item) => (
+        {items.map((item, index) => (
           <KanbanCard
             key={item.id}
             id={item.id}
@@ -111,6 +111,7 @@ export function KanbanColumn({ id, items, onCardClick }: KanbanColumnProps) {
             priority={item.priority}
             confidence_score={item.confidence_score}
             onCardClick={onCardClick}
+            {...{ order: index }}
           />
         ))}
       </div>

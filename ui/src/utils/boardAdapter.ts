@@ -12,13 +12,14 @@ export function apiToBoardModel(state: PipelineState): BoardColumn[] {
       .map(([id, item]) => ({
         id,
         title: item.title,
-        description: '', // Backend doesn't have this yet
+        description: item.description || '', 
         status: item.stage,
-        order: 0, // Backend doesn't have this yet
+        order: item.order || 0,
         priority: item.priority || 'Medium',
         confidence_score: item.confidence_score || 0,
-        comments: [], // Backend doesn't have this yet
-      }));
+        comments: item.comments || [],
+      }))
+      .sort((a, b) => a.order - b.order);
 
     return {
       id: stage,
@@ -45,5 +46,6 @@ export function boardMovePayload(input: {
   return {
     item_id: input.cardId,
     new_stage: input.toColumnId,
+    order: input.toIndex,
   };
 }

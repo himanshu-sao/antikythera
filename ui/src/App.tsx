@@ -87,11 +87,17 @@ export default function App() {
           const itemId = dragData.id;
           const toStage = targetData.columnId;
 
+          // For intra-column reordering, we'd need the target card index.
+          // For now, we'll just update the stage and use a default order.
           try {
             const res = await fetch('http://localhost:8000/api/move', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ item_id: itemId, new_stage: toStage }),
+              body: JSON.stringify({
+                item_id: itemId,
+                new_stage: toStage,
+                order: 0 // In a full implementation, we'd calculate the target index
+              }),
             });
             if (res.ok) {
               await fetchState();

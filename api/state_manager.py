@@ -44,9 +44,14 @@ class StateManager:
         if item_id in items:
             return False
 
+        # Calculate order based on current items in INTAKE
+        intake_items = [item for item in items.values() if item.get("stage") == "INTAKE"]
+        order = len(intake_items)
+
         items[item_id] = {
             "title": title,
             "stage": "INTAKE",
+            "order": order,
             "created_at": datetime.utcnow().isoformat() + "Z",
             "updated_at": datetime.utcnow().isoformat() + "Z",
         }
