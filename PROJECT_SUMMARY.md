@@ -411,3 +411,37 @@ Those belong in `memory.md`, `PROGRESS.md`, or review output artifacts.
 - **Source**: kanban-fix branch review.
 - **Expected Fix**: Audit `Orchestrator.__init__` for side effects. If found, convert to lazy initialization (e.g., a `get_orchestrator()` singleton factory).
 - **Verification**: Importing `agents.orchestrator` in a test environment does not cause file I/O or errors. Existing tests continue to pass.
+
+
+---
+
+## Phase 8: Kanban Enhancement Backlog
+
+> These items were identified during the deep-dive code review of the `kanban-fix` branch on May 20, 2026. They represent the next logical improvements beyond the current bug fixes. Full specification for each is in `HERMES_PRODUCT_SPEC.md` Section 6.
+
+### Phase 8 Status Snapshot
+
+| ID | Category | Title | Priority | Status |
+|---|---|---|---|---|
+| ENH-01 | Backend | `DELETE /api/item/{item_id}` endpoint | High | Pending |
+| ENH-02 | Backend | CORS middleware for FastAPI | Medium | Pending |
+| ENH-03 | Backend | Atomic writes to `pipeline-state.json` | High | Pending |
+| ENH-04 | Backend | `DELETE /api/item/{item_id}/comment/{comment_id}` | Medium | Pending |
+| ENH-05 | Backend | `POST /api/items/reorder` bulk reorder endpoint | High | Pending |
+| ENH-06 | Frontend | Configurable comment author (replace hardcoded `'Current User'`) | Medium | Pending |
+| ENH-07 | Frontend | Delete card button in `CardEditor` with confirmation | High | Pending |
+| ENH-08 | Frontend | Toast notifications to replace `alert()` calls | Medium | Pending |
+| ENH-09 | Frontend | Empty-state placeholder in `KanbanColumn` | Low | Pending |
+| ENH-10 | Frontend | Stage history timeline in card editor | Medium | Pending |
+| ENH-11 | Frontend | Relative timestamps on card face (`updated_at`) | Low | Pending |
+| ENH-12 | Frontend | Polling error back-off (30s after 3 failures) | Low | Pending |
+| ENH-13 | Code Quality | Shared `API_BASE` constant / `VITE_API_URL` env var | High | Pending |
+| ENH-14 | Code Quality | Extend `BoardCard` with missing `PipelineItem` fields | Medium | Pending |
+| ENH-15 | Code Quality | Loading skeleton UI instead of plain `Loading...` | Low | Pending |
+
+### Phase 8 Dependency Notes
+- ENH-07 (delete card UI) depends on ENH-01 (delete API endpoint).
+- ENH-05 (reorder endpoint) directly resolves TODO-03 (hardcoded `order: 0`).
+- ENH-13 (shared API constant) directly resolves TODO-02 (hardcoded localhost).
+- ENH-10 (history timeline) and ENH-11 (timestamps) both depend on ENH-14 (extend `BoardCard` type) to access the required fields without extra API calls.
+- ENH-03 (atomic writes) and TODO-04 (file locking) should be implemented together as a single state persistence hardening task.
