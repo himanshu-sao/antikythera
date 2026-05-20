@@ -266,9 +266,15 @@ export default function App() {
               </div>
               {editMode ? (
                 <CardEditor
-                  item={state.items[selectedId]}
+                  itemId={selectedId}
+                  initialData={{
+                    title: state.items[selectedId].title,
+                    description: state.items[selectedId].description,
+                    priority: state.items[selectedId].priority,
+                    confidence_score: state.items[selectedId].confidence_score ?? 0
+                  }}
                   onSave={handleUpdateItem}
-                  onCancel={() => setEditMode(false)}
+                  onClose={() => setEditMode(false)}
                 />
               ) : (
                 <ErrorBoundary>
