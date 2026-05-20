@@ -54,6 +54,18 @@ class MoveRequest(BaseModel):
         return v.upper()
 
 
+
+# ENH-14: Health check endpoint for Docker
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for container orchestration."""
+    try:
+        # Verify state manager can load state
+        _ = state_manager.load_state()
+        return {"status": "healthy", "service": "hermes-kanban-api"}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
+
 @app.get("/api/state")
 async def get_state():
     return state_manager.load_state()
