@@ -41,11 +41,11 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick 
           {priority}
         </span>
       </div>
-          <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${priorityColor}`}>      <div className="flex justify-between items-center text-xs text-gray-400">
-        <span>Confidence: {confidence_score}%</span>
-      </div>
-    </div>
   );
+          <h3 className="text-sm font-medium text-gray-900 mb-2 line-clamp-2">{title}</h3>
+        <div className="flex justify-between items-center text-xs text-gray-400">
+          <span>Confidence: {confidence_score ?? 0}%</span>
+        </div>
 interface KanbanColumnProps {
   id: string;
   items: KanbanCardData[];
