@@ -370,3 +370,44 @@ Those belong in `memory.md`, `PROGRESS.md`, or review output artifacts.
 ---
 
 *This document is the canonical project execution map for Hermes. It should remain stable, operational, and easy for Superpowers to parse and update.*
+
+---
+
+## Kanban-Fix Branch Remediation Tasks
+
+> These tasks were identified during the `kanban-fix` branch review (May 20, 2026). They must be resolved before merging to `main`.
+
+### R-KF-01 — Remove `node_modules` from repository
+- **Status**: Pending
+- **Issue**: The `node_modules` directory was accidentally committed in commit `99ca130`, bloating the repo by ~541k lines. This is a critical repo hygiene issue.
+- **Source**: kanban-fix branch review.
+- **Expected Fix**: Add `ui/node_modules/` to `.gitignore`, then remove the directory from git history using `git rm -r --cached ui/node_modules`.
+- **Verification**: Confirm `ui/node_modules/` is listed in `.gitignore` and no longer tracked by git. Repo size should drop significantly.
+
+### R-KF-02 — Extract hardcoded API base URL to environment variable
+- **Status**: Pending
+- **Issue**: All fetch calls in `ui/src/App.tsx` are hardcoded to `http://localhost:8000`. This prevents the UI from working in any non-local environment.
+- **Source**: kanban-fix branch review.
+- **Expected Fix**: Introduce a `VITE_API_URL` env variable (default `http://localhost:8000`) and replace all hardcoded URLs with `import.meta.env.VITE_API_URL`.
+- **Verification**: UI works with a custom `VITE_API_URL` set in `.env.local`. No raw `localhost:8000` strings remain in source.
+
+### R-KF-03 — Fix hardcoded `order: 0` in drag-move handler
+- **Status**: Pending
+- **Issue**: The `onPerformOperation` handler in `ui/src/App.tsx` sends `order: 0` to the backend during a drag-move. Intra-column card reordering is therefore not persisted correctly.
+- **Source**: kanban-fix branch review (TODO comment present in code).
+- **Expected Fix**: Calculate the correct target index from the drop destination and pass it as `order` in the move payload. The backend `move_item` should persist this value.
+- **Verification**: Drag a card within a column, refresh the page — card remains in the new position.
+
+### R-KF-04 — Add file locking to `StateManager` to prevent race conditions
+- **Status**: Pending
+- **Issue**: `api/state_manager.py` uses plain `open()` for reads and writes with no locking. Concurrent requests (e.g., scheduler + API) can cause lost writes or corrupted `pipeline-state.json`.
+- **Source**: kanban-fix branch review.
+- **Expected Fix**: Use `filelock` (or Python's `threading.Lock`) to serialize access to `pipeline-state.json` in `load_state` / `save_state`.
+- **Verification**: Concurrent API calls do not result in corrupted state. A stress test with simultaneous writes should pass.
+
+### R-KF-05 — Verify module-level `Orchestrator()` instantiation at import time
+- **Status**: Pending
+- **Issue**: `agents/orchestrator.py` instantiates `orchestrator_instance = Orchestrator()` at module import time. If `__init__` has side effects (file I/O, network), this can cause issues during testing or startup.
+- **Source**: kanban-fix branch review.
+- **Expected Fix**: Audit `Orchestrator.__init__` for side effects. If found, convert to lazy initialization (e.g., a `get_orchestrator()` singleton factory).
+- **Verification**: Importing `agents.orchestrator` in a test environment does not cause file I/O or errors. Existing tests continue to pass.
