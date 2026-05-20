@@ -36,17 +36,20 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick 
       onClick={() => onCardClick(id)}
       className="bg-white p-4 rounded-lg shadow-md cursor-grab hover:shadow-lg transition-all border border-gray-200 mb-3"
     >
-        <div className="flex justify-between items-start mb-2 gap-2">        <span className="text-xs font-bold text-gray-500">{id}</span>
+      <div className="flex justify-between items-start mb-2 gap-2">
+        <span className="text-xs font-bold text-gray-500">{id}</span>
         <span className={`text-xs px-2 py-1 rounded-full ${priorityColor}`}>
           {priority}
         </span>
       </div>
-                <h3 className="text-sm font-medium text-gray-900 mb-2 line-clamp-2">{title}</h3>
-        <div className="flex justify-between items-center text-xs text-gray-400">
-          <span>Confidence: {confidence_score ?? 0}%</span>
-        </div>
-
+      <h3 className="text-sm font-medium text-gray-900 mb-2 line-clamp-2">{title}</h3>
+      <div className="flex justify-between items-center text-xs text-gray-400">
+        <span>Confidence: {confidence_score ?? 0}%</span>
+      </div>
+    </div>
   );
+}
+
 interface KanbanColumnProps {
   id: string;
   items: KanbanCardData[];
