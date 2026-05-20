@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { debounce } from 'lodash';
+import { apiUrl } from '../config';
 
 interface Artifact {
   name: string;
@@ -28,7 +29,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
 
         for (const name of artifactNames) {
           try {
-            const res = await fetch(`http://localhost:8000/api/item/${itemId}/artifact/${name}`);
+            const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}`);
             if (res.ok) {
               const content = await res.text();
               const type = name.replace('.md', '') as any;
@@ -57,7 +58,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
     if (!selectedArtifact) return;
     setIsSaving(true);
     try {
-      const res = await fetch(`http://localhost:8000/api/item/${itemId}/artifact/${selectedArtifact.name}/content`, {
+      const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${selectedArtifact.name}/content`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
