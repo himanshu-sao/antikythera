@@ -4,7 +4,7 @@ export interface PipelineItem {
   title: string;
   priority: string;
   stage: string;
-  confidence_score: number;
+  confidence_score?: number;
   updated_at: string;
   created_at?: string;
   assigned_agent?: string | null;
@@ -36,7 +36,7 @@ export interface BoardCard {
   status: string;
   order: number;
   priority: string;
-  confidence_score: number;
+  confidence_score?: number;
 }
 
 export interface CardComment {
@@ -51,7 +51,7 @@ export interface KanbanCardData {
   id: string;
   title: string;
   priority: string;
-  confidence_score: number;
+  confidence_score?: number;
     stage: string;
 }
 
