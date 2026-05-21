@@ -4,9 +4,10 @@ import type { KanbanCardData } from '../types';
 
 interface KanbanCardProps extends KanbanCardData {
   onCardClick: (id: string) => void;
+  onEditClick: (id: string) => void;
 }
 
-export function KanbanCard({ id, title, priority, confidence_score, onCardClick }: KanbanCardProps) {
+export function KanbanCard({ id, title, priority, confidence_score, onCardClick, onEditClick }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id,
     data: { id },
@@ -34,7 +35,21 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick 
       }`}
     >
       <div className="flex justify-between items-start mb-2 gap-2">
-        <span className="text-xs font-bold text-gray-500">{id}</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-gray-500">{id}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditClick(id);
+            }}
+            className="p-1 hover:bg-gray-100 rounded-md text-gray-400 hover:text-indigo-600 transition-colors"
+            title="Edit"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+            </svg>
+          </button>
+        </div>
         <span className={`text-xs px-2 py-1 rounded-full ${priorityColor}`}>
           {priority}
         </span>
@@ -51,9 +66,10 @@ interface KanbanColumnProps {
   id: string;
   items: KanbanCardData[];
   onCardClick: (id: string) => void;
+  onEditClick: (id: string) => void;
 }
 
-export function KanbanColumn({ id, items, onCardClick }: KanbanColumnProps) {
+export function KanbanColumn({ id, items, onCardClick, onEditClick }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   const stageColors: Record<string, string> = {
@@ -104,6 +120,7 @@ export function KanbanColumn({ id, items, onCardClick }: KanbanColumnProps) {
             priority={item.priority}
             confidence_score={item.confidence_score}
             onCardClick={onCardClick}
+            onEditClick={onEditClick}
           />
         ))}
       </div>

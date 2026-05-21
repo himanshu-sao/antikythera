@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { DndContext, DragEndEvent } from '@dnd-kit/core';
+import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { KanbanColumn } from './components/KanbanColumn';
 import { ArtifactViewer } from './components/ArtifactViewer';
 import { WorkflowDiagram } from './components/WorkflowDiagram';
@@ -23,6 +23,14 @@ export default function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [newItem, setNewItem] = useState({ id: '', title: '' });
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: {
+        distance: 5,
+      },
+    })
+  );
 
   const fetchState = async () => {
     try {
@@ -202,7 +210,7 @@ export default function App() {
           </div>
         </header>
 
-                    <DndContext onDragEnd={handleDragEnd}>
+                    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-5 gap-4">
           {STAGES.map(stage => (
             <KanbanColumn
@@ -211,7 +219,14 @@ export default function App() {
               items={Object.entries(state.items)
                 .filter(([, item]) => item.stage === stage)
                 .map(([id, item]) => ({ ...item, id }))}
-              onCardClick={(id) => setSelectedId(id)}
+              onCardClick={(id) => {
+                setSelectedId(id);
+                setEditMode(false);
+              }}
+              onEditClick={(id) => {
+                setSelectedId(id);
+                setEditMode(true);
+              }}
             />
           ))}
         </div>
