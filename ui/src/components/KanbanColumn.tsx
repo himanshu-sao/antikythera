@@ -6,18 +6,24 @@ interface KanbanCardProps extends KanbanCardData {
   onCardClick: (id: string) => void;
   onEditClick: (id: string) => void;
   onDeleteClick: (id: string) => void;
+  isDragOverlay?: boolean;
 }
 
-export function KanbanCard({ id, title, priority, confidence_score, onCardClick, onEditClick, onDeleteClick, source_type, source_value, updated_at, due_date }: KanbanCardProps) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id,
-    data: { id },
-  });
-
-  const style = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: isDragging ? 50 : undefined }
-    : { zIndex: isDragging ? 50 : undefined };
-
+// Pure display component used both inline and in DragOverlay
+export function KanbanCardContent({
+  id,
+  title,
+  priority,
+  confidence_score,
+  source_type,
+  source_value,
+  updated_at,
+  due_date,
+  onCardClick,
+  onEditClick,
+  onDeleteClick,
+  isDragOverlay = false,
+}: KanbanCardProps) {
   const priorityColor = {
     high: 'bg-red-100 text-red-800',
     medium: 'bg-yellow-100 text-yellow-800',
@@ -26,13 +32,9 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick,
 
   return (
     <div
-      ref={setNodeRef}
-      style={style}
-      {...listeners}
-      {...attributes}
       onClick={() => onCardClick(id)}
       className={`bg-white p-4 rounded-lg shadow-md cursor-grab hover:shadow-lg transition-all border border-gray-200 mb-3 touch-none ${
-        isDragging ? 'opacity-50 cursor-grabbing' : ''
+        isDragOverlay ? 'shadow-xl ring-2 ring-indigo-400 cursor-grabbing' : ''
       }`}
     >
       <div className="flex justify-between items-start mb-2 gap-2">
@@ -69,30 +71,49 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick,
           {priority}
         </span>
       </div>
-      <h3 className="text-sm font-medium text-gray-900 mb-2 line-clamp-2">{title}</h3>
+      <h3 className="font-semibold text-gray-800 text-sm mb-2">{title}</h3>
       {source_type && (
-        <div className="text-xs text-gray-500 mb-2 flex items-center gap-1">
-          <span>{source_type === 'url' ? '🌐' : '📁'}</span>
-          <span className="truncate" title={source_value}>{source_value}</span>
+        <div className="text-xs text-gray-500 mb-1 truncate">
+          <span>{source_type === 'url' ? '\uD83C\uDF10' : '\uD83D\uDCC1'}</span>
+          &nbsp;
+          <span>{source_value}</span>
         </div>
       )}
-      <div className="flex justify-between items-center text-xs text-gray-400">
-        <div className="flex items-center gap-2">
-          <span>Confidence: {confidence_score ?? 0}%</span>
-          {due_date && (
-            <span className="flex items-center gap-1">
-              <span>📅</span>
-              <span>{due_date}</span>
-            </span>
-          )}
-        </div>
+      <div className="flex items-center justify-between text-xs text-gray-400 mt-2">
+        <span>Confidence: {confidence_score ?? 0}%</span>
+        {due_date && (
+          <span className="flex items-center gap-1">
+            <span>\uD83D\uDCC5</span>
+            <span>{due_date}</span>
+          </span>
+        )}
         {updated_at && (
           <span className="flex items-center gap-1">
-            <span>🕒</span>
+            <span>\uD83D\uDD52</span>
             <span>{new Date(updated_at).toLocaleDateString()}</span>
           </span>
         )}
       </div>
+    </div>
+  );
+}
+
+export function KanbanCard(props: KanbanCardProps) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: props.id,
+    data: { id: props.id },
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      className={`touch-none ${
+        isDragging ? 'opacity-40' : ''
+      }`}
+    >
+      <KanbanCardContent {...props} />
     </div>
   );
 }
@@ -138,36 +159,34 @@ export function KanbanColumn({ id, items, onCardClick, onEditClick, onDeleteClic
 
   return (
     <div
-      ref={setNodeRef}
-      className={`flex-shrink-0 w-72 rounded-lg p-4 flex flex-col h-full border-t-4 transition-colors ${
-        borderColor
-      } ${isOver ? 'bg-gray-200' : 'bg-gray-100'}`}
+      className={`flex-1 min-w-[220px] bg-gray-50 rounded-xl border-t-4 ${borderColor} p-3 ${
+        isOver ? 'bg-indigo-50 ring-2 ring-indigo-300' : ''
+      }`}
     >
-      <h2 className="font-semibold mb-4 text-gray-700 border-b border-gray-300 pb-2">
-        {stageTitles[id] || id}
-        <span className="ml-2 text-sm font-normal text-gray-500">({items.length})</span>
-      </h2>
-      <div className="flex-1 overflow-y-auto min-h-[100px]">
+      <div className="flex justify-between items-center mb-3">
+        <h2 className="font-semibold text-gray-700 text-sm">{stageTitles[id] || id}</h2>
+        <span className="text-xs bg-gray-200 text-gray-600 rounded-full px-2 py-0.5">({items.length})</span>
+      </div>
+      <div
+        ref={setNodeRef}
+        className="min-h-[80px]"
+      >
         {items.length === 0 ? (
-          <div className="text-center text-gray-400 py-8">
+          <div className="flex flex-col items-center justify-center py-8 text-gray-400">
             <p className="text-sm">No items yet</p>
-            <p className="text-xs mt-1">Drag cards here</p>
+            <p className="text-xs">Drag cards here</p>
           </div>
-        ) : items.map((item) => (
-          <KanbanCard
-            key={item.id}
-            id={item.id}
-            title={item.title}
-            priority={item.priority}
-            confidence_score={item.confidence_score}
-            source_type={item.source_type}
-            source_value={item.source_value}
-            onCardClick={onCardClick}
-            onEditClick={onEditClick}
-            onDeleteClick={onDeleteClick}
-            updated_at={item.updated_at}
-          />
-        ))}
+        ) : (
+          items.map((item) => (
+            <KanbanCard
+              key={item.id}
+              {...item}
+              onCardClick={onCardClick}
+              onEditClick={onEditClick}
+              onDeleteClick={onDeleteClick}
+            />
+          ))
+        )}
       </div>
     </div>
   );
