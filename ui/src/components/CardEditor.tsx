@@ -9,6 +9,7 @@ interface CardEditorProps {
     confidence_score: number;
     source_type?: string;
     source_value?: string;
+    due_date?: string;
   };
   onSave: (updates: any) => Promise<void>;
   onDelete?: () => Promise<void>;
@@ -88,6 +89,15 @@ export function CardEditor({ itemId, initialData, onSave, onDelete, onClose }: C
 
         <div className="grid grid-cols-2 gap-4">
           <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+            <input
+              type="date"
+              value={formData.due_date || ''}
+              onChange={e => setFormData({ ...formData, due_date: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+            />
+          </div>
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Source Type</label>
             <select
               value={formData.source_type || ''}
@@ -99,7 +109,9 @@ export function CardEditor({ itemId, initialData, onSave, onDelete, onClose }: C
               <option value="directory">Directory</option>
             </select>
           </div>
-          {formData.source_type && (
+        </div>
+        {formData.source_type && (
+          <div className="grid grid-cols-1 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {formData.source_type === 'url' ? 'Source URL' : 'Source Directory'}
@@ -112,8 +124,8 @@ export function CardEditor({ itemId, initialData, onSave, onDelete, onClose }: C
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
               />
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="flex justify-between pt-4">
           <div>

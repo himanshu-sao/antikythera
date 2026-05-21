@@ -5,9 +5,10 @@ import type { KanbanCardData } from '../types';
 interface KanbanCardProps extends KanbanCardData {
   onCardClick: (id: string) => void;
   onEditClick: (id: string) => void;
+  onDeleteClick: (id: string) => void;
 }
 
-export function KanbanCard({ id, title, priority, confidence_score, onCardClick, onEditClick, source_type, source_value }: KanbanCardProps) {
+export function KanbanCard({ id, title, priority, confidence_score, onCardClick, onEditClick, onDeleteClick, source_type, source_value }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id,
     data: { id },
@@ -49,6 +50,20 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick,
               <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
             </svg>
           </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteClick(id);
+            }}
+            className="p-1 hover:bg-gray-100 rounded-md text-gray-400 hover:text-red-600 transition-colors"
+            title="Delete"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h18" />
+              <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+              <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+            </svg>
+          </button>
         </div>
         <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${priorityColor}`}>
           {priority}
@@ -62,7 +77,15 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick,
         </div>
       )}
       <div className="flex justify-between items-center text-xs text-gray-400">
-        <span>Confidence: {confidence_score ?? 0}%</span>
+        <div className="flex items-center gap-2">
+          <span>Confidence: {confidence_score ?? 0}%</span>
+          {due_date && (
+            <span className="flex items-center gap-1">
+              <span>📅</span>
+              <span>{due_date}</span>
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -73,9 +96,10 @@ interface KanbanColumnProps {
   items: KanbanCardData[];
   onCardClick: (id: string) => void;
   onEditClick: (id: string) => void;
+  onDeleteClick: (id: string) => void;
 }
 
-export function KanbanColumn({ id, items, onCardClick, onEditClick }: KanbanColumnProps) {
+export function KanbanColumn({ id, items, onCardClick, onEditClick, onDeleteClick }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   const stageColors: Record<string, string> = {
@@ -134,6 +158,7 @@ export function KanbanColumn({ id, items, onCardClick, onEditClick }: KanbanColu
             source_value={item.source_value}
             onCardClick={onCardClick}
             onEditClick={onEditClick}
+            onDeleteClick={onDeleteClick}
           />
         ))}
       </div>

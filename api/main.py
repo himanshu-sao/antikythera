@@ -87,6 +87,7 @@ class UpdateItemRequest(BaseModel):
     confidence_score: Optional[int] = Field(default=None, ge=0, le=100)
     source_type: Optional[str] = Field(default=None)
     source_value: Optional[str] = Field(default=None)
+    due_date: Optional[str] = Field(default=None, pattern=r'^\d{4}-\d{2}-\d{2}$')
 
     @field_validator('priority')
     @classmethod
@@ -212,7 +213,9 @@ async def get_artifact(item_id: str, artifact_name: str):
         raise HTTPException(status_code=400, detail="Invalid artifact name")
     artifact_path = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", item_id, artifact_name)
     if not os.path.exists(artifact_path):
-        raise HTTPException(status_code=404, detail="Artifact not found")
+        # Return 204 No Content instead of 404 to avoid polluting logs with expected missing artifacts
+        from fastapi import Response
+        return Response(status_code=204)
     from fastapi.responses import FileResponse
     return FileResponse(artifact_path)
 

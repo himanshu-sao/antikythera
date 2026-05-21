@@ -14,6 +14,7 @@ export interface PipelineItem {
   history?: Array<{ stage: string; at: string; agent?: string }>;
   source_type?: string;
   source_value?: string;
+  due_date?: string;
 }
 
 /** Pipeline state returned by the API */
@@ -59,6 +60,7 @@ export interface KanbanCardData {
   order?: number;
   source_type?: string;
   source_value?: string;
+  due_date?: string;
 }
 
 /** Drag end event handler type */

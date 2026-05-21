@@ -23,6 +23,8 @@ export default function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [newItem, setNewItem] = useState({ id: '', title: '', source_type: '', source_value: '' });
+  const [searchQuery, setSearchQuery] = useState('');
+
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -120,6 +122,27 @@ export default function App() {
         }),
       });
       if (res.ok) {
+        // Sync the full order of the target column to ensure sequential indices
+        const columnItems = Object.entries(state.items)
+          .filter(([, item]) => item.stage === targetStage || (item.id === itemId && targetStage === targetStage))
+          // Note: state.items might not be updated yet, so we include the moved item manually if needed
+          .map(([id, item]) => ({ ...item, id }))
+          .filter(item => item.id !== itemId)
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+        // Insert the moved item at the targetOrder position
+        columnItems.splice(targetOrder, 0, { ...state.items[itemId], id: itemId, stage: targetStage, order: targetOrder });
+        const orderedIds = columnItems.map(item => item.id);
+
+        await fetch(`${apiUrl}/api/items/reorder`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            stage: targetStage,
+            ordered_ids: orderedIds,
+          }),
+        });
+
         await fetchState();
       }
     } catch (e) {
@@ -274,6 +297,23 @@ export default function App() {
             >
               Refresh
             </button>
+            <div className="ml-auto flex items-center gap-2">
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <path d="m21 21-4.3-4.3" />
+                  </svg>
+                </span>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search ideas..."
+                  className="pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all w-64"
+                />
+              </div>
+            </div>
           </div>
         </header>
 
@@ -285,6 +325,11 @@ export default function App() {
               id={stage}
               items={Object.entries(state.items)
                 .filter(([, item]) => item.stage === stage)
+                .filter(([, item]) =>
+                  !searchQuery ||
+                  item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                  item.title.toLowerCase().includes(searchQuery.toLowerCase())
+                )
                 .map(([id, item]) => ({ ...item, id }))
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
               onCardClick={(id) => {
@@ -295,6 +340,7 @@ export default function App() {
                 setSelectedId(id);
                 setEditMode(true);
               }}
+              onDeleteClick={handleDeleteItem}
             />
           ))}
         </div>
@@ -352,6 +398,7 @@ export default function App() {
                     confidence_score: state.items[selectedId].confidence_score ?? 0,
                     source_type: state.items[selectedId].source_type,
                     source_value: state.items[selectedId].source_value,
+                    due_date: state.items[selectedId].due_date,
                   }}
                   onSave={handleUpdateItem}
                   onDelete={handleDeleteItem}

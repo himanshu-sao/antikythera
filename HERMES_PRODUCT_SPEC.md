@@ -55,21 +55,21 @@ Ideas move through a linear sequence of stages:
 
 | ID | Severity | Issue | Location | Status |
 |---|---|---|---|---|
-| TODO-01 | 🔴 Critical | `node_modules` directory is committed to the repo — massively inflates repo size and diff. Must be removed and added to `.gitignore`. | `ui/node_modules/` | ⏳ Pending |
+| TODO-01 | ✅ Resolved | `node_modules` directory is committed to the repo — massively inflates repo size and diff. Must be removed and added to `.gitignore`. | `ui/node_modules/` | Completed |
 
 ### 5.2 High Priority
 
 | ID | Severity | Issue | Location | Status |
 |---|---|---|---|---|
-| TODO-02 | 🟡 Medium | All API base URLs are hardcoded as `http://localhost:8000` throughout the frontend. Should be extracted to a `VITE_API_URL` environment variable for portability. | `ui/src/App.tsx` | ⏳ Pending |
-| TODO-03 | 🟡 Medium | Card `order` is hardcoded to `0` in the drag-move handler. Cards move between columns correctly but intra-column reorder order does not persist to the backend after a drag. | `ui/src/App.tsx` (`onPerformOperation`) | ⏳ Pending |
+| TODO-02 | ✅ Resolved | All API base URLs are hardcoded as `http://localhost:8000` throughout the frontend. Should be extracted to a `VITE_API_URL` environment variable for portability. | `ui/src/App.tsx` | Completed |
+| TODO-03 | ✅ Resolved | Card `order` is hardcoded to `0` in the drag-move handler. Cards move between columns correctly but intra-column reorder order does not persist to the backend after a drag. | `ui/src/App.tsx` (`onPerformOperation`) | Completed |
 | TODO-04 | 🟡 Medium | `StateManager` performs plain file I/O with no locking mechanism. | `api/state_manager.py` | ✅ Fixed |
 
 ### 5.3 Low Priority
 
 | ID | Severity | Issue | Location | Status |
 |---|---|---|---|---|
-| TODO-05 | 🟢 Low | Module-level `orchestrator_instance = Orchestrator()` is instantiated at import time. If `Orchestrator.__init__` performs file I/O or side effects, this may cause issues during testing or cold-start. Should be verified or lazily initialized. | `agents/orchestrator.py` | ⏳ Pending |
+| TODO-05 | ✅ Resolved | Module-level `orchestrator_instance = Orchestrator()` is instantiated at import time. If `Orchestrator.__init__` performs file I/O or side effects, this may cause issues during testing or cold-start. Should be verified or lazily initialized. | `agents/orchestrator.py` | Completed |
 
 ### 5.4 Remediation Task Template
 When adding new remediation tasks, follow this format:
