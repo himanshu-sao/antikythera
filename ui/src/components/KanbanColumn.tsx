@@ -1,5 +1,7 @@
 import React from 'react';
-import { useDraggable, useDroppable } from '@dnd-kit/core';
+import { useDraggable, useDroppable, useSortable } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import type { KanbanCardData } from '../types';
 
 interface KanbanCardProps extends KanbanCardData {
@@ -98,6 +100,36 @@ export function KanbanCardContent({
   );
 }
 
+export function SortableCard(props: KanbanCardProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: props.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      className={`touch-none ${
+        isDragging ? 'opacity-40' : ''
+      }`}
+    >
+      <KanbanCardContent {...props} />
+    </div>
+  );
+}
+
 export function KanbanCard(props: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: props.id,
@@ -177,15 +209,17 @@ export function KanbanColumn({ id, items, onCardClick, onEditClick, onDeleteClic
             <p className="text-xs">Drag cards here</p>
           </div>
         ) : (
-          items.map((item) => (
-            <KanbanCard
-              key={item.id}
-              {...item}
-              onCardClick={onCardClick}
-              onEditClick={onEditClick}
-              onDeleteClick={onDeleteClick}
-            />
-          ))
+          <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
+            {items.map((item) => (
+              <SortableCard
+                key={item.id}
+                {...item}
+                onCardClick={onCardClick}
+                onEditClick={onEditClick}
+                onDeleteClick={onDeleteClick}
+              />
+            ))}
+          </SortableContext>
         )}
       </div>
     </div>

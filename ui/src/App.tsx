@@ -23,8 +23,10 @@ export default function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [newItem, setNewItem] = useState({ id: '', title: '', source_type: '', source_value: '' });
+  const [newItem, setNewItem] = useState({ id: '', title: '', source_type: '', source_value: '', due_date: '' });
   const [searchQuery, setSearchQuery] = useState('');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [stageFilter, setStageFilter] = useState('all');
 
 
   const sensors = useSensors(
@@ -211,6 +213,7 @@ export default function App() {
     const itemTitle = newItem.title;
     const sourceType = newItem.source_type || undefined;
     const sourceValue = newItem.source_value || undefined;
+    const dueDate = newItem.due_date || undefined;
 
     // ENH-09: Optimistic Update
     setState(prev => ({
@@ -225,6 +228,7 @@ export default function App() {
           confidence_score: 0,
           source_type: sourceType,
           source_value: sourceValue,
+          due_date: dueDate,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as PipelineItem
@@ -240,6 +244,7 @@ export default function App() {
           title: itemTitle,
           source_type: sourceType,
           source_value: sourceValue,
+          due_date: dueDate,
         }),
       });
       if (!res.ok) {
@@ -247,7 +252,7 @@ export default function App() {
         throw new Error(errorData.detail || 'Failed to create item');
       }
       setShowCreateModal(false);
-      setNewItem({ id: '', title: '', source_type: '', source_value: '' });
+      setNewItem({ id: '', title: '', source_type: '', source_value: '', due_date: '' });
       await fetchState();
     } catch (e: any) {
       console.error("Failed to create item", e);
@@ -314,7 +319,28 @@ export default function App() {
             >
               Refresh
             </button>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="ml-auto flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all bg-white"
+                >
+                  <option value="all">All Priorities</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+
+                <select
+                  value={stageFilter}
+                  onChange={(e) => setStageFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all bg-white"
+                >
+                  <option value="all">All Stages</option>
+                  {STAGES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                </select>
+              </div>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -346,11 +372,18 @@ export default function App() {
               id={stage}
               items={Object.entries(state.items)
                 .filter(([, item]) => item.stage === stage)
-                .filter(([, item]) =>
-                  !searchQuery ||
-                  item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                  item.title.toLowerCase().includes(searchQuery.toLowerCase())
-                )
+                .filter(([, item]) => {
+                  const matchesSearch = !searchQuery ||
+                    item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    item.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                    item.source_value?.toLowerCase().includes(searchQuery.toLowerCase());
+
+                  const matchesPriority = priorityFilter === 'all' || item.priority?.toLowerCase() === priorityFilter;
+                  const matchesStage = stageFilter === 'all' || item.stage === stageFilter;
+
+                  return matchesSearch && matchesPriority && matchesStage;
+                })
                 .map(([id, item]) => ({ ...item, id }))
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
               onCardClick={(id) => {
@@ -483,6 +516,15 @@ export default function App() {
                     <option value="url">URL</option>
                     <option value="directory">Directory</option>
                   </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+                  <input
+                    type="date"
+                    value={newItem.due_date || ''}
+                    onChange={(e) => setNewItem({ ...newItem, due_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                  />
                 </div>
                 {newItem.source_type && (
                   <div>

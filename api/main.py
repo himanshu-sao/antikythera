@@ -36,6 +36,7 @@ class CreateItemRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     source_type: Optional[str] = Field(default=None)
     source_value: Optional[str] = Field(default=None)
+    due_date: Optional[str] = Field(default=None, pattern=r'^\d{4}-\d{2}-\d{2}$')
 
     @field_validator('item_id')
     @classmethod
@@ -75,7 +76,7 @@ async def health_check():
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
 
-@app.get("/api/state")
+@app.get("/api/state", summary="Get full pipeline state", description="Returns the complete mapping of all pipeline items and their current status.")
 async def get_state():
     return state_manager.load_state()
 
@@ -104,20 +105,21 @@ class UpdateItemRequest(BaseModel):
         return v.lower() if v else None
 
 
-@app.post("/api/items")
+@app.post("/api/items", summary="Create new pipeline item", description="Initializes a new automation idea in the INTAKE stage.")
 async def create_item(request: CreateItemRequest):
     success = state_manager.create_item(
         request.item_id,
         request.title,
         request.source_type,
-        request.source_value
+        request.source_value,
+        request.due_date
     )
     if not success:
         raise HTTPException(status_code=400, detail="Item already exists")
     return {"status": "success", "message": f"Item {request.item_id} created"}
 
 
-@app.patch("/api/item/{item_id}")
+@app.patch("/api/item/{item_id}", summary="Update item details", description="Updates metadata for a specific item (title, priority, etc.).")
 async def update_item(item_id: str, request: UpdateItemRequest):
     normalized_id = item_id.upper()
     updates = request.model_dump(exclude_unset=True)
@@ -130,7 +132,7 @@ async def update_item(item_id: str, request: UpdateItemRequest):
 
 
 # ENH-01: Delete item endpoint
-@app.delete("/api/item/{item_id}")
+@app.delete("/api/item/{item_id}", summary="Delete pipeline item", description="Removes an item completely from the pipeline state.")
 async def delete_item(item_id: str):
     normalized_id = item_id.upper()
     success = state_manager.delete_item(normalized_id)
@@ -144,7 +146,7 @@ class CommentRequest(BaseModel):
     body: str = Field(..., min_length=1, max_length=5000)
 
 
-@app.post("/api/item/{item_id}/comment")
+@app.post("/api/item/{item_id}/comment", summary="Add comment to item", description="Appends a new discussion comment to a specific pipeline item.")
 async def add_comment(item_id: str, request: CommentRequest):
     normalized_id = item_id.upper()
     comment = state_manager.add_comment(normalized_id, request.author, request.body)
@@ -154,7 +156,7 @@ async def add_comment(item_id: str, request: CommentRequest):
 
 
 # ENH-04: Delete comment endpoint
-@app.delete("/api/item/{item_id}/comment/{comment_id}")
+@app.delete("/api/item/{item_id}/comment/{comment_id}", summary="Delete comment", description="Removes a specific comment from an item's discussion history.")
 async def delete_comment(item_id: str, comment_id: str):
     normalized_id = item_id.upper()
     success = state_manager.delete_comment(normalized_id, comment_id)
@@ -163,7 +165,7 @@ async def delete_comment(item_id: str, comment_id: str):
     return {"status": "success", "message": f"Comment {comment_id} deleted"}
 
 
-@app.post("/api/move")
+@app.post("/api/move", summary="Move item to stage", description="Updates the stage and optional order of a pipeline item.")
 async def move_item(request: MoveRequest):
     normalized_id = request.item_id.upper()
     updates: dict = {"stage": request.new_stage}
@@ -188,13 +190,13 @@ class ReorderRequest(BaseModel):
         return v.upper()
 
 
-@app.post("/api/items/reorder")
+@app.post("/api/items/reorder", summary="Bulk reorder items", description="Sets the sequence of items within a specific stage.")
 async def reorder_items(request: ReorderRequest):
     state_manager.reorder_items(request.stage, request.ordered_ids)
     return {"status": "success", "message": f"Reordered {len(request.ordered_ids)} items in {request.stage}"}
 
 
-@app.get("/api/item/{item_id}")
+@app.get("/api/item/{item_id}", summary="Get item details", description="Retrieves full metadata and history for a specific pipeline item.")
 async def get_item(item_id: str):
     item_id = item_id.upper()
     item = state_manager.get_item_details(item_id)
@@ -203,7 +205,7 @@ async def get_item(item_id: str):
     return item
 
 
-@app.get("/api/item/{item_id}/artifact/{artifact_name}")
+@app.get("/api/item/{item_id}/artifact/{artifact_name}", summary="Get item artifact", description="Retrieves a specific markdown artifact (spec, architecture, etc.) for an item.")
 async def get_artifact(item_id: str, artifact_name: str):
     item_id = item_id.upper()
     if not re.match(r'^[A-Z0-9-]+$', item_id):
@@ -220,7 +222,7 @@ async def get_artifact(item_id: str, artifact_name: str):
     return FileResponse(artifact_path)
 
 
-@app.post("/api/item/{item_id}/artifact/{artifact_name}/content")
+@app.post("/api/item/{item_id}/artifact/{artifact_name}/content", summary="Update artifact content", description="Writes new content to a specific artifact (currently only review.md is editable).")
 async def update_artifact_content(item_id: str, artifact_name: str, request: dict):
     item_id = item_id.upper()
     if not re.match(r'^[A-Z0-9-]+$', item_id):

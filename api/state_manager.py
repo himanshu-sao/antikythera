@@ -39,7 +39,7 @@ class StateManager:
         state = self.load_state()
         return state.get("items", {}).get(item_id)
 
-    def create_item(self, item_id: str, title: str, source_type: Optional[str] = None, source_value: Optional[str] = None) -> bool:
+    def create_item(self, item_id: str, title: str, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
         item_id = item_id.upper()
         with self._lock:
             state = self.load_state()
@@ -56,6 +56,7 @@ class StateManager:
                 "description": "",
                 "source_type": source_type,
                 "source_value": source_value,
+                "due_date": due_date,
                 "order": order,
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "updated_at": datetime.utcnow().isoformat() + "Z",
