@@ -66,12 +66,15 @@ export function KanbanColumn({ id, items, onCardClick }: KanbanColumnProps) {
       element: ref.current,
       getInitialData: () => ({ columnId: id }),
       onDragEnter: () => {
+        console.log(`Drag entered column: ${id}`);
         ref.current?.classList.add('bg-gray-200');
       },
       onDragLeave: () => {
+        console.log(`Drag left column: ${id}`);
         ref.current?.classList.remove('bg-gray-200');
       },
       onDrop: () => {
+        console.log(`Drop handled by column: ${id}`);
         ref.current?.classList.remove('bg-gray-200');
       },
     });

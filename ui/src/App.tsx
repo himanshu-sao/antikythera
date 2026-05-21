@@ -63,8 +63,13 @@ export default function App() {
   useEffect(() => {
     return monitorForElements({
       onDrop: async ({ source, location }) => {
+        console.log('onDrop triggered', { source, location });
         const destination = location.current.dropTargets[0];
-        if (!destination) return;
+        if (!destination) {
+          console.log('No destination drop target found');
+          return;
+        }
+        console.log('Destination found:', destination);
 
         const itemId = source.data.id as string;
         const toStage = destination.data.columnId as string;

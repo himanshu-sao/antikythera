@@ -38,25 +38,15 @@ Or adjust the card flex layout to prevent squeezing:
 
 ---
 
-### ⚠️ ISSUE-2: Confidence Score Display Missing Value
-**Status**: Partially Fixed
+### ✅ ISSUE-2: Confidence Score Display Missing Value
+**Status**: Complete
 **Severity**: LOW
 **Location**: `ui/src/components/KanbanColumn.tsx` line 47
 
 **Problem**:
 Cards show "Confidence: %" instead of "Confidence: 0%" or actual numeric values.
 
-**Root Cause**:
-Old items in state.json lack the `confidence_score` field. TypeScript types were made optional but component doesn't provide default value.
-
-**Fix**:
-```tsx
-// Current (line 47):
-<span>Confidence: {confidence_score}%</span>
-
-// Fix:
-<span>Confidence: {confidence_score ?? 0}%</span>
-```
+**Resolution**: Added a nullish coalescing operator (`?? 0`) to provide a default value of 0 when the score is missing.
 
 ---
 
