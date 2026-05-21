@@ -74,7 +74,7 @@ export function KanbanCardContent({
       <h3 className="font-semibold text-gray-800 text-sm mb-2">{title}</h3>
       {source_type && (
         <div className="text-xs text-gray-500 mb-1 truncate">
-          <span>{source_type === 'url' ? '\uD83C\uDF10' : '\uD83D\uDCC1'}</span>
+          <span>{source_type === 'url' ? '🌐' : '📄'}</span>
           &nbsp;
           <span>{source_value}</span>
         </div>
@@ -83,13 +83,13 @@ export function KanbanCardContent({
         <span>Confidence: {confidence_score ?? 0}%</span>
         {due_date && (
           <span className="flex items-center gap-1">
-            <span>\uD83D\uDCC5</span>
+            <span>📅</span>
             <span>{due_date}</span>
           </span>
         )}
         {updated_at && (
           <span className="flex items-center gap-1">
-            <span>\uD83D\uDD52</span>
+            <span>🕒</span>
             <span>{new Date(updated_at).toLocaleDateString()}</span>
           </span>
         )}

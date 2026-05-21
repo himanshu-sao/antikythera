@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { DndContext, DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
-import { KanbanColumn } from './components/KanbanColumn';
+import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
+import { KanbanColumn, KanbanCardContent } from './components/KanbanColumn';
 import { ArtifactViewer } from './components/ArtifactViewer';
 import { WorkflowDiagram } from './components/WorkflowDiagram';
 import { CardEditor } from './components/CardEditor';
@@ -22,6 +22,7 @@ export default function App() {
   const [editMode, setEditMode] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
   const [newItem, setNewItem] = useState({ id: '', title: '', source_type: '', source_value: '' });
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -64,15 +65,31 @@ export default function App() {
       }
     };
 
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedId(null);
+        setEditMode(false);
+        setShowCreateModal(false);
+        setShowWorkflow(false);
+      }
+    };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
+    document.addEventListener('keydown', handleKeyDown);
 
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      document.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [selectedId]);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(String(event.active.id));
+  };
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    setActiveId(null);
     const { active, over } = event;
     if (!over) return;
     const itemId = String(active.id);
@@ -317,7 +334,11 @@ export default function App() {
           </div>
         </header>
 
-                    <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                    <DndContext
+                      sensors={sensors}
+                      onDragStart={handleDragStart}
+                      onDragEnd={handleDragEnd}
+                    >
         <div className="grid grid-cols-5 gap-4">
           {STAGES.map(stage => (
             <KanbanColumn
@@ -344,7 +365,19 @@ export default function App() {
             />
           ))}
         </div>
-                                  </DndContext>
+        <DragOverlay>
+          {activeId && state.items && state.items[activeId] ? (
+            <KanbanCardContent
+              {...state.items[activeId]}
+              id={activeId}
+              isDragOverlay
+              onCardClick={() => {}}
+              onEditClick={() => {}}
+              onDeleteClick={() => {}}
+            />
+          ) : null}
+        </DragOverlay>
+                      </DndContext>
 
         {showWorkflow && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
