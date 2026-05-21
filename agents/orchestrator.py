@@ -261,53 +261,52 @@ def get_orchestrator() -> "Orchestrator":
         _orchestrator_instance = Orchestrator()
     return _orchestrator_instance
 
-# Backwards-compatible alias used by scheduler and existing tests
-orchestrator_instance = get_orchestrator()
-
 def get_next_actionable_items(state):
-    return orchestrator_instance.get_next_actionable_items(state)
+    return get_orchestrator().get_next_actionable_items(state)
 
 def run_pipeline():
-    return orchestrator_instance.run_pipeline()
+    return get_orchestrator().run_pipeline()
 
 def transition_stage(item, new_stage, state, item_id=None):
-    return orchestrator_instance.transition_stage(item, new_stage, state, item_id)
+    return get_orchestrator().transition_stage(item, new_stage, state, item_id)
 
 def process_item(item, state, item_id):
-    return orchestrator_instance.process_item(item, state, item_id)
+    return get_orchestrator().process_item(item, state, item_id)
 
 def handle_intake(item, state, item_id):
-    return orchestrator_instance.handle_intake(item, state, item_id)
+    return get_orchestrator().handle_intake(item, state, item_id)
 
 def handle_refinement(item, state, item_id):
-    return orchestrator_instance.handle_refinement(item, state, item_id)
+    return get_orchestrator().handle_refinement(item, state, item_id)
 
 def handle_review_spec(item, state, item_id):
-    return orchestrator_instance.handle_review_spec(item, state, item_id)
+    return get_orchestrator().handle_review_spec(item, state, item_id)
 
 def handle_architecture(item, state, item_id):
-    return orchestrator_instance.handle_architecture(item, state, item_id)
+    return get_orchestrator().handle_architecture(item, state, item_id)
 
 def handle_review_arch(item, state, item_id):
-    return orchestrator_instance.handle_review_arch(item, state, item_id)
+    return get_orchestrator().handle_review_arch(item, state, item_id)
 
 def handle_testing(item, state, item_id):
-    return orchestrator_instance.handle_testing(item, state, item_id)
+    return get_orchestrator().handle_testing(item, state, item_id)
 
 def handle_review_test(item, state, item_id):
-    return orchestrator_instance.handle_review_test(item, state, item_id)
+    return get_orchestrator().handle_review_test(item, state, item_id)
 
 def handle_approved(item, state, item_id):
-    return orchestrator_instance.handle_approved(item, state, item_id)
+    return get_orchestrator().handle_approved(item, state, item_id)
 
 def handle_executing(item, state, item_id):
-    return orchestrator_instance.handle_executing(item, state, item_id)
+    return get_orchestrator().handle_executing(item, state, item_id)
 
 def handle_done(item, state, item_id):
-    return orchestrator_instance.handle_done(item, state, item_id)
+    return get_orchestrator().handle_done(item, state, item_id)
 
-# For backwards compatibility with tests that might use 'orchestrator' as the instance
-orchestrator = orchestrator_instance
+def __getattr__(name):
+    if name in ("orchestrator_instance", "orchestrator"):
+        return get_orchestrator()
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 # Stage handler dispatch table - mapping stage to method name
 STAGE_HANDLERS = {

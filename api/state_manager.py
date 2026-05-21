@@ -1,13 +1,13 @@
 import json
 import os
-import threading
+from filelock import FileLock
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 class StateManager:
     def __init__(self, state_path: str):
         self.state_path = state_path
-        self._lock = threading.Lock()  # TODO-04/ENH-03: thread-safety lock
+        self._lock = FileLock(state_path + ".lock")  # R-KF-04: cross-process thread-safety lock
 
     def load_state(self) -> Dict[str, Any]:
         if not os.path.exists(self.state_path):

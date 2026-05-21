@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { ArtifactViewer } from './ArtifactViewer';
 
 // Mock lodash debounce to synchronize with Vitest fake timers cleanly
@@ -35,12 +35,15 @@ describe('ArtifactViewer Editing', () => {
 
   it('allows editing of review.md and triggers save API', async () => {
     // Mock the initial fetch of artifacts
+    let resolveSave: any;
     vi.spyOn(global, 'fetch').mockImplementation((url, options) => {
       if (options?.method === 'POST') {
-        return Promise.resolve(new Response(JSON.stringify({ status: 'success' }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }));
+        return new Promise(resolve => {
+          resolveSave = () => resolve(new Response(JSON.stringify({ status: 'success' }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }));
+        });
       }
 
       if (url.includes('/artifact/review.md')) {
@@ -76,12 +79,18 @@ describe('ArtifactViewer Editing', () => {
     fireEvent.change(textarea, { target: { value: 'Updated review content' } });
 
     // Advance timers by 1000ms to trigger the debounced saveContent
-    await vi.advanceTimersByTimeAsync(1000);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
 
+    // The UI should update to 'Saving...' state
     expect(screen.getByText(/Saving.../i)).toBeInTheDocument();
 
     // Complete the save fetch call
-    await vi.advanceTimersByTimeAsync(0);
+    await act(async () => {
+      resolveSave();
+      await vi.advanceTimersByTimeAsync(0);
+    });
 
     const calls = vi.mocked(global.fetch).mock.calls;
     const saveCall = calls.find(call => call[1]?.method === 'POST');
@@ -89,6 +98,7 @@ describe('ArtifactViewer Editing', () => {
     const body = JSON.parse(saveCall[1].body);
     expect(body.content).toBe('Updated review content');
 
+    // The UI should update to 'Saved' state
     expect(screen.getByText(/Saved/i)).toBeInTheDocument();
   });
 
