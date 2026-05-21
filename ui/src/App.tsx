@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { monitorForElements } from '@atlaskit/pragmatic-drag-and-drop/element/adapter';
+import { DndContext, DragEndEvent } from '@dnd-kit/core';
 import { KanbanColumn } from './components/KanbanColumn';
 import { ArtifactViewer } from './components/ArtifactViewer';
 import { WorkflowDiagram } from './components/WorkflowDiagram';
@@ -60,37 +60,25 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    return monitorForElements({
-      onDrop: async ({ source, location }) => {
-        console.log('onDrop triggered', { source, location });
-        const destination = location.current.dropTargets[0];
-        if (!destination) {
-          console.log('No destination drop target found');
-          return;
-        }
-        console.log('Destination found:', destination);
-
-        const itemId = source.data.id as string;
-        const toStage = destination.data.columnId as string;
-
-        if (!itemId || !toStage) return;
-
-        try {
-          const res = await fetch(`${apiUrl}/api/move`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ item_id: itemId, new_stage: toStage }),
-          });
-          if (res.ok) {
-            await fetchState();
-          }
-        } catch (e) {
-          console.error("Failed to move item", e);
-        }
-      },
-    });
-  }, []);
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over) return;
+    const itemId = String(active.id);
+    const toStage = String(over.id);
+    if (!itemId || !toStage || itemId === toStage) return;
+    try {
+      const res = await fetch(`${apiUrl}/api/move`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId, new_stage: toStage }),
+      });
+      if (res.ok) {
+        await fetchState();
+      }
+    } catch (e) {
+      console.error("Failed to move item", e);
+    }
+  };
 
   const handleUpdateItem = async (updates: any) => {
     if (!selectedId) return;
@@ -214,6 +202,7 @@ export default function App() {
           </div>
         </header>
 
+                    <DndContext onDragEnd={handleDragEnd}>
         <div className="grid grid-cols-5 gap-4">
           {STAGES.map(stage => (
             <KanbanColumn
@@ -226,6 +215,7 @@ export default function App() {
             />
           ))}
         </div>
+                                  </DndContext>
 
         {showWorkflow && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
