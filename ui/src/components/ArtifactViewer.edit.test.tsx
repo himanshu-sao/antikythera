@@ -1,6 +1,19 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ArtifactViewer } from './ArtifactViewer';
+
+// Mock lodash debounce to synchronize with Vitest fake timers cleanly
+vi.mock('lodash', () => ({
+  debounce: (fn: any, delay: number) => {
+    let timeoutId: any;
+    const debounced = (...args: any[]) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => fn(...args), delay);
+    };
+    debounced.cancel = () => clearTimeout(timeoutId);
+    return debounced;
+  }
+}));
 
 const mockArtifacts = [
   {
@@ -50,39 +63,33 @@ describe('ArtifactViewer Editing', () => {
       />
     );
 
-    await waitFor(() => {
-      expect(screen.getByText('review.md')).toBeInTheDocument();
-    });
+    // Load initial artifacts (flush sequential fetches in loop)
+    for (let i = 0; i < 10; i++) {
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    expect(screen.getByText('review.md')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('review.md'));
 
     const textarea = screen.getByPlaceholderText(/Write your review here.../i);
     fireEvent.change(textarea, { target: { value: 'Updated review content' } });
 
-    // Advance timers to trigger debounce
-    vi.advanceTimersByTime(100);
+    // Advance timers by 1000ms to trigger the debounced saveContent
+    await vi.advanceTimersByTimeAsync(1000);
 
-    await waitFor(() => {
-      expect(screen.getByText(/Saving.../i)).toBeInTheDocument();
-    });
+    expect(screen.getByText(/Saving.../i)).toBeInTheDocument();
 
-    // Advance timers to complete the save
-    vi.advanceTimersByTime(1000);
+    // Complete the save fetch call
+    await vi.advanceTimersByTimeAsync(0);
 
-    // Since fetch is async, we need to allow the promise to resolve
-    await vi.runAllTimersAsync();
+    const calls = vi.mocked(global.fetch).mock.calls;
+    const saveCall = calls.find(call => call[1]?.method === 'POST');
+    expect(saveCall).toBeDefined();
+    const body = JSON.parse(saveCall[1].body);
+    expect(body.content).toBe('Updated review content');
 
-    await waitFor(() => {
-      const calls = vi.mocked(global.fetch).mock.calls;
-      const saveCall = calls.find(call => call[1]?.method === 'POST');
-      expect(saveCall).toBeDefined();
-      const body = JSON.parse(saveCall[1].body);
-      expect(body.content).toBe('Updated review content');
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText(/Saved/i)).toBeInTheDocument();
-    });
+    expect(screen.getByText(/Saved/i)).toBeInTheDocument();
   });
 
   it('debounces multiple changes to a single API call', async () => {
@@ -97,7 +104,10 @@ describe('ArtifactViewer Editing', () => {
     });
 
     render(<ArtifactViewer itemId="ID-001" onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByText('review.md')).toBeInTheDocument());
+    for (let i = 0; i < 10; i++) {
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(screen.getByText('review.md')).toBeInTheDocument();
     fireEvent.click(screen.getByText('review.md'));
 
     const textarea = screen.getByPlaceholderText(/Write your review here.../i);
@@ -107,15 +117,16 @@ describe('ArtifactViewer Editing', () => {
     fireEvent.change(textarea, { target: { value: 'Change 2' } });
     fireEvent.change(textarea, { target: { value: 'Final Change' } });
 
-    vi.advanceTimersByTime(1100);
-    await vi.runAllTimersAsync();
+    // Advance time to trigger debounce
+    await vi.advanceTimersByTimeAsync(1000);
 
-    await waitFor(() => {
-      const postCalls = vi.mocked(global.fetch).mock.calls.filter(call => call[1]?.method === 'POST');
-      expect(postCalls).toHaveLength(1);
-      const body = JSON.parse(postCalls[0][1].body);
-      expect(body.content).toBe('Final Change');
-    });
+    // Flush async fetch
+    await vi.advanceTimersByTimeAsync(0);
+
+    const postCalls = vi.mocked(global.fetch).mock.calls.filter(call => call[1]?.method === 'POST');
+    expect(postCalls).toHaveLength(1);
+    const body = JSON.parse(postCalls[0][1].body);
+    expect(body.content).toBe('Final Change');
   });
 
   it('handles save API failures gracefully', async () => {
@@ -131,20 +142,23 @@ describe('ArtifactViewer Editing', () => {
     });
 
     render(<ArtifactViewer itemId="ID-001" onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByText('review.md')).toBeInTheDocument());
+    for (let i = 0; i < 10; i++) {
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect(screen.getByText('review.md')).toBeInTheDocument();
     fireEvent.click(screen.getByText('review.md'));
 
     const textarea = screen.getByPlaceholderText(/Write your review here.../i);
     fireEvent.change(textarea, { target: { value: 'Failed content' } });
 
-    vi.advanceTimersByTime(1100);
-    await vi.runAllTimersAsync();
+    // Advance time to trigger debounce
+    await vi.advanceTimersByTimeAsync(1000);
 
-    await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('Save error:', expect.any(Error));
-    });
+    // Flush async fetch
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(consoleSpy).toHaveBeenCalledWith('Save error:', expect.any(Error));
 
     consoleSpy.mockRestore();
   });
-
 });

@@ -22,7 +22,7 @@ export default function App() {
   const [editMode, setEditMode] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
-  const [newItem, setNewItem] = useState({ id: '', title: '' });
+  const [newItem, setNewItem] = useState({ id: '', title: '', source_type: '', source_value: '' });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -50,13 +50,15 @@ export default function App() {
   useEffect(() => {
     fetchState();
 
-    const interval = setInterval(fetchState, 10000);
+    let interval = setInterval(fetchState, 10000);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         clearInterval(interval);
       } else {
         fetchState();
+        clearInterval(interval);
+        interval = setInterval(fetchState, 10000);
       }
     };
 
@@ -73,12 +75,49 @@ export default function App() {
     if (!over) return;
     const itemId = String(active.id);
     const toStage = String(over.id);
-    if (!itemId || !toStage || itemId === toStage) return;
+    if (!itemId || !toStage) return;
+
+    const activeItem = state.items[itemId];
+    if (!activeItem) return;
+
+    let targetStage = toStage;
+    let targetOrder = 0;
+
+    const isStage = STAGES.includes(toStage);
+    if (isStage) {
+      targetStage = toStage;
+      const columnItems = Object.entries(state.items)
+        .map(([id, item]) => ({ ...item, id }))
+        .filter(item => item.stage === targetStage && item.id !== itemId)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      targetOrder = columnItems.length;
+    } else {
+      const overItem = state.items[toStage];
+      if (!overItem) return;
+      targetStage = overItem.stage;
+
+      const columnItems = Object.entries(state.items)
+        .map(([id, item]) => ({ ...item, id }))
+        .filter(item => item.stage === targetStage && item.id !== itemId)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+      const overIndex = columnItems.findIndex(item => item.id === toStage);
+      targetOrder = overIndex !== -1 ? overIndex : columnItems.length;
+    }
+
+    if (activeItem.stage === targetStage && (activeItem.order ?? 0) === targetOrder) {
+      return;
+    }
+
     try {
       const res = await fetch(`${apiUrl}/api/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_id: itemId, new_stage: toStage }),
+        body: JSON.stringify({
+          item_id: itemId,
+          new_stage: targetStage,
+          order: targetOrder,
+        }),
       });
       if (res.ok) {
         await fetchState();
@@ -107,10 +146,31 @@ export default function App() {
     }
   };
 
+  const handleDeleteItem = async () => {
+    if (!selectedId) return;
+    try {
+      const res = await fetch(`${apiUrl}/api/item/${selectedId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.detail || 'Failed to delete item');
+      }
+      setSelectedId(null);
+      setEditMode(false);
+      await fetchState();
+    } catch (e: any) {
+      console.error("Failed to delete item", e);
+      throw e;
+    }
+  };
+
   const handleCreateItem = async () => {
     if (!newItem.id || !newItem.title) return;
     const itemId = newItem.id.toUpperCase();
     const itemTitle = newItem.title;
+    const sourceType = newItem.source_type || undefined;
+    const sourceValue = newItem.source_value || undefined;
 
     // ENH-09: Optimistic Update
     setState(prev => ({
@@ -123,6 +183,8 @@ export default function App() {
           stage: 'INTAKE',
           priority: 'medium',
           confidence_score: 0,
+          source_type: sourceType,
+          source_value: sourceValue,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as PipelineItem
@@ -133,14 +195,19 @@ export default function App() {
       const res = await fetch(`${apiUrl}/api/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_id: itemId, title: itemTitle }),
+        body: JSON.stringify({
+          item_id: itemId,
+          title: itemTitle,
+          source_type: sourceType,
+          source_value: sourceValue,
+        }),
       });
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.detail || 'Failed to create item');
       }
       setShowCreateModal(false);
-      setNewItem({ id: '', title: '' });
+      setNewItem({ id: '', title: '', source_type: '', source_value: '' });
       await fetchState();
     } catch (e: any) {
       console.error("Failed to create item", e);
@@ -218,7 +285,8 @@ export default function App() {
               id={stage}
               items={Object.entries(state.items)
                 .filter(([, item]) => item.stage === stage)
-                .map(([id, item]) => ({ ...item, id }))}
+                .map(([id, item]) => ({ ...item, id }))
+                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
               onCardClick={(id) => {
                 setSelectedId(id);
                 setEditMode(false);
@@ -281,9 +349,12 @@ export default function App() {
                     title: state.items[selectedId].title,
                     description: state.items[selectedId].description,
                     priority: state.items[selectedId].priority,
-                    confidence_score: state.items[selectedId].confidence_score ?? 0
+                    confidence_score: state.items[selectedId].confidence_score ?? 0,
+                    source_type: state.items[selectedId].source_type,
+                    source_value: state.items[selectedId].source_value,
                   }}
                   onSave={handleUpdateItem}
+                  onDelete={handleDeleteItem}
                   onClose={() => setEditMode(false)}
                 />
               ) : (
@@ -321,10 +392,39 @@ export default function App() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Source Type</label>
+                  <select
+                    value={newItem.source_type || ''}
+                    onChange={(e) => setNewItem({ ...newItem, source_type: e.target.value, source_value: '' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
+                  >
+                    <option value="">None</option>
+                    <option value="url">URL</option>
+                    <option value="directory">Directory</option>
+                  </select>
+                </div>
+                {newItem.source_type && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {newItem.source_type === 'url' ? 'Source URL' : 'Source Directory'}
+                    </label>
+                    <input
+                      type="text"
+                      value={newItem.source_value || ''}
+                      onChange={(e) => setNewItem({ ...newItem, source_value: e.target.value })}
+                      placeholder={newItem.source_type === 'url' ? 'https://example.com' : '/path/to/directory'}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                    />
+                  </div>
+                )}
               </div>
               <div className="mt-6 flex justify-end gap-2">
                 <button
-                  onClick={() => setShowCreateModal(false)}
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setNewItem({ id: '', title: '', source_type: '', source_value: '' });
+                  }}
                   className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
                 >
                   Cancel

@@ -50,8 +50,8 @@ Cards show "Confidence: %" instead of "Confidence: 0%" or actual numeric values.
 
 ---
 
-### 🔴 ISSUE-3: Drag-and-Drop Not Working
-**Status**: Pending
+### ✅ ISSUE-3: Drag-and-Drop Not Working
+**Status**: Complete
 **Severity**: HIGH
 **Location**: `ui/src/App.tsx` + `ui/src/components/KanbanColumn.tsx`
 
@@ -86,8 +86,8 @@ Cards cannot be dragged between columns. No visual feedback when attempting drag
 
 ## Enhancement Requests
 
-### ⭐ ENH-NEW-01: Source Input Selection for Intake
-**Status**: Partially Implemented (Backend Done, Frontend Pending)
+### ✅ ENH-NEW-01: Source Input Selection for Intake
+**Status**: Complete
 **Priority**: HIGH
 **Requester**: User
 
@@ -195,12 +195,12 @@ const [sourceValue, setSourceValue] = useState<string>(initialData.source_value 
 
 ## Implementation Sequence
 
-### Phase 1: Critical Fixes (Immediate)
+### ✅ Phase 1: Critical Fixes (Complete)
 1. **FIX-CONFIDENCE**: Add `?? 0` to confidence_score display
 2. **FIX-BADGE-LAYOUT**: Fix priority badge truncation with proper CSS
 3. **DEBUG-DRAG-DROP**: Investigate and fix drag-drop functionality
 
-### Phase 2: Source Selection Enhancement (Next)
+### ✅ Phase 2: Source Selection Enhancement (Complete)
 4. **ENH-SOURCE-BACKEND**: Add source_type and source_value fields to backend
 5. **ENH-SOURCE-FRONTEND**: Implement dropdown and dynamic input in CardEditor
 6. **ENH-SOURCE-DISPLAY**: Show source info on cards and detail view

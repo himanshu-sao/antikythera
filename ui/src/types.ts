@@ -10,7 +10,10 @@ export interface PipelineItem {
   assigned_agent?: string | null;
   blocked_reason?: string | null;
   review_status?: string;
+  order?: number;
   history?: Array<{ stage: string; at: string; agent?: string }>;
+  source_type?: string;
+  source_value?: string;
 }
 
 /** Pipeline state returned by the API */
@@ -52,7 +55,10 @@ export interface KanbanCardData {
   title: string;
   priority: string;
   confidence_score?: number;
-    stage: string;
+  stage: string;
+  order?: number;
+  source_type?: string;
+  source_value?: string;
 }
 
 /** Drag end event handler type */

@@ -34,11 +34,20 @@ class CreateItemRequest(BaseModel):
     # ENH-02: Add field length constraints and pattern validation
     item_id: str = Field(..., min_length=1, max_length=50, pattern=r'^[A-Za-z0-9_-]+$')
     title: str = Field(..., min_length=1, max_length=200)
+    source_type: Optional[str] = Field(default=None)
+    source_value: Optional[str] = Field(default=None)
 
     @field_validator('item_id')
     @classmethod
     def item_id_uppercase(cls, v: str) -> str:
         return v.upper()
+
+    @field_validator('source_type')
+    @classmethod
+    def validate_source_type(cls, v: Optional[str]) -> Optional[str]:
+        if v and v.lower() not in ["url", "directory"]:
+            raise ValueError('source_type must be "url" or "directory"')
+        return v.lower() if v else None
 
 
 class MoveRequest(BaseModel):

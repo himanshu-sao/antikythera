@@ -19,6 +19,22 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
   const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [itemDetails, setItemDetails] = useState<any>(null);
+
+  useEffect(() => {
+    const fetchItemDetails = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/item/${itemId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setItemDetails(data);
+        }
+      } catch (e) {
+        console.error('Failed to fetch item details', e);
+      }
+    };
+    fetchItemDetails();
+  }, [itemId]);
 
   useEffect(() => {
     const fetchArtifacts = async () => {
@@ -54,11 +70,10 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
     fetchArtifacts();
   }, [itemId]);
 
-  const saveContent = async (content: string) => {
-    if (!selectedArtifact) return;
+  const saveContent = React.useCallback(async (name: string, content: string) => {
     setIsSaving(true);
     try {
-      const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${selectedArtifact.name}/content`, {
+      const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}/content`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
@@ -71,15 +86,25 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [itemId]);
 
-  const debouncedSave = debounce(saveContent, 1000);
+  const debouncedSave = React.useMemo(
+    () => debounce((name: string, content: string) => saveContent(name, content), 1000),
+    [saveContent]
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedSave.cancel();
+    };
+  }, [debouncedSave]);
 
   const handleContentChange = (newContent: string) => {
     if (!selectedArtifact) return;
     setSelectedArtifact({ ...selectedArtifact, content: newContent });
-    debouncedSave(newContent);
+    debouncedSave(selectedArtifact.name, newContent);
   };
+
 
   if (loading) {
     return (
@@ -107,8 +132,34 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
 
   return (
     <div className="flex h-full">
-      <div className="w-64 border-r border-gray-200 bg-gray-50 overflow-y-auto">
+      <div className="w-64 border-r border-gray-200 bg-gray-50 overflow-y-auto flex flex-col justify-between">
         <div className="p-4">
+          {itemDetails && (
+            <div className="mb-6 pb-4 border-b border-gray-200 text-sm text-gray-600">
+              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Item Details</h4>
+              <div className="space-y-2">
+                <div>
+                  <span className="font-semibold">Priority:</span>{' '}
+                  <span className="capitalize">{itemDetails.priority}</span>
+                </div>
+                <div>
+                  <span className="font-semibold">Confidence:</span>{' '}
+                  <span>{itemDetails.confidence_score ?? 0}%</span>
+                </div>
+                {itemDetails.source_type && (
+                  <div>
+                    <span className="font-semibold">Source:</span>{' '}
+                    <div className="text-xs bg-white p-1.5 rounded mt-1 border border-gray-200 overflow-hidden text-ellipsis flex items-center gap-1">
+                      <span>{itemDetails.source_type === 'url' ? '🌐' : '📁'}</span>
+                      <span className="truncate text-gray-700" title={itemDetails.source_value}>
+                        {itemDetails.source_value}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <h3 className="font-semibold text-gray-700 mb-3">Artifacts</h3>
           <div className="space-y-2">
             {artifacts.map((artifact) => (

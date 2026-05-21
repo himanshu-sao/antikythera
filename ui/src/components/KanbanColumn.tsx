@@ -7,15 +7,15 @@ interface KanbanCardProps extends KanbanCardData {
   onEditClick: (id: string) => void;
 }
 
-export function KanbanCard({ id, title, priority, confidence_score, onCardClick, onEditClick }: KanbanCardProps) {
+export function KanbanCard({ id, title, priority, confidence_score, onCardClick, onEditClick, source_type, source_value }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id,
     data: { id },
   });
 
   const style = transform
-    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
-    : undefined;
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: isDragging ? 50 : undefined }
+    : { zIndex: isDragging ? 50 : undefined };
 
   const priorityColor = {
     high: 'bg-red-100 text-red-800',
@@ -30,7 +30,7 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick,
       {...listeners}
       {...attributes}
       onClick={() => onCardClick(id)}
-      className={`bg-white p-4 rounded-lg shadow-md cursor-grab hover:shadow-lg transition-all border border-gray-200 mb-3 ${
+      className={`bg-white p-4 rounded-lg shadow-md cursor-grab hover:shadow-lg transition-all border border-gray-200 mb-3 touch-none ${
         isDragging ? 'opacity-50 cursor-grabbing' : ''
       }`}
     >
@@ -50,11 +50,17 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick,
             </svg>
           </button>
         </div>
-        <span className={`text-xs px-2 py-1 rounded-full ${priorityColor}`}>
+        <span className={`text-xs px-2 py-1 rounded-full whitespace-nowrap ${priorityColor}`}>
           {priority}
         </span>
       </div>
       <h3 className="text-sm font-medium text-gray-900 mb-2 line-clamp-2">{title}</h3>
+      {source_type && (
+        <div className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+          <span>{source_type === 'url' ? '🌐' : '📁'}</span>
+          <span className="truncate" title={source_value}>{source_value}</span>
+        </div>
+      )}
       <div className="flex justify-between items-center text-xs text-gray-400">
         <span>Confidence: {confidence_score ?? 0}%</span>
       </div>
@@ -112,13 +118,20 @@ export function KanbanColumn({ id, items, onCardClick, onEditClick }: KanbanColu
         <span className="ml-2 text-sm font-normal text-gray-500">({items.length})</span>
       </h2>
       <div className="flex-1 overflow-y-auto min-h-[100px]">
-        {items.map((item) => (
+        {items.length === 0 ? (
+          <div className="text-center text-gray-400 py-8">
+            <p className="text-sm">No items yet</p>
+            <p className="text-xs mt-1">Drag cards here</p>
+          </div>
+        ) : items.map((item) => (
           <KanbanCard
             key={item.id}
             id={item.id}
             title={item.title}
             priority={item.priority}
             confidence_score={item.confidence_score}
+            source_type={item.source_type}
+            source_value={item.source_value}
             onCardClick={onCardClick}
             onEditClick={onEditClick}
           />

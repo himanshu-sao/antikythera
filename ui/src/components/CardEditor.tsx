@@ -7,12 +7,15 @@ interface CardEditorProps {
     description?: string;
     priority: string;
     confidence_score: number;
+    source_type?: string;
+    source_value?: string;
   };
   onSave: (updates: any) => Promise<void>;
+  onDelete?: () => Promise<void>;
   onClose: () => void;
 }
 
-export function CardEditor({ itemId, initialData, onSave, onClose }: CardEditorProps) {
+export function CardEditor({ itemId, initialData, onSave, onDelete, onClose }: CardEditorProps) {
   const [formData, setFormData] = useState(initialData);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -83,21 +86,73 @@ export function CardEditor({ itemId, initialData, onSave, onClose }: CardEditorP
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={isSaving}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:bg-indigo-400"
-          >
-            {isSaving ? 'Saving...' : 'Save Changes'}
-          </button>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Source Type</label>
+            <select
+              value={formData.source_type || ''}
+              onChange={e => setFormData({ ...formData, source_type: e.target.value, source_value: '' })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+            >
+              <option value="">None</option>
+              <option value="url">URL</option>
+              <option value="directory">Directory</option>
+            </select>
+          </div>
+          {formData.source_type && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {formData.source_type === 'url' ? 'Source URL' : 'Source Directory'}
+              </label>
+              <input
+                type="text"
+                value={formData.source_value || ''}
+                onChange={e => setFormData({ ...formData, source_value: e.target.value })}
+                placeholder={formData.source_type === 'url' ? 'https://example.com' : '/path/to/directory'}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-between pt-4">
+          <div>
+            {onDelete && (
+              <button
+                type="button"
+                onClick={async () => {
+                  if (window.confirm("Are you sure you want to delete this item? This action cannot be undone.")) {
+                    setIsSaving(true);
+                    try {
+                      await onDelete();
+                    } finally {
+                      setIsSaving(false);
+                    }
+                  }
+                }}
+                className="px-4 py-2 text-sm font-medium text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                disabled={isSaving}
+              >
+                Delete Item
+              </button>
+            )}
+          </div>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:bg-indigo-400"
+            >
+              {isSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
         </div>
       </form>
     </div>

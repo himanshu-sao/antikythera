@@ -65,7 +65,9 @@ This document catalogs all identified issues in the kanban-fix branch and their 
 ## 🎨 UI/UX Issues
 
 ### Issue 1: No empty state messaging
-**Fix**: Add "No items" placeholder in empty columns
+**Fix**: Added "No items" placeholder in empty columns.
+**Status**: ✅ Complete
+
 ```tsx
 {items.length === 0 ? (
   <div className="text-center text-gray-400 py-8">
@@ -79,7 +81,8 @@ This document catalogs all identified issues in the kanban-fix branch and their 
 **Fix**: Already handled via opacity-50 class
 
 ### Issue 3: No confirmation for delete
-**Fix**: Add modal confirmation before delete
+**Fix**: Added modal confirmation before delete inside `CardEditor`.
+**Status**: ✅ Complete
 
 ---
 
