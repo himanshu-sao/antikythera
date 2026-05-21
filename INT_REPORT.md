@@ -33,7 +33,7 @@ Tested the Hermes Kanban application on localhost and identified 3 critical inte
 ---
 
 ### ✅ ISSUE-02: Confidence Values Showing "%" Instead of Numbers
-**Status**: PARTIALLY FIXED (Commit: 0B8912c)
+**Status**: FIXED
 **Severity**: MEDIUM
 **Impact**: Cards display "Confidence: %" instead of "Confidence: 0%" or actual values
 
@@ -107,13 +107,13 @@ git pull origin kanban-fix
 
 **TC-01: Column Headers Display**
 - ✅ Expected: "Intake (3)", "Refinement (1)", "Review Spec (0)", etc.
-- ❌ Before Fix: "(3)", "(1)", "(0)"
-- Status: FIX READY (needs git pull)
+- ✅ Current: Headers display correctly
+- Status: PASSING
 
 **TC-02: Confidence Values**  
 - ✅ Expected: "Confidence: 0%" or actual numeric values
-- ❌ Before Fix: "Confidence: %"
-- Status: PARTIAL (needs KanbanColumn.tsx update)
+- ✅ Current: "Confidence: 0%" shows correctly
+- Status: PASSING
 
 **TC-03: Priority Badges**
 - ✅ Expected: Colored badges for High/Medium/Low
@@ -159,7 +159,7 @@ git pull origin kanban-fix
 ### Frontend Components Verified:
 - App.tsx - Main Kanban board container ✅  
 - KanbanColumn.tsx - Stage column rendering ✅
-- KanbanCard.tsx - Individual card rendering ⚠️ (needs confidence fix)
+- KanbanCard.tsx - Individual card rendering ✅
 - ArtifactViewer.tsx - Uses apiUrl ✅
 - CommentSection.tsx - Uses apiUrl ✅
 

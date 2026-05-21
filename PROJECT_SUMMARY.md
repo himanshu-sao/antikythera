@@ -429,9 +429,9 @@ Those belong in `memory.md`, `PROGRESS.md`, or review output artifacts.
 | ENH-04 | Backend | `DELETE /api/item/{item_id}/comment/{comment_id}` | Medium | Pending |
 | ENH-05 | Backend | `POST /api/items/reorder` bulk reorder endpoint | High | Pending |
 | ENH-06 | Frontend | Configurable comment author (replace hardcoded `'Current User'`) | Medium | Pending |
-| ENH-07 | Frontend | Delete card button in `CardEditor` with confirmation | High | Pending |
+| ENH-07 | Frontend | Delete card button in `CardEditor` with confirmation | High | Complete |
 | ENH-08 | Frontend | Toast notifications to replace `alert()` calls | Medium | Pending |
-| ENH-09 | Frontend | Empty-state placeholder in `KanbanColumn` | Low | Pending |
+| ENH-09 | Frontend | Empty-state placeholder in `KanbanColumn` | Low | Complete |
 | ENH-10 | Frontend | Stage history timeline in card editor | Medium | Pending |
 | ENH-11 | Frontend | Relative timestamps on card face (`updated_at`) | Low | Pending |
 | ENH-12 | Frontend | Polling error back-off (30s after 3 failures) | Low | Pending |
@@ -466,7 +466,10 @@ The following enhancements from the Phase 8 backlog have been **completed** and 
 | ENH-06 | Frontend | Username persistence via localStorage (in `config.ts`) | ✅ Complete |
 | ENH-09 | Frontend | Optimistic UI updates for create operations | ✅ Complete |
 | ENH-13 | Config | Centralized `apiUrl` in `ui/src/config.ts` | ✅ Complete |
-| ENH-14 | DevOps | Docker health check endpoint (`/health`) | ✅ Complete |
+| ENH-07 | Frontend | Delete card button with confirmation | ✅ Complete |
+| ENH-09 | Frontend | Empty-state placeholder in Kanban columns | ✅ Complete |
+| ENH-NEW-01 | Frontend/Backend | Source selection (URL/Directory) | ✅ Complete |
+| FIX-01 | Frontend | Drag and drop styling fixes (`touch-none`, z-index) | ✅ Complete |
 
 ### 🔄 Remaining Enhancements (Deferred)
 
