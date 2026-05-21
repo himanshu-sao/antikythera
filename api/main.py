@@ -76,6 +76,8 @@ class UpdateItemRequest(BaseModel):
     description: Optional[str] = Field(default=None, max_length=2000)
     priority: Optional[str] = Field(default=None)
     confidence_score: Optional[int] = Field(default=None, ge=0, le=100)
+    source_type: Optional[str] = Field(default=None)
+    source_value: Optional[str] = Field(default=None)
 
     @field_validator('priority')
     @classmethod
@@ -84,10 +86,22 @@ class UpdateItemRequest(BaseModel):
             raise ValueError(f'Invalid priority. Must be one of: {VALID_PRIORITIES}')
         return v
 
+    @field_validator('source_type')
+    @classmethod
+    def validate_source_type(cls, v: Optional[str]) -> Optional[str]:
+        if v and v.lower() not in ["url", "directory"]:
+            raise ValueError('source_type must be "url" or "directory"')
+        return v.lower() if v else None
+
 
 @app.post("/api/items")
 async def create_item(request: CreateItemRequest):
-    success = state_manager.create_item(request.item_id, request.title)
+    success = state_manager.create_item(
+        request.item_id,
+        request.title,
+        request.source_type,
+        request.source_value
+    )
     if not success:
         raise HTTPException(status_code=400, detail="Item already exists")
     return {"status": "success", "message": f"Item {request.item_id} created"}

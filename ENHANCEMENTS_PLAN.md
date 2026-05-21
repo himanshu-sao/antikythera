@@ -51,7 +51,7 @@ Cards show "Confidence: %" instead of "Confidence: 0%" or actual numeric values.
 ---
 
 ### 🔴 ISSUE-3: Drag-and-Drop Not Working
-**Status**: Investigating
+**Status**: Pending
 **Severity**: HIGH
 **Location**: `ui/src/App.tsx` + `ui/src/components/KanbanColumn.tsx`
 
@@ -87,7 +87,7 @@ Cards cannot be dragged between columns. No visual feedback when attempting drag
 ## Enhancement Requests
 
 ### ⭐ ENH-NEW-01: Source Input Selection for Intake
-**Status**: Planning
+**Status**: Partially Implemented (Backend Done, Frontend Pending)
 **Priority**: HIGH
 **Requester**: User
 

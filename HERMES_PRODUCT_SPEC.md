@@ -63,7 +63,7 @@ Ideas move through a linear sequence of stages:
 |---|---|---|---|---|
 | TODO-02 | 🟡 Medium | All API base URLs are hardcoded as `http://localhost:8000` throughout the frontend. Should be extracted to a `VITE_API_URL` environment variable for portability. | `ui/src/App.tsx` | ⏳ Pending |
 | TODO-03 | 🟡 Medium | Card `order` is hardcoded to `0` in the drag-move handler. Cards move between columns correctly but intra-column reorder order does not persist to the backend after a drag. | `ui/src/App.tsx` (`onPerformOperation`) | ⏳ Pending |
-| TODO-04 | 🟡 Medium | `StateManager` performs plain file I/O with no locking mechanism. Concurrent writes (e.g. from the scheduler and API simultaneously) can cause race conditions and corrupt `pipeline-state.json`. | `api/state_manager.py` | ⏳ Pending |
+| TODO-04 | 🟡 Medium | `StateManager` performs plain file I/O with no locking mechanism. | `api/state_manager.py` | ✅ Fixed |
 
 ### 5.3 Low Priority
 

@@ -15,88 +15,23 @@ This document catalogs all identified issues in the kanban-fix branch and their 
 
 ---
 
-## 🔧 Remaining Issues & Recommended Fixes
+### ✅ Fixed Issues
 
 ### FIX-02: Priority field case inconsistency
-**Issue**: KanbanColumn expects `Priority` (capitalized) but backend/API uses `priority` (lowercase)
-**Impact**: Cards won't show correct priority colors
-**Location**: `ui/src/components/KanbanColumn.tsx` line 36
-**Fix Required**:
-```typescript
-// Change from:
-const priorityColor = {
-  High: 'bg-red-100 text-red-800',
-  Medium: 'bg-yellow-100 text-yellow-800',
-  Low: 'bg-green-100 text-green-800',
-}[priority] || 'bg-gray-100 text-gray-800';
-
-// To (lowercase keys):
-const priorityColor = {
-  high: 'bg-red-100 text-red-800',
-  medium: 'bg-yellow-100 text-yellow-800',
-  low: 'bg-green-100 text-green-800',
-  critical: 'bg-purple-100 text-purple-800', // Add critical
-}[priority?.toLowerCase()] || 'bg-gray-100 text-gray-800';
-```
+**Status**: ✅ Complete
+**Resolution**: Updated `KanbanCard` to use `priority?.toLowerCase()` for color mapping.
 
 ### FIX-03: create_item missing required fields
-**Issue**: StateManager.create_item doesn't initialize `priority` or `confidence_score`
-**Impact**: New items will have `undefined` for these fields, breaking UI
-**Location**: `api/state_manager.py` line 43-58
-**Fix Required**:
-```python
-items[item_id] = {
-    "title": title,
-    "stage": "INTAKE",
-    "priority": "medium",  # Add default
-    "confidence_score": 0,  # Add default
-    "order": order,
-    "created_at": datetime.utcnow().isoformat() + "Z",
-    "updated_at": datetime.utcnow().isoformat() + "Z",
-    "comments": [],
-    "history": [{"stage": "INTAKE", "at": datetime.utcnow().isoformat() + "Z"}],
-}
-```
+**Status**: ✅ Complete
+**Resolution**: Added default `priority` and `confidence_score` in `StateManager.create_item`.
 
 ### FIX-04: Column titles not user-friendly
-**Issue**: Columns show raw IDs like "REVIEW_SPEC" instead of "Review Spec"
-**Impact**: Poor UX
-**Location**: `ui/src/components/KanbanColumn.tsx` line 80
-**Fix Required**:
-```typescript
-const stageTitles: Record<string, string> = {
-  INTAKE: 'Intake',
-  REFINEMENT: 'Refinement',
-  REVIEW_SPEC: 'Review Spec',
-  ARCHITECTURE: 'Architecture',
-  REVIEW_ARCH: 'Review Arch',
-  TESTING: 'Testing',
-  REVIEW_TEST: 'Review Test',
-  APPROVED: 'Approved',
-  EXECUTING: 'Executing',
-  DONE: 'Done',
-};
-
-const displayTitle = stageTitles[id] || id;
-
-// Then use {displayTitle} instead of {id}
-```
-
-### FIX-05: Missing description field in PipelineItem
-**Issue**: Type definition has `description` but not marked as optional
-**Location**: `ui/src/types.ts`
-**Fix Required**: Add `description?: string;` as optional field
-
-### FIX-06: KanbanColumn missing key prop warnings
-**Issue**: React performance - items.map needs unique keys
-**Location**: `ui/src/components/KanbanColumn.tsx` line 103
-**Current**: Already correct with `key={item.id}`
-**Status**: ✅ Already handled correctly
+**Status**: ✅ Complete
+**Resolution**: Implemented `stageTitles` mapping in `KanbanColumn`.
 
 ### FIX-07: State manager missing default for `description`
-**Issue**: update_item allows description but create_item doesn't initialize it
-**Location**: `api/state_manager.py`
-**Fix Required**: Add `"description": ""` to create_item
+**Status**: ✅ Complete
+**Resolution**: Initialized `description` to empty string in `create_item`.
 
 ### FIX-08: App.tsx creates items with wrong priority casing
 **Issue**: App.tsx sets `priority: 'medium'` but should match backend format

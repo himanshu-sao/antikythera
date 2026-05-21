@@ -39,7 +39,7 @@ class StateManager:
         state = self.load_state()
         return state.get("items", {}).get(item_id)
 
-    def create_item(self, item_id: str, title: str) -> bool:
+    def create_item(self, item_id: str, title: str, source_type: Optional[str] = None, source_value: Optional[str] = None) -> bool:
         item_id = item_id.upper()
         with self._lock:
             state = self.load_state()
@@ -51,9 +51,11 @@ class StateManager:
             items[item_id] = {
                 "title": title,
                 "stage": "INTAKE",
-                            "priority": "medium",
-            "confidence_score": 0,
-            "description": "",
+                "priority": "medium",
+                "confidence_score": 0,
+                "description": "",
+                "source_type": source_type,
+                "source_value": source_value,
                 "order": order,
                 "created_at": datetime.utcnow().isoformat() + "Z",
                 "updated_at": datetime.utcnow().isoformat() + "Z",
