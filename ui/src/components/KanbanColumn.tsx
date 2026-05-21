@@ -8,7 +8,7 @@ interface KanbanCardProps extends KanbanCardData {
   onDeleteClick: (id: string) => void;
 }
 
-export function KanbanCard({ id, title, priority, confidence_score, onCardClick, onEditClick, onDeleteClick, source_type, source_value }: KanbanCardProps) {
+export function KanbanCard({ id, title, priority, confidence_score, onCardClick, onEditClick, onDeleteClick, source_type, source_value, updated_at, due_date }: KanbanCardProps) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id,
     data: { id },
@@ -86,6 +86,12 @@ export function KanbanCard({ id, title, priority, confidence_score, onCardClick,
             </span>
           )}
         </div>
+        {updated_at && (
+          <span className="flex items-center gap-1">
+            <span>🕒</span>
+            <span>{new Date(updated_at).toLocaleDateString()}</span>
+          </span>
+        )}
       </div>
     </div>
   );
@@ -159,6 +165,7 @@ export function KanbanColumn({ id, items, onCardClick, onEditClick, onDeleteClic
             onCardClick={onCardClick}
             onEditClick={onEditClick}
             onDeleteClick={onDeleteClick}
+            updated_at={item.updated_at}
           />
         ))}
       </div>

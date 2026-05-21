@@ -29,6 +29,9 @@ describe('KanbanCard', () => {
         confidence_score={mockItem.confidence_score}
         onCardClick={mockOnCardClick}
         onEditClick={vi.fn()}
+        onDeleteClick={vi.fn()}
+        updated_at="2026-05-20T10:00:00Z"
+        due_date="2026-06-01"
       />
     );
 
@@ -36,6 +39,8 @@ describe('KanbanCard', () => {
     expect(screen.getByText(mockItem.title)).toBeInTheDocument();
     expect(screen.getByText('High')).toBeInTheDocument();
     expect(screen.getByText('Confidence: 85%')).toBeInTheDocument();
+    expect(screen.getByText(/5\/20\/2026/i)).toBeInTheDocument();
+    expect(screen.getByText('2026-06-01')).toBeInTheDocument();
   });
 
   it('displays correct priority color badge', () => {

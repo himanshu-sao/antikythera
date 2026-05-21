@@ -61,6 +61,7 @@ export interface KanbanCardData {
   source_type?: string;
   source_value?: string;
   due_date?: string;
+  updated_at: string;
 }
 
 /** Drag end event handler type */
