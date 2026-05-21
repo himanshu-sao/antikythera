@@ -12,12 +12,18 @@ export function apiToBoardModel(state: PipelineState): BoardColumn[] {
       .map(([id, item]) => ({
         id,
         title: item.title,
-        description: item.description || '', 
+        description: item.description || '',
         status: item.stage,
         order: item.order || 0,
         priority: item.priority || 'Medium',
         confidence_score: item.confidence_score || 0,
         comments: item.comments || [],
+        history: item.history || [],
+        blocked_reason: item.blocked_reason || null,
+        assigned_agent: item.assigned_agent || null,
+        review_status: item.review_status || 'PENDING',
+        created_at: item.created_at || '',
+        updated_at: item.updated_at || '',
       }))
       .sort((a, b) => a.order - b.order);
 

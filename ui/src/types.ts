@@ -41,6 +41,12 @@ export interface BoardCard {
   order: number;
   priority: string;
   confidence_score?: number;
+  history?: Array<{ stage: string; at: string; agent?: string }>;
+  blocked_reason?: string | null;
+  assigned_agent?: string | null;
+  review_status?: string;
+  created_at?: string;
+  updated_at: string;
 }
 
 export interface CardComment {
