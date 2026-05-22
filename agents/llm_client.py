@@ -9,7 +9,8 @@ import logging
 import yaml
 from typing import Optional, Dict, Any
 from openai import OpenAI
-import google.generativeai as genai
+import google.genai as genai
+from google.genai import types
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -66,11 +67,10 @@ class LLMClient:
             if not api_key:
                 logger.warning("No API key provided for Google. Requests will likely fail.")
             
-            genai.configure(api_key=api_key)
             if not self.model:
                 self.model = "gemini-1.5-pro"
             
-            self.client = genai.GenerativeModel(model_name=self.model)
+            self.client = genai.Client(api_key=api_key)
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
 
@@ -91,13 +91,11 @@ class LLMClient:
                 return response.choices[0].message.content.strip()
 
             elif self.provider == "google":
-                model_with_system = genai.GenerativeModel(
-                    model_name=self.model,
-                    system_instruction=system_prompt
-                )
-                response = model_with_system.generate_content(
-                    user_prompt,
-                    generation_config=genai.types.GenerationConfig(
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=user_prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
                         temperature=temperature
                     )
                 )

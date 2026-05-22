@@ -20,10 +20,10 @@ def test_llm_with_gemma_4():
         return False
     else:
         print(f"SUCCESS: Found GOOGLE_API_KEY (length: {len(google_key)})")
-
+    
     # Try both 26B and 31B if the first one fails
     models_to_try = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"]
-
+    
     for model_name in models_to_try:
         print(f"\n>>> Attempting with model: {model_name}")
         try:

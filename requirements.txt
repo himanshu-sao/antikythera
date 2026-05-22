@@ -8,5 +8,5 @@ schedule>=1.2.0
 pytest>=7.0
 filelock>=3.13.0
 openai
-google-generativeai
+google-genai
 python-dotenv
