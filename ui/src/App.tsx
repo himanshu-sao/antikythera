@@ -188,17 +188,20 @@ export default function App() {
     }
   };
 
-  const handleDeleteItem = async () => {
-    if (!selectedId) return;
+  const handleDeleteItem = async (itemId?: string) => {
+    const idToDelete = itemId || selectedId;
+    if (!idToDelete) return;
     try {
-      const res = await fetch(`${apiUrl}/api/item/${selectedId}`, {
+      const res = await fetch(`${apiUrl}/api/item/${idToDelete}`, {
         method: 'DELETE',
       });
       if (!res.ok) {
         const errorData = await res.json();
         throw new Error(errorData.detail || 'Failed to delete item');
       }
-      setSelectedId(null);
+      if (itemId) {
+        setSelectedId(null);
+      }
       setEditMode(false);
       await fetchState();
     } catch (e: any) {

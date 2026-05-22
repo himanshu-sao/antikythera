@@ -38,6 +38,17 @@ export class PipelinePage {
     return this.page.locator('div').filter({ hasText: title }).first();
   }
 
+  async openEditor(title: string) {
+    const card = await this.getCardByTitle(title);
+    await card.click();
+  }
+
+  async deleteItem() {
+    await this.page.getByRole('button', { name: 'Delete Item' }).click();
+    // Handle the native window.confirm dialog
+    await this.page.once('dialog', dialog => dialog.accept());
+  }
+
   async getColumnByTitle(title: string) {
     return this.page.locator('h2', { hasText: title }).first();
   }
