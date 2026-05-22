@@ -69,7 +69,7 @@ Implementation behavior:
        - what verification step will confirm this task is successful
      - Implement tasks one by one.
      - After each meaningful task:
-       - run the relevant tests/build/lint
+       - run the relevant tests/build/lint, including Playwright tests to verify that all functionality is still working
        - self-check against VERIFICATION_CRITERIA.md where applicable
        - adjust the remaining plan if new constraints/issues are discovered.
 

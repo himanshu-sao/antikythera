@@ -123,6 +123,7 @@ The following high-priority improvements were integrated during the `kanban-fix`
 ### Phase 6 Remediation (Verified)
 - **R6.1**: Frontend tests for inline review editing $\rightarrow$ ✅ Verified
 - **R6.2**: Frontend tests for real-time polling $\rightarrow$ ✅ Verified
+- **R-UI-01**: Refactor E2E tests to avoid over-mocking reordering persistence $\rightarrow$ ✅ Verified
 
 ### Kanban-Fix Branch Remediation (Verified)
 - **R-KF-01**: Remove `node_modules` from repository $\rightarrow$ ✅ Verified

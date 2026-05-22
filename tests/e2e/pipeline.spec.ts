@@ -188,6 +188,57 @@ test.describe('Pipeline Golden Path', () => {
     // For a simpler e2e check, we check if it's still there after the move.
   });
 
+  test('should persist intra-column reordering', async ({ page }) => {
+    // Stateful mock for the API
+    let mockState = {
+      items: {
+        'IDEA-1': { id: 'IDEA-1', title: 'First Idea', stage: 'INTAKE', order: 0 },
+        'IDEA-2': { id: 'IDEA-2', title: 'Second Idea', stage: 'INTAKE', order: 1 },
+      },
+    };
+
+    await page.route('**/api/state', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(mockState),
+      });
+    });
+
+    await page.route('**/api/items/reorder', async (route) => {
+      const request = JSON.parse(route.request().postData() || '{}');
+      const { stage, ordered_ids } = request;
+
+      if (stage && ordered_ids) {
+        ordered_ids.forEach((id: string, index: number) => {
+          if (mockState.items[id]) {
+            mockState.items[id].order = index;
+          }
+        });
+      }
+
+      await route.fulfill({ status: 200, body: JSON.stringify({ status: 'success' }) });
+    });
+
+    await pipelinePage.goto();
+
+    const firstCard = await pipelinePage.getCardByTitle('First Idea');
+    const secondCard = await pipelinePage.getCardByTitle('Second Idea');
+
+    // Drag Second Idea above First Idea
+    await secondCard.dragTo(firstCard);
+
+    // The UI should have called /api/items/reorder, updating our mockState.
+    // Now we reload and verify the state is returned correctly.
+    await page.reload();
+
+    // Verify the order in the DOM (Second Idea should now be first)
+    const cards = page.locator('.grid-cols-5 .bg-white');
+    await expect(cards.first()).toContainText('Second Idea');
+    await expect(cards.nth(1)).toContainText('First Idea');
+  });
+
+
   test('should show error message when API fails', async ({ page }) => {
     await page.route('**/api/state', async (route) => {
       await route.fulfill({
@@ -195,6 +246,7 @@ test.describe('Pipeline Golden Path', () => {
         body: 'Internal Server Error',
       });
     });
+
 
     await pipelinePage.goto();
 

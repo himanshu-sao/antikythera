@@ -21,7 +21,8 @@
     "@tailwindcss/postcss": "^4.3.0",
     "lodash": "^4.18.1",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "react-hot-toast": "^2.6.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

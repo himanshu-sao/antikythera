@@ -102,22 +102,14 @@ Hermes doesn't just execute; it learns. The **Memory Agent** runs a nightly loop
 
 ## 🤖 AI Agent Guide
 If you are an AI agent assisting with Hermes:
-- **Source of Truth**: Follow the hierarchy: `memory.md` $\rightarrow$ `PROJECT_SUMMARY.md` $\rightarrow$ `PROGRESS.md` $\rightarrow$ `VERIFICATION_CRITERIA.md`.
+- **Source of Truth**: Follow the hierarchy: `memory.md` $\rightarrow$ `PROJECT_STATUS.md` $\rightarrow$ `PROGRESS.md` $\rightarrow$ `VERIFICATION_CRITERIA.md`.
+- **Prompts**: System prompts and review templates are located in `docs/prompts/`.
 - **State**: Always check `pipeline-state.json` before assuming an item's stage.
 - **Normalization**: Use uppercase for all Idea IDs (e.g., `ID-001`).
 - **Verification**: No task is complete until it satisfies the rules in `VERIFICATION_CRITERIA.md`.
 
-
 ---
 
-## ⚠️ Known Issues & Pending TODOs (`kanban-fix` branch)
-
-> The following issues were identified during review of the `kanban-fix` branch. Full details and verification criteria are tracked in `HERMES_PRODUCT_SPEC.md` (Section 5) and `PROJECT_SUMMARY.md` (Kanban-Fix Remediation Tasks).
-
-| ID | Severity | Summary | Status |
-|---|---|---|---|
-| R-KF-01 | 🔴 Critical | `node_modules` committed to repo — must be removed and `.gitignore`'d | ⏳ Pending |
-| R-KF-02 | 🟡 Medium | API base URL hardcoded as `http://localhost:8000` — extract to `VITE_API_URL` env var | ⏳ Pending |
-| R-KF-03 | 🟡 Medium | Card `order: 0` hardcoded in drag-move handler — intra-column reorder not persisted | ⏳ Pending |
-| R-KF-04 | 🟡 Medium | `StateManager` has no file locking — concurrent writes can corrupt `pipeline-state.json` | ⏳ Pending |
-| R-KF-05 | 🟢 Low | Module-level `Orchestrator()` instantiated at import time — verify no side effects | ⏳ Pending |
+## 🏁 Project Status
+For the current implementation state, phased build plan, and remediation tracking, please refer to:
+👉 **`PROJECT_STATUS.md`**

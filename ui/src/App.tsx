@@ -95,25 +95,25 @@ export default function App() {
     const { active, over } = event;
     if (!over) return;
     const itemId = String(active.id);
-    const toStage = String(over.id);
-    if (!itemId || !toStage) return;
+    const overId = String(over.id);
+    if (!itemId || !overId) return;
 
     const activeItem = state.items[itemId];
     if (!activeItem) return;
 
-    let targetStage = toStage;
+    let targetStage = '';
     let targetOrder = 0;
 
-    const isStage = STAGES.includes(toStage);
+    const isStage = STAGES.includes(overId);
     if (isStage) {
-      targetStage = toStage;
+      targetStage = overId;
       const columnItems = Object.entries(state.items)
         .map(([id, item]) => ({ ...item, id }))
         .filter(item => item.stage === targetStage && item.id !== itemId)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       targetOrder = columnItems.length;
     } else {
-      const overItem = state.items[toStage];
+      const overItem = state.items[overId];
       if (!overItem) return;
       targetStage = overItem.stage;
 
@@ -122,8 +122,12 @@ export default function App() {
         .filter(item => item.stage === targetStage && item.id !== itemId)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-      const overIndex = columnItems.findIndex(item => item.id === toStage);
-      targetOrder = overIndex !== -1 ? overIndex : columnItems.length;
+      const overIndex = columnItems.findIndex(item => item.id === overId);
+      if (overIndex === -1) {
+        targetOrder = columnItems.length;
+      } else {
+        targetOrder = overIndex;
+      }
     }
 
     if (activeItem.stage === targetStage && (activeItem.order ?? 0) === targetOrder) {
@@ -141,11 +145,11 @@ export default function App() {
         }),
       });
       if (res.ok) {
-        // Sync the full order of the target column to ensure sequential indices
-        const columnItems = Object.entries(state.items)
-          .filter(([, item]) => item.stage === targetStage || (item.id === itemId && targetStage === targetStage))
-          // Note: state.items might not be updated yet, so we include the moved item manually if needed
-          .map(([id, item]) => ({ ...item, id }))
+        // Get current state to calculate the new order for the target column
+        const currentState = await fetch(`${apiUrl}/api/state`).then(r => r.json());
+        const columnItems = Object.entries(currentState.items)
+          .filter(([, item]: [string, any]) => item.stage === targetStage)
+          .map(([id, item]: [string, any]) => ({ ...item, id }))
           .filter(item => item.id !== itemId)
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
@@ -341,7 +345,9 @@ export default function App() {
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all bg-white"
                 >
                   <option value="all">All Stages</option>
-                  {STAGES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
                 </select>
               </div>
               <div className="relative">
@@ -363,57 +369,57 @@ export default function App() {
           </div>
         </header>
 
-                    <DndContext
-                      sensors={sensors}
-                      onDragStart={handleDragStart}
-                      onDragEnd={handleDragEnd}
-                    >
-        <div className="grid grid-cols-5 gap-4">
-          {STAGES.map(stage => (
-            <KanbanColumn
-              key={stage}
-              id={stage}
-              items={Object.entries(state.items)
-                .filter(([, item]) => item.stage === stage)
-                .filter(([, item]) => {
-                  const matchesSearch = !searchQuery ||
-                    item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    item.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                    item.source_value?.toLowerCase().includes(searchQuery.toLowerCase());
+        <DndContext
+          sensors={sensors}
+          onDragStart={handleDragStart}
+          onDragEnd={handleDragEnd}
+        >
+          <div className="grid grid-cols-5 gap-4">
+            {STAGES.map(stage => (
+              <KanbanColumn
+                key={stage}
+                id={stage}
+                items={Object.entries(state.items)
+                  .filter(([, item]) => item.stage === stage)
+                  .filter(([, item]) => {
+                    const matchesSearch = !searchQuery ||
+                      item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      item.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                      item.source_value?.toLowerCase().includes(searchQuery.toLowerCase());
 
-                  const matchesPriority = priorityFilter === 'all' || item.priority?.toLowerCase() === priorityFilter;
-                  const matchesStage = stageFilter === 'all' || item.stage === stageFilter;
+                    const matchesPriority = priorityFilter === 'all' || item.priority?.toLowerCase() === priorityFilter;
+                    const matchesStage = stageFilter === 'all' || item.stage === stageFilter;
 
-                  return matchesSearch && matchesPriority && matchesStage;
-                })
-                .map(([id, item]) => ({ ...item, id }))
-                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
-              onCardClick={(id) => {
-                setSelectedId(id);
-                setEditMode(false);
-              }}
-              onEditClick={(id) => {
-                setSelectedId(id);
-                setEditMode(true);
-              }}
-              onDeleteClick={handleDeleteItem}
-            />
-          ))}
-        </div>
-        <DragOverlay>
-          {activeId && state.items && state.items[activeId] ? (
-            <KanbanCardContent
+                    return matchesSearch && matchesPriority && matchesStage;
+                  })
+                  .map(([id, item]) => ({ ...item, id }))
+                  .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
+                onCardClick={(id) => {
+                  setSelectedId(id);
+                  setEditMode(false);
+                }}
+                onEditClick={(id) => {
+                  setSelectedId(id);
+                  setEditMode(true);
+                } }
+                onDeleteClick={handleDeleteItem}
+              />
+            ))}
+          </div>
+          <DragOverlay>
+            {activeId && state.items && state.items[activeId] ? (
+              <KanbanCardContent
               {...state.items[activeId]}
               id={activeId}
               isDragOverlay
               onCardClick={() => {}}
               onEditClick={() => {}}
               onDeleteClick={() => {}}
-            />
-          ) : null}
-        </DragOverlay>
-                      </DndContext>
+              />
+            ) : null}
+          </DragOverlay>
+        </DndContext>
 
         {showWorkflow && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -450,7 +456,7 @@ export default function App() {
                     onClick={() => {
                       setSelectedId(null);
                       setEditMode(false);
-                    }}
+                    } }
                     className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                   >
                     ✕
@@ -491,42 +497,42 @@ export default function App() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Item ID</label>
                   <input
-                    type="text"
-                    value={newItem.id}
-                    onChange={(e) => setNewItem({ ...newItem, id: e.target.value })}
-                    placeholder="e.g. IDEA-1"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      type="text"
+                      value={newItem.id}
+                      onChange={(e) => setNewItem({ ...newItem, id: e.target.value })}
+                      placeholder="e.g. IDEA-1"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
                   <input
-                    type="text"
-                    value={newItem.title}
-                    onChange={(e) => setNewItem({ ...newItem, title: e.target.value })}
-                    placeholder="What is the automation idea?"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                  />
+                      type="text"
+                      value={newItem.title}
+                      onChange={(e) => setNewItem({ ...newItem, title: e.target.value })}
+                      placeholder="What is the automation idea?"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      />
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Source Type</label>
                   <select
-                    value={newItem.source_type || ''}
-                    onChange={(e) => setNewItem({ ...newItem, source_type: e.target.value, source_value: '' })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
+                      value={newItem.source_type || ''}
+                      onChange={(e) => setNewItem({ ...newItem, source_type: e.target.value, source_value: '' })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
                   >
-                    <option value="">None</option>
-                    <option value="url">URL</option>
-                    <option value="directory">Directory</option>
+                      <option value="">None</option>
+                      <option value="url">URL</option>
+                      <option value="directory">Directory</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
                   <input
-                    type="date"
-                    value={newItem.due_date || ''}
-                    onChange={(e) => setNewItem({ ...newItem, due_date: e.target.value })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
+                      type="date"
+                      value={newItem.due_date || ''}
+                      onChange={(e) => setNewItem({ ...newItem, due_date: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                   />
                 </div>
                 {newItem.source_type && (
