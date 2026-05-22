@@ -15,6 +15,7 @@ import {
   useSortable
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import toast, { Toaster } from 'react-hot-toast';
 
 const STAGES = [
   "INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE", 
@@ -121,11 +122,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-gray-100 p-8">
       <h1 className="text-3xl font-bold mb-8 text-center">Hermes Kanban Board</h1>
-      <DndContext 
-        sensors={sensors} 
-        collisionDetection={closestCenter} 
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
       >
+        <Toaster position="top-right" />
         <div className="flex overflow-x-auto gap-4 pb-4">
           {STAGES.map(stage => (
             <div 

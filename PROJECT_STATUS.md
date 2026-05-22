@@ -81,7 +81,7 @@ The following high-priority improvements were integrated during the `kanban-fix`
 ### Deferred Enhancements (Backlog)
 | ID | Category | Title | Priority | Notes |
 |---|---|---|---|---|
-| ENH-07 | Frontend | Column WIP limits | Medium | UI config needed |
+| ENH-07 | Frontend | Delete card button with confirmation | ✅ Completed | Implemented in CardEditor with window.confirm and backend DELETE call. |
 | ENH-08 | Frontend | Advanced drag-and-drop reordering | High | Partially present via @atlaskit |
 | ENH-10 | Frontend | Due date support | Medium | Requires data model update |
 | ENH-11 | Frontend | Item priority visual indicators | Low | Basic priority field added in ENH-02 |
