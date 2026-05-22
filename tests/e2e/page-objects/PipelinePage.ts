@@ -37,4 +37,8 @@ export class PipelinePage {
   async getCardByTitle(title: string) {
     return this.page.locator('div').filter({ hasText: title }).first();
   }
+
+  async getColumnByTitle(title: string) {
+    return this.page.locator('h2', { hasText: title }).first();
+  }
 }
