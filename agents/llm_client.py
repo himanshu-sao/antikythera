@@ -62,7 +62,7 @@ class LLMClient:
                 self.model = "gpt-4o"
 
         elif self.provider == "google":
-            api_key = self._get_env_var(self.config.get("api_key_env", "GOOGLE_API_KEY"))
+            api_key = self._get_env_var(self.config.get("api_key_env", "GOOGLE_API_KEY_KANBAN"))
             
             if not api_key:
                 logger.warning("No API key provided for Google. Requests will likely fail.")

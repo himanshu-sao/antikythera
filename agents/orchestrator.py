@@ -7,6 +7,9 @@ based on their current stage, and updates state after each action.
 """
 
 import logging
+import yaml
+from typing import Optional, Dict, Any
+from dotenv import load_dotenv
 from agents import state as state_module
 from agents import refiner
 from agents import architect
@@ -14,6 +17,11 @@ from agents import tester
 from agents import audit as audit_module
 from agents import telegram
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # All pipeline stages in order
@@ -90,7 +98,6 @@ class Orchestrator:
 
             # --- Telegram Notification ---
             try:
-                import yaml
                 with open("config.yaml", "r") as f:
                     config = yaml.safe_load(f)
 
@@ -213,7 +220,28 @@ class Orchestrator:
 
     def handle_executing(self, item, state, item_id):
         self.logger.info("Processing %s at EXECUTING stage", item_id)
-        self.transition_stage(item, "DONE", state, item_id)
+        confidence = 0
+        try:
+            from agents import executor
+            confidence = executor.executor_idea(item_id)
+            item["confidence_score"] = confidence
+            self.logger.info("Executor completed for %s with confidence %d", item_id, confidence)
+            audit_module.log_action(
+                agent_name="executor",
+                idea_id=item_id,
+                stage="EXECUTING",
+                action="Implemented requirements and verified via tests",
+                inputs=f"requirements/{item_id}/spec.md, requirements/{item_id}/architecture.md, requirements/{item_id}/tests.md",
+                outputs=f"requirements/{item_id}/execution_report.md (confidence: {confidence})",
+            )
+        except Exception as e:
+            self.logger.error("Executor failed for %s: %s", item_id, str(e))
+            item["blocked_reason"] = f"Executor failed: {str(e)}"
+        
+        if confidence > 0:
+            self.transition_stage(item, "DONE", state, item_id)
+        else:
+            self.transition_stage(item, "REVIEW_TEST", state, item_id) # Fallback to review if implementation was shaky
 
     def handle_done(self, item, state, item_id):
         self.logger.info("%s is already DONE, skipping", item_id)
