@@ -25,8 +25,8 @@ export class PipelinePage {
 
   async createIdea(id: string, title: string) {
     await this.newItemButton.click();
-    await this.page.getByLabel('Item ID').fill(id);
-    await this.page.getByLabel('Title').fill(title);
+    await this.page.locator('input[placeholder="e.g. IDEA-1"]').fill(id);
+    await this.page.locator('input[placeholder="What is the automation idea?"]').fill(title);
     await this.page.getByRole('button', { name: 'Create Item' }).click();
   }
 
