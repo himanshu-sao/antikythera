@@ -9,7 +9,10 @@ paths:
   requirements_dir: "automation-ideas/requirements"
   brain_patterns: "automation-ideas/brain/patterns.md"
 
-telegram:
-  bot_token: "YOUR_BOT_TOKEN"
-  chat_id: "YOUR_CHAT_ID"
-  enabled: false
+llm:
+  provider: "google"
+  model: "gemma-4-26b-a4b-it"
+  base_url: "https://generativelanguage.googleapis.com/v1beta"
+  api_key_env: "GOOGLE_API_KEY"
+  openai_api_key_env: "OPENAI_API_KEY"
+  openai_base_url_env: "OPENAI_BASE_URL"

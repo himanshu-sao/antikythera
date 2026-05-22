@@ -1,110 +1,24 @@
 """
-Refiner Agent — reads a one-liner from ideas.md and writes a detailed spec.md.
+Refiner Agent — reads a one-liner from ideas.md and writes a detailed spec.md using an LLM.
 
 The Refiner generates comprehensive specification documents with
 requirements, scope, edge cases, constraints, and PII/secret handling notes.
 """
 
 import os
-import re
+import logging
+from agents.llm_client import LLMClient
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIREMENTS_DIR = os.path.join(PROJECT_ROOT, "automation-ideas", "requirements")
 BRAIN_PATTERNS = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "patterns.md")
 
+logger = logging.getLogger(__name__)
 
-def _generate_spec_content(idea_id, title, patterns_content=None):
-    """
-    Generate a comprehensive specification document.
+# Initialize LLM Client using central config
+from agents.llm_client import LLMClient
 
-    Args:
-        idea_id (str): The item ID (e.g. "ID-001").
-        title (str): The title of the idea.
-        patterns_content (str, optional): Content from brain/patterns.md.
-
-    Returns:
-        str: The generated spec markdown content.
-    """
-    patterns_section = ""
-    if patterns_content and patterns_content.strip():
-        patterns_section = f"""
-## Patterns Referenced
-
-The following patterns from `brain/patterns.md` were considered during refinement:
-
-{patterns_content[:500]}
-
-"""
-
-    return f"""# Specification for {idea_id}: {title}
-
-## Overview
-
-{title} is an automation task that aims to streamline and improve operational efficiency. This specification outlines the requirements, scope, constraints, and considerations for implementing this automation.
-
-## Requirements
-
-### Functional Requirements
-- The system shall automate the core workflow described in "{title}"
-- The automation shall execute without manual intervention once triggered
-- The system shall log all actions and outcomes for audit purposes
-- Error handling shall be implemented for all failure modes
-- The automation shall respect existing system constraints and permissions
-
-### Non-Functional Requirements
-- The automation shall complete within acceptable time bounds
-- The system shall be idempotent where possible to allow safe re-execution
-- All configuration shall be externalized (not hardcoded)
-- The implementation shall follow the patterns defined in brain/patterns.md
-
-## Scope
-
-**In Scope:**
-- Implementation of the core automation logic for "{title}"
-- Error handling and logging
-- Configuration management
-- Basic monitoring and alerting
-
-**Out of Scope:**
-- UI or dashboard development (handled by Kanban UI phase)
-- Integration with external notification systems (handled by Telegram phase)
-- Long-term data retention and archival
-- Multi-environment deployment automation
-
-## Edge Cases
-
-- **Empty or invalid input**: The system shall validate all inputs before processing
-- **Network failures**: The automation shall retry with exponential backoff on transient failures
-- **Concurrent execution**: The system shall prevent duplicate concurrent runs of the same automation
-- **Partial completion**: If the automation fails mid-way, it shall clean up any partial state
-- **Permission denied**: The system shall log and alert on permission errors without crashing
-- **Resource exhaustion**: The automation shall monitor and respect resource limits (disk, memory, API quotas)
-
-## Constraints
-
-- All secrets and credentials must be read from environment variables or a secure vault — never hardcoded
-- The automation must not modify production data without explicit approval
-- All changes must be reversible or have a rollback plan
-- The implementation must be compatible with the existing Python agent framework
-- Maximum execution time should be bounded and configurable
-
-## PII / Secret Handling Notes
-
-- No PII (Personally Identifiable Information) is expected to be handled by this automation
-- Any credentials required shall be sourced from environment variables using `os.getenv()`
-- Secrets must never be logged, printed, or written to files
-- If the automation interacts with external APIs, tokens shall be passed via secure headers
-- Review brain/patterns.md for organization-specific secret management conventions
-
-## Dependencies
-
-- Python 3.8+ runtime
-- Access to the systems being automated
-- Required Python packages as specified in requirements.txt
-- Network access for any external API calls
-- Appropriate IAM permissions / service account access
-{patterns_section}"""
-
+llm = LLMClient(config_path=os.path.join(PROJECT_ROOT, "config.yaml"))
 
 def _read_patterns(patterns_path=None):
     """
@@ -145,12 +59,7 @@ def write_spec(idea_id, spec_content):
 def calculate_confidence(spec_content):
     """
     Calculate a confidence score (0-100) for a spec document.
-
-    Scoring criteria:
-    - Length >= 500 chars: 40 points, >= 200 chars: 20 points, else 0
-    - Has sections: requirements, scope, edge cases, constraints, pii/secret: 30 points (6 each)
-    - References patterns: 20 points
-    - Has specific/actionable content (bullet points or numbered lists): 10 points
+    This is a heuristic check to ensure the LLM followed instructions.
 
     Args:
         spec_content (str): The spec document content.
@@ -160,26 +69,76 @@ def calculate_confidence(spec_content):
     """
     score = 0
     content_lower = spec_content.lower()
-
-    # Length scoring (40 points max)
-    if len(spec_content) >= 500:
-        score += 40
-    elif len(spec_content) >= 200:
+    
+    # Basic structure check
+    if "# Specification" in spec_content or "# Specification for" in spec_content:
         score += 20
-
-    # Section coverage scoring (30 points max, 6 each)
-    sections = ["requirements", "scope", "edge cases", "constraints", "pii"]
+    
+    # Section check
+    sections = ["requirements", "scope", "edge cases", "constraints", "pii", "overview"]
     for section in sections:
         if section in content_lower:
-            score += 6
+            score += 15
+    
+    # Content depth check
+    if len(spec_content) > 800:
+        score += 30
+    elif len(spec_content) > 400:
+        score += 15
+        
+    # Formatted list check
+    if "-" in spec_content or "*" in spec_content:
+        score += 15
 
-    # Patterns reference scoring (20 points)
-    if "pattern" in content_lower:
-        score += 20
+    return min(score, 100)
 
-    # Specific/actionable content scoring (10 points)
-    if re.search(r'[-*]\s', spec_content) or re.search(r'\d+\.\s', spec_content):
-        score += 10
+
+def refine_idea(idea_id, title, patterns_path=None):
+    """
+    Refine an idea from a one-liner into a full specification using an LLM.
+
+    Args:
+        idea_id (str): The item ID (e.g. "ID-001").
+        title (str): The title/one-liner of the idea.
+        patterns_path (str, optional): Path to patterns.md.
+
+    Returns:
+        int: Confidence score (0-100).
+
+    Raises:
+        ValueError: If title is empty or None.
+    """
+    if not title or not title.strip():
+        raise ValueError("Title cannot be empty")
+
+    logger.info("Refining idea %s: %s", idea_id, title)
+
+    patterns_content = _read_patterns(patterns_path)
+    
+    system_prompt = f"""You are the Hermes Refiner Agent. Your goal is to transform simple automation ideas into professional, comprehensive, and actionable technical specifications.
+
+Your output must be in valid Markdown format.
+
+Follow these guidelines:
+1. **Structure**: Use clear headings: # Specification for [ID]: [Title], ## Overview, ## Requirements (Functional/Non-Functional), ## Scope (In/Out), ## Edge Cases, ## Constraints, ## PII / Secret Handling Notes, and ## Dependencies.
+2. **Detail**: Be highly specific. Instead of "handle errors", say "implement exponential backoff for transient network failures".
+3. **Safety**: Always emphasize secret management (using env vars, not hardcoding) and idempotency.
+4. **Patterns**: Incorporate the following architectural and organizational patterns from the system's brain:
+{patterns_content if patterns_content else "No specific patterns provided."}
+
+Your response should ONLY contain the markdown content for the specification document."""
+
+    user_prompt = f"Refine this idea: '{title}' (ID: {idea_id})"
+
+    try:
+        spec_content = llm.generate_structured_content(system_prompt, user_prompt)
+        write_spec(idea_id, spec_content)
+        confidence = calculate_confidence(spec_content)
+        logger.info("Refiner completed for %s with confidence %d", idea_id, confidence)
+        return confidence
+    except Exception as e:
+        logger.error("LLM Refiner failed for %s: %s", idea_id, str(e))
+        raise e
 
     return min(score, 100)
 
