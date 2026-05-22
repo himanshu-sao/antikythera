@@ -19,9 +19,9 @@ The Hermes system follows a phased build approach. Phases 0–7 are the core fou
 
 ### Execution Strategy
 The project operates on an implementation-review loop:
-1. **Review**: Audit phases using `SUPERPOWER-REVIEW.prompt.md`.
+1. **Review**: Audit phases using `docs/prompts/SUPERPOWER-REVIEW.prompt.md`.
 2. **Remediate**: Record gaps as remediation tasks in this file.
-3. **Implement**: Fix tasks using `SUPERPOWER-IMPLEMENT.prompt.md`.
+3. **Implement**: Fix tasks using `docs/prompts/SUPERPOWER-IMPLEMENT.prompt.md`.
 4. **Verify**: Treat work as done only when it satisfies `VERIFICATION_CRITERIA.md`.
 
 ---
@@ -82,10 +82,11 @@ The following high-priority improvements were integrated during the `kanban-fix`
 | ID | Category | Title | Priority | Notes |
 |---|---|---|---|---|
 | ENH-07 | Frontend | Delete card button with confirmation | ✅ Completed | Implemented in CardEditor with window.confirm and backend DELETE call. |
-| ENH-08 | Frontend | Advanced drag-and-drop reordering | High | Partially present via @atlaskit |
+| ENH-08 | Frontend | Toast notifications instead of alert() | ✅ Completed | Replaced all native alert calls with react-hot-toast. |
 | ENH-10 | Frontend | Due date support | Medium | Requires data model update |
 | ENH-11 | Frontend | Item priority visual indicators | Low | Basic priority field added in ENH-02 |
-| ENH-12 | Frontend | Search/filter functionality | Medium | Can layer on top |
+| ENH-12 | Frontend | Search/filter functionality | ✅ Completed | Implemented search, priority, and stage filters. |
+| ENH-13 | Frontend | Persist intra-column reordering | Low | Identified regression in E2E tests; deferred to next maintenance cycle. |
 
 ---
 

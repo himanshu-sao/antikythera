@@ -210,15 +210,17 @@ export function KanbanColumn({ id, items, onCardClick, onEditClick, onDeleteClic
           </div>
         ) : (
           <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
-            {items.map((item) => (
-              <SortableCard
-                key={item.id}
-                {...item}
-                onCardClick={onCardClick}
-                onEditClick={onEditClick}
-                onDeleteClick={onDeleteClick}
-              />
-            ))}
+            {items
+              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+              .map((item) => (
+                <SortableCard
+                  key={item.id}
+                  {...item}
+                  onCardClick={onCardClick}
+                  onEditClick={onEditClick}
+                  onDeleteClick={onDeleteClick}
+                />
+              ))}
           </SortableContext>
         )}
       </div>

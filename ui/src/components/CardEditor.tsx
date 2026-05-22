@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 
 interface CardEditorProps {
   itemId: string;
@@ -25,9 +26,10 @@ export function CardEditor({ itemId, initialData, onSave, onDelete, onClose }: C
     setIsSaving(true);
     try {
       await onSave(formData);
+      toast.success('Changes saved successfully');
       onClose();
     } catch (e) {
-      alert('Failed to save changes');
+      toast.error('Failed to save changes');
     } finally {
       setIsSaving(false);
     }

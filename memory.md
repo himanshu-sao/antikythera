@@ -41,28 +41,33 @@ Format:
 ## 3. Directory Structure
 
 ```
-automation-ideas/
-├── ideas.md                            ← Owner's intake file
-├── pipeline-state.json                 ← Single source of truth for all pipeline state
+/
+├── memory.md                            ← This file (system design reference)
+├── PROJECT_STATUS.md
+├── README.md
+├── HERMES_PRODUCT_SPEC.md
 │
-├── requirements/
-│   ├── ID-001/
-│   │   ├── spec.md                     ← Refiner Agent output
-│   │   ├── architecture.md             ← Architect Agent output
-│   │   ├── tests.md                    ← Tester Agent output
-│   │   └── review.md                   ← Owner's review comments (per stage)
-│   └── ID-002/
-│       └── ...
-│
-├── audit/
-│   └── YYYY-MM-DD.md                   ← Daily audit log (every agent action)
-│
-└── brain/
-    ├── memory.md                       ← This file (system design reference)
-    ├── patterns.md                     ← Learned owner patterns (secrets, PII, stack preferences)
-    ├── pending-updates.md              ← Brain update proposals awaiting owner review
-    └── history/
-        └── YYYY-MM-DD-update.md        ← Versioned history of brain updates
+├── automation-ideas/
+│   ├── ideas.md                            ← Owner's intake file
+│   ├── pipeline-state.json                 ← Single source of truth for all pipeline state
+│   │
+│   ├── requirements/
+│   │   ├── ID-001/
+│   │   │   ├── spec.md                     ← Refiner Agent output
+│   │   │   ├── architecture.md             ← Architect Agent output
+│   │   │   ├── tests.md                    ← Tester Agent output
+│   │   │   └── review.md                   ← Owner's review comments (per stage)
+│   │   └── ID-002/
+│   │       └── ...
+│   │
+│   ├── audit/
+│   │   └── YYYY-MM-DD.md                   ← Daily audit log (every agent action)
+│   │
+│   └── brain/
+│       ├── patterns.md                     ← Learned owner patterns (secrets, PII, stack preferences)
+│       ├── pending-updates.md              ← Brain update proposals awaiting owner review
+│       └── history/
+│           └── YYYY-MM-DD-update.md        ← Versioned history of brain updates
 ```
 
 ---

@@ -37,7 +37,7 @@ export function CommentSection({ itemId, initialComments, onCommentAdded }: Comm
       setCommentText('');
       await onCommentAdded();
     } catch (e) {
-      alert('Error posting comment');
+      toast.error('Error posting comment');
     } finally {
       setIsPosting(false);
     }

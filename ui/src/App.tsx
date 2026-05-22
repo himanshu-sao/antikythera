@@ -7,6 +7,7 @@ import { CardEditor } from './components/CardEditor';
 import { CommentSection } from './components/CommentSection';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { apiUrl } from './config';
+import toast, { Toaster } from 'react-hot-toast';
 import type { PipelineItem, PipelineState } from './types';
 
 const STAGES = [
@@ -145,16 +146,15 @@ export default function App() {
         }),
       });
       if (res.ok) {
-        // Get current state to calculate the new order for the target column
-        const currentState = await fetch(`${apiUrl}/api/state`).then(r => r.json());
-        const columnItems = Object.entries(currentState.items)
+        const freshState = await fetchState();
+        if (!freshState) return;
+
+        // Calculate the final order for the target column using the fresh state
+        const columnItems = Object.entries(freshState.items)
           .filter(([, item]: [string, any]) => item.stage === targetStage)
           .map(([id, item]: [string, any]) => ({ ...item, id }))
-          .filter(item => item.id !== itemId)
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
-        // Insert the moved item at the targetOrder position
-        columnItems.splice(targetOrder, 0, { ...state.items[itemId], id: itemId, stage: targetStage, order: targetOrder });
         const orderedIds = columnItems.map(item => item.id);
 
         await fetch(`${apiUrl}/api/items/reorder`, {
@@ -166,11 +166,13 @@ export default function App() {
           }),
         });
 
+        // Final refresh to ensure UI is perfectly synced with the reordered state
         await fetchState();
       }
     } catch (e) {
       console.error("Failed to move item", e);
     }
+
   };
 
   const handleUpdateItem = async (updates: any) => {
@@ -263,7 +265,7 @@ export default function App() {
       await fetchState();
     } catch (e: any) {
       console.error("Failed to create item", e);
-      alert(`Error: ${e.message}`);
+      toast.error(`Error: ${e.message}`);
       // Rollback optimistic update
       setState(prev => {
         const newItems = { ...prev.items };
@@ -345,9 +347,9 @@ export default function App() {
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all bg-white"
                 >
                   <option value="all">All Stages</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
+                  {STAGES.map(stage => (
+                    <option key={stage} value={stage}>{stage}</option>
+                  ))}
                 </select>
               </div>
               <div className="relative">
@@ -374,6 +376,7 @@ export default function App() {
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
         >
+          <Toaster position="top-right" />
           <div className="grid grid-cols-5 gap-4">
             {STAGES.map(stage => (
               <KanbanColumn

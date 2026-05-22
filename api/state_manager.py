@@ -120,11 +120,26 @@ class StateManager:
             with state_module._lock:
                 state = state_module.load_state()
                 items = state.get("items", {})
+
+                # Identify all items currently in the target stage
+                stage_items = [id for id, item in items.items() if item.get("stage") == stage]
+
+                # Update order for IDs provided in the request
                 for index, item_id in enumerate(ordered_ids):
                     uid = item_id.upper()
                     if uid in items and items[uid].get("stage") == stage:
                         items[uid]["order"] = index
                         items[uid]["updated_at"] = datetime.utcnow().isoformat() + "Z"
+
+                # Ensure any items in the stage NOT in the ordered_ids list are moved to the end
+                # to prevent order collisions.
+                current_max_order = len(ordered_ids) - 1 if ordered_ids else 0
+                for uid in stage_items:
+                    if uid not in [oid.upper() for oid in ordered_ids]:
+                        items[uid]["order"] = current_max_order + 1
+                        current_max_order += 1
+                        items[uid]["updated_at"] = datetime.utcnow().isoformat() + "Z"
+
                 state_module.save_state(state)
             return True
         except Exception:

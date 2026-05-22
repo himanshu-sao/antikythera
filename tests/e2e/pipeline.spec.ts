@@ -88,7 +88,7 @@ test.describe('Pipeline Golden Path', () => {
     await expect(card).toContainText('INTAKE');
   });
 
-  test('should filter ideas by search query', async ({ page }) => {
+  test('should filter ideas by search query, priority, and stage', async ({ page }) => {
     // Mock state with multiple items
     await page.route('**/api/state', async (route) => {
       await route.fulfill({
@@ -100,7 +100,7 @@ test.describe('Pipeline Golden Path', () => {
               id: 'IDEA-1',
               title: 'Apple Idea',
               stage: 'INTAKE',
-              priority: 'medium',
+              priority: 'high',
               confidence_score: 0,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
@@ -109,7 +109,7 @@ test.describe('Pipeline Golden Path', () => {
             'IDEA-2': {
               id: 'IDEA-2',
               title: 'Banana Idea',
-              stage: 'INTAKE',
+              stage: 'REFINEMENT',
               priority: 'medium',
               confidence_score: 0,
               created_at: new Date().toISOString(),
@@ -123,14 +123,24 @@ test.describe('Pipeline Golden Path', () => {
 
     await pipelinePage.goto();
 
+    // 1. Test Search
     await pipelinePage.searchIdeas('Apple');
+    await expect(page.locator('text=Apple Idea')).toBeVisible();
+    await expect(page.locator('text=Banana Idea')).not.toBeVisible();
+    await pipelinePage.searchIdeas(''); // Reset
 
-    const appleCard = await pipelinePage.getCardByTitle('Apple Idea');
-    const bananaCard = await pipelinePage.getCardByTitle('Banana Idea');
+    // 2. Test Priority Filter
+    await page.selectOption('select:nth-of-type(1)', 'high');
+    await expect(page.locator('text=Apple Idea')).toBeVisible();
+    await expect(page.locator('text=Banana Idea')).not.toBeVisible();
+    await page.selectOption('select:nth-of-type(1)', 'all');
 
-    await expect(appleCard).toBeVisible();
-    await expect(bananaCard).not.toBeVisible();
+    // 3. Test Stage Filter
+    await page.selectOption('select:nth-of-type(2)', 'REFINEMENT');
+    await expect(page.locator('text=Banana Idea')).toBeVisible();
+    await expect(page.locator('text=Apple Idea')).not.toBeVisible();
   });
+
 
   test('should open and close workflow guide', async ({ page }) => {
     await pipelinePage.workflowButton.click();
@@ -228,8 +238,13 @@ test.describe('Pipeline Golden Path', () => {
     // Drag Second Idea above First Idea
     await secondCard.dragTo(firstCard);
 
-    // The UI should have called /api/items/reorder, updating our mockState.
-    // Now we reload and verify the state is returned correctly.
+    // Wait for the API calls to complete and the UI to reflect the change
+    // Use a shorter timeout or a more flexible wait
+    await page.waitForResponse(
+      response => response.url().includes('/api/items/reorder') && response.status() === 200,
+      { timeout: 5000 }
+    ).catch(() => console.log('Reorder response timeout - continuing to verify DOM'));
+
     await page.reload();
 
     // Verify the order in the DOM (Second Idea should now be first)

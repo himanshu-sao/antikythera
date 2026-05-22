@@ -71,7 +71,29 @@ The system can be triggered in three ways:
 
 ---
 
+## ⚙️ Operations Guide
+
+### State Management
+The entire system state is persisted in `automation-ideas/pipeline-state.json`. 
+- **Backups**: To backup the system, simply copy this JSON file.
+- **Recovery**: To restore, replace the current `pipeline-state.json` with a backup. Ensure the file is not being written to by the API server during recovery.
+- **Consistency**: The system uses atomic writes (`os.replace`) to prevent file corruption during crashes.
+
+### Heartbeat Configuration
+The heartbeat schedule is managed by the Orchestrator. To adjust the trigger times:
+1. Open `agents/orchestrator.py`.
+2. Modify the `HEARTBEAT_SCHEDULE` constant (e.g., change to `["02:00", "14:00"]` for twice-daily runs).
+3. Restart the backend process.
+
+### Troubleshooting
+- **CORS Errors**: Ensure the frontend is running on a port allowed in `api/main.py` (currently `5173` and `5174`).
+- **Telegram Failures**: Verify the `TELEGRAM_BOT_TOKEN` is correct and the bot has permissions to send messages to the operator.
+- **ID Mismatches**: Always use uppercase IDs (e.g., `ID-001`) when interacting with the API or creating folders.
+
+---
+
 ## 🕹 Operating the System
+
 
 ### Adding an Idea
 Add a one-liner to the `## TODO` section of `automation-ideas/ideas.md`:
