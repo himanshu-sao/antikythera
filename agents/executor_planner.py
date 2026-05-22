@@ -1,6 +1,6 @@
 """
 Executor Planner Module.
-Handles decomposing specification and architecture into an actionable checklist.
+Handles decomposing spec and architecture into an actionable checklist.
 """
 
 import os
@@ -54,15 +54,23 @@ Based on the following Specification and Architecture, generate a detailed imple
 {arch_content}
 """
         try:
-            response = self.llm.generate_structured_content(system_prompt, user_prompt)
-            # Clean up response in case LLM included markdown blocks
-            clean_response = response.strip()
+            response_text = self.llm.chat(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt
+            )
+            
+            # Ensure response is a string before cleaning
+            if not isinstance(response_text, str):
+                raise ValueError(f"Expected string from LLM, got {type(response_text)}")
+
+            import json
+            # Clean up response if LLM includes markdown
+            clean_response = response_text.strip()
             if clean_response.startswith("```json"):
                 clean_response = clean_response.split("```json")[1].split("```")[0].strip()
             elif clean_response.startswith("```"):
                 clean_response = clean_response.split("```")[1].split("```")[0].strip()
             
-            import json
             checklist = json.loads(clean_response)
             logger.info(f"Successfully generated checklist with {len(checklist)} tasks.")
             return checklist

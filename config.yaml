@@ -13,6 +13,6 @@ llm:
   provider: "google"
   model: "gemma-4-26b-a4b-it"
   base_url: "https://generativelanguage.googleapis.com/v1beta"
-  api_key_env: "GOOGLE_API_KEY"
+  api_key_env: "GOOGLE_API_KEY_KANBAN"
   openai_api_key_env: "OPENAI_API_KEY"
   openai_base_url_env: "OPENAI_BASE_URL"
