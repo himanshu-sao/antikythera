@@ -1,13 +1,6 @@
-"""
-Orchestrator Agent — main loop, state machine, and agent dispatch.
-
-The Orchestrator is the central controller of the Hermes pipeline.
-It reads pipeline state, dispatches items to the appropriate agents
-based on their current stage, and updates state after each action.
-"""
-
 import logging
 import yaml
+import os
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from agents import state as state_module
@@ -23,6 +16,8 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # All pipeline stages in order
 PIPELINE_STAGES = [
@@ -56,17 +51,10 @@ STAGE_AGENTS = {
 }
 
 class Orchestrator:
-    """
-    Orchestrator Agent — main loop, state machine, and agent dispatch.
-    """
-
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
     def get_next_actionable_items(self, state):
-        """
-        Get items that are ready for processing (not blocked on review).
-        """
         items = state.get("items", {})
         actionable = []
         for item_id, item in items.items():
@@ -76,15 +64,12 @@ class Orchestrator:
                 if review_status != "APPROVED":
                     continue
             actionable.append((item_id, item))
-        # Sort by priority: High first, then Medium, then Low
+        
         priority_order = {"High": 0, "Medium": 1, "Low": 2}
         actionable.sort(key=lambda x: priority_order.get(x[1].get("priority", "Medium"), 99))
         return actionable
 
     def transition_stage(self, item, new_stage, state, item_id=None):
-        """
-        Transition an item to a new stage.
-        """
         old_stage = item.get("stage", "INTAKE")
         item["stage"] = new_stage
         agent = STAGE_AGENTS.get(new_stage)
@@ -95,12 +80,9 @@ class Orchestrator:
 
         if item_id:
             state_module.add_history_entry(state, item_id, new_stage, agent=agent)
-
-            # --- Telegram Notification ---
             try:
                 with open("config.yaml", "r") as f:
                     config = yaml.safe_load(f)
-
                 tg = telegram.TelegramHandler(config)
                 if new_stage in REVIEW_STAGES or new_stage == "DONE":
                     tg.send_notification(
@@ -113,8 +95,6 @@ class Orchestrator:
                 self.logger.error("Failed to send Telegram notification for %s: %s", item_id, str(e))
 
         self.logger.info("Transitioned %s: %s -> %s (agent: %s)", item_id or "?", old_stage, new_stage, agent or "none")
-
-    # --- Stage Handlers ---
 
     def handle_intake(self, item, state, item_id):
         self.logger.info("Processing %s at INTAKE stage", item_id)
@@ -222,6 +202,19 @@ class Orchestrator:
         self.logger.info("Processing %s at EXECUTING stage", item_id)
         confidence = 0
         try:
+            # Check for INLINE execution mode
+            execution_mode = item.get('execution_policy', {}).get('mode', 'ENGINEERING')
+            if execution_mode == 'INLINE':
+                self.logger.info("Executing INLINE task for %s", item_id)
+                from agents import executor
+                result = executor.executor_idea(item_id)
+                # Instead of writing files, we update the state directly
+                item['inline_output'] = result
+                from agents import state as state_module
+                state_module.save_state(state)
+                self.transition_stage(item, 'DONE', state, item_id)
+                return
+
             from agents import executor
             confidence = executor.executor_idea(item_id)
             item["confidence_score"] = confidence
@@ -241,10 +234,28 @@ class Orchestrator:
         if confidence > 0:
             self.transition_stage(item, "DONE", state, item_id)
         else:
-            self.transition_stage(item, "REVIEW_TEST", state, item_id) # Fallback to review if implementation was shaky
+            self.transition_stage(item, "REVIEW_TEST", state, item_id)
 
     def handle_done(self, item, state, item_id):
         self.logger.info("%s is already DONE, skipping", item_id)
+
+    def promote_artifact_to_pattern(self, item_id, artifact_name, content):
+        """
+        Orchestrates the extraction of patterns from a successful artifact.
+        """
+        self.logger.info("Promoting %s/%s to patterns for %s", artifact_name, item_id, item_id)
+        try:
+            from agents import memory
+            success = memory.extract_pattern_from_content(item_id, artifact_name, content)
+            if success:
+                self.logger.info("Successfully promoted %s/%s to patterns", artifact_name, item_id)
+                return True
+            else:
+                self.logger.error("Memory agent failed to extract pattern for %s", item_id)
+                return False
+        except Exception as e:
+            self.logger.error("Pattern promotion failed for %s: %s", item_id, str(e))
+            return False
 
     def process_item(self, item, state, item_id):
         stage = item.get("stage", "INTAKE")
@@ -279,11 +290,9 @@ class Orchestrator:
         self.logger.info(f"Handling review update event for file: {file_path}")
         self.run_pipeline()
 
-# TODO-05: Lazy-init singleton factory - avoids side effects at import time
 _orchestrator_instance = None
 
 def get_orchestrator() -> "Orchestrator":
-    """Return the module-level Orchestrator singleton, creating it on first call."""
     global _orchestrator_instance
     if _orchestrator_instance is None:
         _orchestrator_instance = Orchestrator()
@@ -331,12 +340,6 @@ def handle_executing(item, state, item_id):
 def handle_done(item, state, item_id):
     return get_orchestrator().handle_done(item, state, item_id)
 
-def __getattr__(name):
-    if name in ("orchestrator_instance", "orchestrator"):
-        return get_orchestrator()
-    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
-
-# Stage handler dispatch table - mapping stage to method name
 STAGE_HANDLERS = {
     "INTAKE": "handle_intake",
     "REFINEMENT": "handle_refinement",

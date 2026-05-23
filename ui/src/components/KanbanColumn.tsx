@@ -15,6 +15,7 @@ interface KanbanCardProps extends KanbanCardData {
 export function KanbanCardContent({
   id,
   title,
+  stage,
   priority,
   confidence_score,
   source_type,
@@ -74,6 +75,13 @@ export function KanbanCardContent({
         </span>
       </div>
       <h3 className="font-semibold text-gray-800 text-sm mb-2">{title}</h3>
+      <div className="flex flex-wrap gap-1 mb-2">
+        {stage.startsWith('REVIEW_') && (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 uppercase tracking-wider">
+            ⚠️ Action Required
+          </span>
+        )}
+      </div>
       {source_type && (
         <div className="text-xs text-gray-500 mb-1 truncate">
           <span>{source_type === 'url' ? '🌐' : '📄'}</span>

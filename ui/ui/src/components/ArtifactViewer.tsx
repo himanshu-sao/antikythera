@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { debounce } from 'lodash';
 import { apiUrl } from '../config';
 import ReactMarkdown from 'react-markdown';
@@ -6,24 +6,17 @@ import remarkGfm from 'remark-gfm';
 import mermaid from 'mermaid';
 
 // Initialize mermaid
-mermaid.initialize({ 
-  startOnLoad: false, 
-  theme: 'dark',
-  securityLevel: 'loose' 
-});
+mermaid.initialize({ startOnLoad: true, theme: 'dark' });
 
-// Component to handle mermaid rendering within markdown code blocks
+// Component to handle mermaid rendering within markdown
 const MermaidCodeBlock = ({ code }: { code: string }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (containerRef.current) {
-      // Small delay to ensure the element is in the DOM and mermaid is ready
-      const timer = setTimeout(() => {
-        mermaid.contentLoaded();
-        mermaid.init(undefined, containerRef.current);
-      }, 50);
-      return () => clearTimeout(timer);
+      mermaid.contentLoaded();
+      // Re-run mermaid init on this container
+      mermaid.init(undefined, containerRef.current);
     }
   }, [code]);
 
@@ -38,15 +31,12 @@ const MermaidCodeBlock = ({ code }: { code: string }) => {
 
 // Component to handle mermaid rendering for standalone content
 const Mermaid = ({ chart }: { chart: string }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (containerRef.current) {
-      const timer = setTimeout(() => {
-        mermaid.contentLoaded();
-        mermaid.init(undefined, containerRef.current);
-      }, 50);
-      return () => clearTimeout(timer);
+      mermaid.contentLoaded();
+      mermaid.init(undefined, containerRef.current);
     }
   }, [chart]);
 
@@ -110,7 +100,6 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
   const [reviewComments, setReviewComments] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [itemDetails, setItemDetails] = useState<any>(null);
-  const [isEditing, setIsEditing] = useState(false);
 
   const submitReview = async () => {
     const content = `review_status: ${reviewStatus}\n\n## Comments\n${reviewComments}`;
@@ -165,18 +154,12 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
         }
 
         const getRelevantArtifacts = (stage: string) => {
-          const isReviewStage = stage.startsWith('REVIEW_') || 
-                                ['ARCHITECTURE', 'DESIGN', 'TESTING'].includes(stage);
-          const base = isReviewStage ? ['review.md'] : [];
-
+          const base = ['review.md'];
           if (stage === 'REVIEW_SPEC') return ['spec.md', ...base];
           if (stage === 'ARCHITECTURE') return ['spec.md', 'architecture.md', ...base];
           if (stage === 'DESIGN') return ['architecture.md', 'design.md', ...base];
           if (stage === 'TESTING') return ['architecture.md', 'tests.md', ...base];
-          
-          if (isReviewStage) return base;
-
-          return ['spec.md', 'architecture.md', 'tests.md'];
+          return ['spec.md', 'architecture.md', 'tests.md', ...base];
         };
 
         const artifactNames = getRelevantArtifacts(itemDetails?.stage || 'DEFAULT');
@@ -246,10 +229,6 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
     setSelectedArtifact({ ...selectedArtifact, content: newContent });
     debouncedSave(selectedArtifact.name, newContent);
   };
-
-  useEffect(() => {
-    setIsEditing(false);
-  }, [selectedArtifact?.name]);
 
   const getInstructions = (stage: string) => {
     switch (stage) {
@@ -392,47 +371,32 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                 setReviewComments={setReviewComments}
                 submitReview={submitReview}
               />
+            ) : selectedArtifact.name === 'review.md' || selectedArtifact.type !== 'review' ? (
+              <textarea
+                className="w-full h-[calc(100vh-300px)] p-4 rounded-lg border border-gray-200 font-mono text-sm text-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
+                value={selectedArtifact.content}
+                onChange={(e) => handleContentChange(e.target.value)}
+                placeholder={`Edit ${selectedArtifact.name}...`}
+              />
             ) : (
-              <div className="flex flex-col h-full">
-                {selectedArtifact.type !== 'review' && (
-                  <div className="flex justify-end mb-2">
-                    <button 
-                      onClick={() => setIsEditing(!isEditing)}
-                      className="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 rounded text-gray-700 transition-colors"
-                    >
-                      {isEditing ? 'Preview' : 'Edit'}
-                    </button>
-                  </div>
-                )}
-
-                {isEditing ? (
-                  <textarea
-                    className="w-full h-[calc(100vh-300px)] p-4 rounded-lg border border-gray-200 font-mono text-sm text-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                    value={selectedArtifact.content}
-                    onChange={(e) => handleContentChange(e.target.value)}
-                    placeholder={`Edit ${selectedArtifact.name}...`}
-                  />
-                ) : (
-                  <div className="prose prose-slate max-w-none overflow-auto">
-                    <ReactMarkdown 
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        code({node, inline, className, children, ...props}: any) {
-                          const match = /language-mermaid/.exec(className || '')
-                          return !inline && match ? (
-                            <MermaidCodeBlock code={String(children).replace(/\n$/, '')} />
-                          ) : (
-                            <code className={className} {...props}>
-                              {children}
-                            </code>
-                          )
-                        }
-                      }}
-                    >
-                      {selectedArtifact.content}
-                    </ReactMarkdown>
-                  </div>
-                )}
+              <div className="prose prose-slate max-w-none">
+                <ReactMarkdown 
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    code({node, inline, className, children, ...props}: any) {
+                      const match = /language-mermaid/.exec(className || '')
+                      return !inline && match ? (
+                        <MermaidCodeBlock code={String(children).replace(/\n$/, '')} />
+                      ) : (
+                        <code className={className} {...props}>
+                          {children}
+                        </code>
+                      )
+                    }
+                  }}
+                >
+                  {selectedArtifact.content}
+                </ReactMarkdown>
               </div>
             )}
           </div>

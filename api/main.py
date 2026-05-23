@@ -34,6 +34,7 @@ class CreateItemRequest(BaseModel):
     # ENH-02: Add field length constraints and pattern validation
     item_id: str = Field(..., min_length=1, max_length=50, pattern=r'^[A-Za-z0-9_-]+$')
     title: str = Field(..., min_length=1, max_length=200)
+    priority: Optional[str] = Field(default="medium")
     source_type: Optional[str] = Field(default=None)
     source_value: Optional[str] = Field(default=None)
     due_date: Optional[str] = Field(default=None, pattern=r'^\d{4}-\d{2}-\d{2}$')
@@ -43,12 +44,20 @@ class CreateItemRequest(BaseModel):
     def item_id_uppercase(cls, v: str) -> str:
         return v.upper()
 
+    @field_validator('priority')
+    @classmethod
+    def validate_priority(cls, v: Optional[str]) -> Optional[str]:
+        if v and v.lower() not in ["low", "medium", "high", "critical"]:
+            raise ValueError('priority must be "low", "medium", "high", or "critical"')
+        return v.lower() if v else "medium"
+
     @field_validator('source_type')
     @classmethod
     def validate_source_type(cls, v: Optional[str]) -> Optional[str]:
-        if v and v.lower() not in ["url", "directory"]:
-            raise ValueError('source_type must be "url" or "directory"')
+        if v and v.lower() not in ["url", "directory", "text"]:
+            raise ValueError('source_type must be "url", "directory", or "text"')
         return v.lower() if v else None
+
 
 
 class MoveRequest(BaseModel):
@@ -96,12 +105,12 @@ class UpdateItemRequest(BaseModel):
         if v is not None and v.lower() not in VALID_PRIORITIES:
             raise ValueError(f'Invalid priority. Must be one of: {VALID_PRIORITIES}')
         return v
-
+    
     @field_validator('source_type')
     @classmethod
     def validate_source_type(cls, v: Optional[str]) -> Optional[str]:
-        if v and v.lower() not in ["url", "directory"]:
-            raise ValueError('source_type must be "url" or "directory"')
+        if v and v.lower() not in ["url", "directory", "text"]:
+            raise ValueError('source_type must be "url", "directory", or "text"')
         return v.lower() if v else None
 
 
@@ -215,20 +224,20 @@ async def get_artifact(item_id: str, artifact_name: str):
         raise HTTPException(status_code=400, detail="Invalid artifact name")
     artifact_path = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", item_id, artifact_name)
     if not os.path.exists(artifact_path):
-        # Return 204 No Content instead of 404 to avoid polluting logs with expected missing artifacts
         from fastapi import Response
         return Response(status_code=204)
     from fastapi.responses import FileResponse
     return FileResponse(artifact_path)
 
 
-@app.post("/api/item/{item_id}/artifact/{artifact_name}/content", summary="Update artifact content", description="Writes new content to a specific artifact (currently only review.md is editable).")
+@app.post("/api/item/{item_id}/artifact/{artifact_name}/content", summary="Update artifact content", description="Writes new content to a specific artifact.")
 async def update_artifact_content(item_id: str, artifact_name: str, request: dict):
     item_id = item_id.upper()
     if not re.match(r'^[A-Z0-9-]+$', item_id):
         raise HTTPException(status_code=400, detail="Invalid item ID")
-    if artifact_name != "review.md":
-        raise HTTPException(status_code=400, detail="Only review.md can be edited")
+    valid_artifacts = ["spec.md", "architecture.md", "tests.md", "review.md"]
+    if artifact_name not in valid_artifacts:
+        raise HTTPException(status_code=400, detail="Invalid artifact name")
     content = request.get("content")
     if content is None:
         raise HTTPException(status_code=400, detail="Missing content field")
@@ -241,6 +250,48 @@ async def update_artifact_content(item_id: str, artifact_name: str, request: dic
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
     return {"status": "success", "message": f"Updated {artifact_name} for {item_id}"}
+
+
+@app.post("/api/item/{item_id}/inline-output", summary="Update inline output", description="Writes content to the item's inline_output field.")
+async def update_inline_output(item_id: str, content: str):
+    from agents.state import load_state, save_state
+    state = load_state()
+    if item_id not in state["items"]:
+        raise HTTPException(status_code=404, detail="Item not found")
+    
+    state["items"][item_id]["inline_output"] = content
+    save_state(state)
+    return {"message": "Inline output updated"}
+
+@app.post("/api/item/{item_id}/promote-pattern", summary="Promote artifact to pattern", description="Analyzes a successful artifact and extracts patterns to the global brain.")
+async def promote_pattern(item_id: str, artifact_name: str):
+    from agents.orchestrator import get_orchestrator
+    orchestrator = get_orchestrator()
+    
+    item_id = item_id.upper()
+    if not re.match(r'^[A-Z0-9-]+$', item_id):
+        raise HTTPException(status_code=400, detail="Invalid item ID")
+    
+    valid_artifacts = ["spec.md", "architecture.md", "tests.md"]
+    if artifact_name not in valid_artifacts:
+         raise HTTPException(status_code=400, detail="Only spec, architecture, or tests can be promoted to patterns.")
+
+    artifact_path = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", item_id, artifact_name)
+    if not os.path.exists(artifact_path):
+        raise HTTPException(status_code=404, detail="Artifact not found")
+
+    try:
+        with open(artifact_path, "r") as f:
+            content = f.read()
+        
+        success = orchestrator.promote_artifact_to_pattern(item_id, artifact_name, content)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail="Pattern promotion failed")
+            
+        return {"status": "success", "message": f"Successfully promoted {artifact_name} to patterns."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
 if __name__ == "__main__":

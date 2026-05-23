@@ -141,31 +141,3 @@ Your response should ONLY contain the markdown content for the specification doc
         raise e
 
     return min(score, 100)
-
-
-def refine_idea(idea_id, title, patterns_path=None):
-    """
-    Refine an idea from a one-liner into a full specification.
-
-    Reads brain/patterns.md for context, generates a comprehensive spec,
-    writes it to requirements/ID-XXX/spec.md, and returns a confidence score.
-
-    Args:
-        idea_id (str): The item ID (e.g. "ID-001").
-        title (str): The title/one-liner of the idea.
-        patterns_path (str, optional): Path to brain/patterns.md.
-
-    Returns:
-        int: Confidence score (0-100).
-
-    Raises:
-        ValueError: If title is empty or None.
-    """
-    if not title or not title.strip():
-        raise ValueError("Title cannot be empty")
-
-    patterns_content = _read_patterns(patterns_path)
-    spec_content = _generate_spec_content(idea_id, title, patterns_content)
-    write_spec(idea_id, spec_content)
-    confidence = calculate_confidence(spec_content)
-    return confidence

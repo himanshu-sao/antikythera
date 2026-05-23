@@ -24,17 +24,27 @@ export default function App() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [newItem, setNewItem] = useState({ id: '', title: '', source_type: '', source_value: '', due_date: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [stageFilter, setStageFilter] = useState('all');
 
+  // MODAL STATES
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+
+  // CREATE ITEM STATE
+  const [newItem, setNewItem] = useState({ 
+    id: '', 
+    title: '', 
+    priority: 'medium',
+    source_type: 'directory', 
+    source_value: '', 
+    due_date: '' 
+  });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 5,
-      },
+      activationConstraint: { distance: 5 },
     })
   );
 
@@ -55,31 +65,16 @@ export default function App() {
 
   useEffect(() => {
     fetchState();
-
     let interval = setInterval(fetchState, 10000);
-
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        clearInterval(interval);
-      } else {
-        fetchState();
-        clearInterval(interval);
-        interval = setInterval(fetchState, 10000);
-      }
+      if (document.visibilityState === 'hidden') clearInterval(interval);
+      else { fetchState(); clearInterval(interval); interval = setInterval(fetchState, 10000); }
     };
-
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setSelectedId(null);
-        setEditMode(false);
-        setShowCreateModal(false);
-        setShowWorkflow(false);
-      }
+      if (e.key === 'Escape') { setSelectedId(null); setEditMode(false); setShowCreateModal(false); setShowWorkflow(false); setShowDeleteConfirm(false); }
     };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('keydown', handleKeyDown);
-
     return () => {
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
@@ -87,9 +82,7 @@ export default function App() {
     };
   }, [selectedId]);
 
-  const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(String(event.active.id));
-  };
+  const handleDragStart = (event: DragStartEvent) => setActiveId(String(event.active.id));
 
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveId(null);
@@ -117,62 +110,26 @@ export default function App() {
       const overItem = state.items[overId];
       if (!overItem) return;
       targetStage = overItem.stage;
-
       const columnItems = Object.entries(state.items)
         .map(([id, item]) => ({ ...item, id }))
         .filter(item => item.stage === targetStage && item.id !== itemId)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
       const overIndex = columnItems.findIndex(item => item.id === overId);
-      if (overIndex === -1) {
-        targetOrder = columnItems.length;
-      } else {
-        targetOrder = overIndex;
-      }
+      targetOrder = overIndex === -1 ? columnItems.length : overIndex;
     }
 
-    if (activeItem.stage === targetStage && (activeItem.order ?? 0) === targetOrder) {
-      return;
-    }
+    if (activeItem.stage === targetStage && (activeItem.order ?? 0) === targetOrder) return;
 
     try {
       const res = await fetch(`${apiUrl}/api/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          item_id: itemId,
-          new_stage: targetStage,
-          order: targetOrder,
-        }),
+        body: JSON.stringify({ item_id: itemId, new_stage: targetStage, order: targetOrder }),
       });
       if (res.ok) {
-        const freshState = await fetchState();
-        if (!freshState) return;
-
-        // Calculate the final order for the target column using the fresh state
-        const columnItems = Object.entries(freshState.items)
-          .filter(([, item]: [string, any]) => item.stage === targetStage)
-          .map(([id, item]: [string, any]) => ({ ...item, id }))
-          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-
-        const orderedIds = columnItems.map(item => item.id);
-
-        await fetch(`${apiUrl}/api/items/reorder`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            stage: targetStage,
-            ordered_ids: orderedIds,
-          }),
-        });
-
-        // Final refresh to ensure UI is perfectly synced with the reordered state
         await fetchState();
       }
-    } catch (e) {
-      console.error("Failed to move item", e);
-    }
-
+    } catch (e) { console.error("Failed to move item", e); }
   };
 
   const handleUpdateItem = async (updates: any) => {
@@ -183,264 +140,173 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.detail || 'Failed to update item');
-      }
+      if (!res.ok) throw new Error('Failed to update item');
       await fetchState();
-    } catch (e: any) {
-      console.error("Failed to update item", e);
-      throw e;
-    }
+    } catch (e: any) { toast.error(e.message); }
   };
 
-  const handleDeleteItem = async (itemId?: string) => {
-    const idToDelete = itemId || selectedId;
-    if (!idToDelete) return;
+  const handleDeleteItem = async (itemId: string) => {
     try {
-      const res = await fetch(`${apiUrl}/api/item/${idToDelete}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.detail || 'Failed to delete item');
-      }
-      if (itemId) {
-        setSelectedId(null);
-      }
-      setEditMode(false);
+      const res = await fetch(`${apiUrl}/api/item/${itemId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to delete item');
+      setSelectedId(null);
+      setShowDeleteConfirm(false);
       await fetchState();
-    } catch (e: any) {
-      console.error("Failed to delete item", e);
-      throw e;
-    }
+      toast.success("Item deleted");
+    } catch (e: any) { toast.error(e.message); }
+  };
+
+  const confirmDelete = () => {
+    if (deleteTargetId) handleDeleteItem(deleteTargetId);
   };
 
   const handleCreateItem = async () => {
     if (!newItem.id || !newItem.title) return;
     const itemId = newItem.id.toUpperCase();
-    const itemTitle = newItem.title;
-    const sourceType = newItem.source_type || undefined;
-    const sourceValue = newItem.source_value || undefined;
-    const dueDate = newItem.due_date || undefined;
-
-    // ENH-09: Optimistic Update
-    setState(prev => ({
-      ...prev,
-      items: {
-        ...prev.items,
-        [itemId]: {
-          id: itemId,
-          title: itemTitle,
-          stage: 'INTAKE',
-          priority: 'medium',
-          confidence_score: 0,
-          source_type: sourceType,
-          source_value: sourceValue,
-          due_date: dueDate,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        } as PipelineItem
-      }
-    }));
-
     try {
       const res = await fetch(`${apiUrl}/api/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           item_id: itemId,
-          title: itemTitle,
-          source_type: sourceType,
-          source_value: sourceValue,
-          due_date: dueDate,
+          title: newItem.title,
+          priority: newItem.priority,
+          source_type: newItem.source_type,
+          source_value: newItem.source_value,
+          due_date: newItem.due_date,
         }),
       });
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.detail || 'Failed to create item');
-      }
+      if (!res.ok) throw new Error('Failed to create item');
       setShowCreateModal(false);
-      setNewItem({ id: '', title: '', source_type: '', source_value: '', due_date: '' });
+      setNewItem({ id: '', title: '', priority: 'medium', source_type: 'directory', source_value: '', due_date: '' });
       await fetchState();
+      toast.success("New idea created");
     } catch (e: any) {
-      console.error("Failed to create item", e);
-      toast.error(`Error: ${e.message}`);
-      // Rollback optimistic update
-      setState(prev => {
-        const newItems = { ...prev.items };
-        delete newItems[itemId];
-        return { ...prev, items: newItems };
-      });
+      toast.error(e.message);
     }
   };
 
-  // ENH-05: Loading and error states
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading pipeline...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
-        <div className="text-center">
-          <p className="text-red-600 mb-4">Error: {error}</p>
-          <button
-            onClick={() => { setError(null); setLoading(true); fetchState(); }}
-            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (error) return <div className="flex items-center justify-center h-screen text-red-500">{error}</div>;
 
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 p-6">
         <header className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Hermes Pipeline</h1>
-          <p className="text-gray-600">Manage automation ideas and agent progress</p>
-          <div className="mt-4 flex gap-2">
-            <button
-              onClick={() => setShowWorkflow(true)}
-              className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
-            >
-              How it works
-            </button>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
-            >
-              + New Idea
-            </button>
-            <button
-              onClick={fetchState}
-              className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors shadow-sm"
-            >
-              Refresh
-            </button>
-            <div className="ml-auto flex items-center gap-3">
-              <div className="flex items-center gap-2">
-                <select
-                  value={priorityFilter}
-                  onChange={(e) => setPriorityFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all bg-white"
-                >
-                  <option value="all">All Priorities</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-
-                <select
-                  value={stageFilter}
-                  onChange={(e) => setStageFilter(e.target.value)}
-                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all bg-white"
-                >
-                  <option value="all">All Stages</option>
-                  {STAGES.map(stage => (
-                    <option key={stage} value={stage}>{stage}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="11" cy="11" r="8" />
-                    <path d="m21 21-4.3-4.3" />
-                  </svg>
-                </span>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search ideas..."
-                  className="pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all w-64"
-                />
-              </div>
+          <div className="mt-4 flex flex-wrap gap-2 items-center justify-between">
+            <div className="flex gap-2">
+              <button onClick={() => setShowWorkflow(true)} className="px-4 py-2 bg-white border rounded-lg text-sm">Workflow</button>
+              <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">+ New Idea</button>
+              <button onClick={fetchState} className="px-4 py-2 bg-white border rounded-lg text-sm">Refresh</button>
+            </div>
+            <div className="flex gap-2">
+              <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="p-2 border rounded-lg text-sm">
+                <option value="all">All Priorities</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+              <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} className="p-2 border rounded-lg text-sm">
+                <option value="all">All Stages</option>
+                {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <input type="text" placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="p-2 border rounded-lg text-sm" />
             </div>
           </div>
         </header>
 
-        <DndContext
-          sensors={sensors}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-        >
-          <Toaster position="top-right" />
-          <div className="grid grid-cols-5 gap-4">
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          <div className="grid grid-cols-5 gap-4 overflow-x-auto pb-4">
             {STAGES.map(stage => (
               <KanbanColumn
                 key={stage}
                 id={stage}
                 items={Object.entries(state.items)
-                  .filter(([, item]) => item.stage === stage)
-                  .filter(([, item]) => {
-                    const matchesSearch = !searchQuery ||
-                      item.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                      item.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                      item.source_value?.toLowerCase().includes(searchQuery.toLowerCase());
-
-                    const matchesPriority = priorityFilter === 'all' || item.priority?.toLowerCase() === priorityFilter;
-                    const matchesStage = stageFilter === 'all' || item.stage === stageFilter;
-
-                    return matchesSearch && matchesPriority && matchesStage;
+                  .filter(([_, item]) => item.stage === stage)
+                  .filter(([_, item]) => {
+                    const mSearch = !searchQuery || item.id.toLowerCase().includes(searchQuery.toLowerCase()) || item.title.toLowerCase().includes(searchQuery.toLowerCase());
+                    const mPri = priorityFilter === 'all' || item.priority?.toLowerCase() === priorityFilter;
+                    const mStage = stageFilter === 'all' || item.stage === stageFilter;
+                    return mSearch && mPri && mStage;
                   })
                   .map(([id, item]) => ({ ...item, id }))
                   .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
-                onCardClick={(id) => {
-                  setSelectedId(id);
-                  setEditMode(false);
-                }}
-                onEditClick={(id) => {
-                  setSelectedId(id);
-                  setEditMode(true);
-                } }
-                onDeleteClick={handleDeleteItem}
+                onCardClick={(id) => { setSelectedId(id); setEditMode(false); }}
+                onEditClick={(id) => { setSelectedId(id); setEditMode(true); }}
+                onDeleteClick={(id) => { setDeleteTargetId(id); setShowDeleteConfirm(true); }}
               />
             ))}
           </div>
           <DragOverlay>
-            {activeId && state.items && state.items[activeId] ? (
-              <KanbanCardContent
-              {...state.items[activeId]}
-              id={activeId}
-              isDragOverlay
-              onCardClick={() => {}}
-              onEditClick={() => {}}
-              onDeleteClick={() => {}}
-              />
+            {activeId && state.items[activeId] ? (
+              <KanbanCardContent {...state.items[activeId]} id={activeId} isDragOverlay onCardClick={() => {}} onEditClick={() => {}} onDeleteClick={() => {}} />
             ) : null}
           </DragOverlay>
         </DndContext>
 
-        {showWorkflow && (
+        {/* CREATE MODAL */}
+        {showCreateModal && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] overflow-auto p-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Workflow Guide</h2>
-                <button
-                  onClick={() => setShowWorkflow(false)}
-                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                >
-                  ✕
-                </button>
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+              <h2 className="text-xl font-bold mb-4">Create New Idea</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Item ID</label>
+                  <input type="text" className="w-full p-2 border rounded" value={newItem.id} onChange={e => setNewItem({...newItem, id: e.target.value})} placeholder="e.g. IDEA-1" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Title</label>
+                  <input type="text" className="w-full p-2 border rounded" value={newItem.title} onChange={e => setNewItem({...newItem, title: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Priority</label>
+                  <select className="w-full p-2 border rounded" value={newItem.priority} onChange={e => setNewItem({...newItem, priority: e.target.value})}>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Source Type</label>
+                  <select className="w-full p-2 border rounded" value={newItem.source_type} onChange={e => setNewItem({...newItem, source_type: e.target.value})}>
+                    <option value="directory">Directory (Local File)</option>
+                    <option value="url">URL (Web Link)</option>
+                    <option value="text">Direct Text</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Source Value (Path/URL/Text)</label>
+                  <input type="text" className="w-full p-2 border rounded" value={newItem.source_value} onChange={e => setNewItem({...newItem, source_value: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Due Date</label>
+                  <input type="date" className="w-full p-2 border rounded" value={newItem.due_date} onChange={e => setNewItem({...newItem, due_date: e.target.value})} />
+                </div>
+                <div className="flex justify-end gap-2 pt-4">
+                  <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-gray-600">Cancel</button>
+                  <button onClick={handleCreateItem} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">Create</button>
+                </div>
               </div>
-              <WorkflowDiagram onClose={() => setShowWorkflow(false)} />
             </div>
           </div>
         )}
 
+        {/* DELETE CONFIRM MODAL */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[60]">
+            <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6">
+              <h2 className="text-xl font-bold text-red-600 mb-2">Delete Item?</h2>
+              <p className="text-gray-600 mb-6">Are you sure you want to delete <span className="font-bold">{deleteTargetId}</span>? This cannot be undone.</p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
+                <button onClick={confirmDelete} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Delete</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DETAIL MODAL (EDITOR / VIEWER) */}
         {selectedId && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] overflow-auto p-6 w-full">
@@ -448,35 +314,24 @@ export default function App() {
                 <h2 className="text-2xl font-bold">{selectedId}</h2>
                 <div className="flex gap-2 items-center">
                   {!editMode && (
-                    <button
-                      onClick={() => setEditMode(true)}
-                      className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-md text-xs font-medium hover:bg-indigo-100 transition-colors"
-                    >
+                    <button onClick={() => setEditMode(true)} className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-md text-xs font-medium hover:bg-indigo-100 transition-colors">
                       Edit Details
                     </button>
                   )}
-                  <button
-                    onClick={() => {
-                      setSelectedId(null);
-                      setEditMode(false);
-                    } }
-                    className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                  >
-                    ✕
-                  </button>
+                  <button onClick={() => { setSelectedId(null); setEditMode(false); }} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
                 </div>
               </div>
               {editMode ? (
                 <CardEditor
                   itemId={selectedId}
                   initialData={{
-                    title: state.items[selectedId].title,
-                    description: state.items[selectedId].description,
-                    priority: state.items[selectedId].priority,
-                    confidence_score: state.items[selectedId].confidence_score ?? 0,
-                    source_type: state.items[selectedId].source_type,
-                    source_value: state.items[selectedId].source_value,
-                    due_date: state.items[selectedId].due_date,
+                    title: state.items[selectedId]?.title || '',
+                    description: state.items[selectedId]?.description || '',
+                    priority: state.items[selectedId]?.priority || 'medium',
+                    confidence_score: state.items[selectedId]?.confidence_score ?? 0,
+                    source_type: state.items[selectedId]?.source_type || 'directory',
+                    source_value: state.items[selectedId]?.source_value || '',
+                    due_date: state.items[selectedId]?.due_date || '',
                   }}
                   onSave={handleUpdateItem}
                   onDelete={handleDeleteItem}
@@ -491,88 +346,19 @@ export default function App() {
           </div>
         )}
 
-        {showCreateModal && (
+        {showWorkflow && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-              <h2 className="text-xl font-bold mb-4">Create New Idea</h2>
-              <p className="text-sm text-gray-600 mb-4">Enter a unique ID (e.g., IDEA-1) and a title.</p>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Item ID</label>
-                  <input
-                      type="text"
-                      value={newItem.id}
-                      onChange={(e) => setNewItem({ ...newItem, id: e.target.value })}
-                      placeholder="e.g. IDEA-1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                  <input
-                      type="text"
-                      value={newItem.title}
-                      onChange={(e) => setNewItem({ ...newItem, title: e.target.value })}
-                      placeholder="What is the automation idea?"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                      />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Source Type</label>
-                  <select
-                      value={newItem.source_type || ''}
-                      onChange={(e) => setNewItem({ ...newItem, source_type: e.target.value, source_value: '' })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all bg-white"
-                  >
-                      <option value="">None</option>
-                      <option value="url">URL</option>
-                      <option value="directory">Directory</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
-                  <input
-                      type="date"
-                      value={newItem.due_date || ''}
-                      onChange={(e) => setNewItem({ ...newItem, due_date: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                  />
-                </div>
-                {newItem.source_type && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {newItem.source_type === 'url' ? 'Source URL' : 'Source Directory'}
-                    </label>
-                    <input
-                      type="text"
-                      value={newItem.source_value || ''}
-                      onChange={(e) => setNewItem({ ...newItem, source_value: e.target.value })}
-                      placeholder={newItem.source_type === 'url' ? 'https://example.com' : '/path/to/directory'}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                    />
-                  </div>
-                )}
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] overflow-auto p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Workflow Guide</h2>
+                <button onClick={() => setShowWorkflow(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
               </div>
-              <div className="mt-6 flex justify-end gap-2">
-                <button
-                  onClick={() => {
-                    setShowCreateModal(false);
-                    setNewItem({ id: '', title: '', source_type: '', source_value: '' });
-                  }}
-                  className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleCreateItem}
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
-                >
-                  Create Item
-                </button>
-              </div>
+              <WorkflowDiagram onClose={() => setShowWorkflow(false)} />
             </div>
           </div>
         )}
+
+        <Toaster position="top-right" />
       </div>
     </ErrorBoundary>
   );

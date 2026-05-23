@@ -54,16 +54,22 @@ Regardless of the phase, all implementation work must meet these baseline standa
 - [ ] **Search & Filter**: Filtering by Priority, Stage, or Search Text correctly hides/shows cards without page reloads.
 
 ### Phase 7: Event-Driven Triggers
-- [ ] **File Watcher**: Modifying `automation-ideas/ideas.md` triggers the Orchestrator within $< 5$ seconds.
-- [ ] **Debounce**: Rapid sequential saves to `ideas.md` result in only one Orchestrator trigger.
-- [ ] **Trigger Validation**: The system correctly identifies which new IDs were added and only processes those.
+57|- [ ] **File Watcher**: Modifying `automation-ideas/ideas.md` triggers the Orchestrator within $< 5$ seconds.
+58|- [ ] **Debounce**: Rapid sequential saves to `ideas.md` result in only one Orchestrator trigger.
+59|- [ ] **Trigger Validation**: The system correctly identifies which new IDs were added and only processes those.
+
+### Phase 8: Automation Registry
+60|- [ ] **Registry Persistence**: Tasks are correctly saved to `registry/automation_registry.json`.
+61|- [ ] **Trigger Support**: System correctly handles `TIMER` (cron), `EVENT` (file/webhook), and `MANUAL` modes.
+62|- [ ] **Task Management**: CLI/Skill allows for full CRUD on registered automations.
+
+### Phase 9: Artifact-Driven Regression Loop
+63|- [ ] **Change Detection**: The system detects modifications to `spec.md`, `architecture.md`, and `tests.md`.
+64|- [ ] **Stage Regression**: Modifying a foundation file (e.g., `spec.md`) correctly regresses the task to the appropriate stage (e.g., `REFINEMENT`).
+65|- [ ] **UI Synchronization**: The Kanban UI allows direct editing of all technical artifacts with auto-save.
 
 ### Kanban-Fix & UX Enhancements
-- [ ] **Card Deletion**: Using the "Delete" button in `CardEditor` removes the item from `pipeline-state.json` and returns a 200 OK from `DELETE /api/item/{id}`.
-- [ ] **Toast Notifications**: All native `alert()` calls are replaced by `react-hot-toast` notifications for both success and error states.
-- [ ] **API Portability**: The frontend uses `VITE_API_URL` (with a localhost fallback) instead of hardcoded strings.
-- [ ] **State Robustness**: Concurrent API requests do not corrupt `pipeline-state.json` (verified via lock-file or atomic `os.replace` check).
-- [ ] **User Identity**: Comment authors are persisted via `localStorage` rather than hardcoded as 'Current User'.
+...
 
 ---
 

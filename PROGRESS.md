@@ -4,7 +4,7 @@ This file is the authoritative source of truth for the current status of all pha
 
 ## 🗺️ Phase Status
 
-| Phase | Status | Notes |
+|| Phase | Status | Notes |
 |---|---|---|
 | **Phase 0** | Verified | Foundation files and schema established. |
 | **Phase 1** | Verified | Core loop and Refiner Agent functional. |
@@ -14,6 +14,9 @@ This file is the authoritative source of truth for the current status of all pha
 | **Phase 5** | Verified | Kanban UI basic drag-and-drop and persistence. |
 | **Phase 6** | Verified | Inline review and real-time polling functional. |
 | **Phase 7** | Verified | File watcher and event-driven triggers active. |
+| **Phase 8** | ✅ Completed | Automation Registry (Timer/Event/Manual) implemented. |
+| **Phase 9** | ✅ Completed | Artifact-Driven Regression Loop & UI Editing implemented. |
+| **Phase 10** | 🚀 Implementing | Pattern Promotion (Continuous Learning) - UI implemented, backend pending. |
 | **Kanban-Fix** | Verified | Delete functionality, Toasts, and API config integrated. |
 
 ## 🚩 Open Remediation Tasks
@@ -21,4 +24,4 @@ This file is the authoritative source of truth for the current status of all pha
 *Currently, no open remediation tasks are tracked. All items from the `kanban-fix` branch have been verified.*
 
 ---
-**Last Updated:** 2026-05-22
+**Last Updated:** 2026-05-23

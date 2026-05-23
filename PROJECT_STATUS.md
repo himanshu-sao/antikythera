@@ -4,22 +4,27 @@ This document is the consolidated source of truth for the implementation state, 
 
 ## 🗺️ Project Roadmap & Phase Map
 
-The Hermes system follows a phased build approach. Phases 0–7 are the core foundation.
+The Hermes system follows a phased build approach. Phases 0–10 are the core foundation.
 
-| Phase | Title | Status | Notes |
+|| Phase | Title | Status | Notes ||
 |---|---|---|---|
-| **Phase 0** | Directory structure + state schema + `ideas.md` format | ✅ Completed | Foundation files established |
-| **Phase 1** | Orchestrator + Refiner Agent + heartbeat scheduler | ✅ Completed | Core loop functional |
-| **Phase 2** | Architect Agent + Tester Agent + Audit Agent | ✅ Completed | Artifact generation functional |
-| **Phase 3** | Telegram notifications + slash commands | ✅ Completed | Remote monitoring enabled |
-| **Phase 4** | Memory Agent + brain loop + pending-updates review flow | ✅ Completed | System evolution enabled |
-| **Phase 5** | Kanban UI (Phase 1: read + drag/drop) | ✅ Completed | Local management surface |
-| **Phase 6** | Kanban UI (Phase 2: inline review, real-time updates) | ✅ Completed | Primary operational surface |
-| **Phase 7** | File watcher / event-driven triggers | ✅ Completed | Real-time responsiveness |
+| **Phase 0** | Directory structure + state schema + `ideas.md` format | ✅ Completed | Foundation files established ||
+| **Phase 1** | Orchestrator + Refiner Agent + heartbeat scheduler | ✅ Completed | Core loop functional ||
+| **Phase 2** | Architect Agent + Tester Agent + Audit Agent | ✅ Completed | Artifact generation functional ||
+| **Phase 3** | Telegram notifications + slash commands | ✅ Completed | Remote monitoring enabled ||
+| **Phase 4** | Memory Agent + brain loop + pending-updates review flow | ✅ Completed | System evolution enabled ||
+| **Phase 5** | Kanban UI (Phase 1: read + drag/drop) | ✅ Completed | Local management surface ||
+| **Phase 6** | Kanban UI (Phase 2: inline review, real-time updates) | ✅ Completed | Primary operational surface ||
+| **Phase 7** | File watcher / event-driven triggers | ✅ Completed | Real-time responsiveness ||
+| **Phase 8** | Automation Registry (Timer/Event/Manual) | ✅ Completed | Set-it-and-forget-it mode ||
+| **Phase 9** | Artifact-Driven Regression Loop | ✅ Completed | HITL technical steering ||
+| **Phase 10** | Pattern Promotion (Continuous Learning) | 🚀 Implementing | Turn successful specs into reusable patterns ||
 
 ### Execution Strategy
-The project operates on an implementation-review loop:
-1. **Review**: Audit phases using `docs/prompts/SUPERPOWER-REVIEW.prompt.md`.
+...
+
+...
+
 2. **Remediate**: Record gaps as remediation tasks in this file.
 3. **Implement**: Fix tasks using `docs/prompts/SUPERPOWER-IMPLEMENT.prompt.md`.
 4. **Verify**: Treat work as done only when it satisfies `VERIFICATION_CRITERIA.md`.
