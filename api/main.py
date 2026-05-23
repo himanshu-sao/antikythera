@@ -1,10 +1,12 @@
 import re
-from typing import Optional, List
+import os
+import json
+from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 from api.state_manager import StateManager
-import os
+from fastapi.responses import FileResponse
 
 app = FastAPI(title="Hermes Kanban API")
 
@@ -21,6 +23,12 @@ app.add_middleware(
 STATE_PATH = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "pipeline-state.json")
 state_manager = StateManager(STATE_PATH)
 
+# Path for task logs
+LOG_BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "logs")
+
+def get_timeline_path(item_id: str) -> str:
+    return os.path.join(LOG_BASE_DIR, item_id.upper(), "timeline.jsonl")
+
 # ENH-02: Valid pipeline stages for validation
 VALID_STAGES = [
     "INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE",
@@ -31,7 +39,6 @@ VALID_PRIORITIES = ["low", "medium", "high", "critical"]
 
 
 class CreateItemRequest(BaseModel):
-    # ENH-02: Add field length constraints and pattern validation
     item_id: str = Field(..., min_length=1, max_length=50, pattern=r'^[A-Za-z0-9_-]+$')
     title: str = Field(..., min_length=1, max_length=200)
     priority: Optional[str] = Field(default="medium")
@@ -59,11 +66,10 @@ class CreateItemRequest(BaseModel):
         return v.lower() if v else None
 
 
-
 class MoveRequest(BaseModel):
     item_id: str = Field(..., min_length=1, max_length=50)
     new_stage: str = Field(...)
-    order: Optional[int] = Field(default=None, ge=0)  # ENH-05: carry target index for reordering
+    order: Optional[int] = Field(default=None, ge=0)
 
     @field_validator('new_stage')
     @classmethod
@@ -73,21 +79,16 @@ class MoveRequest(BaseModel):
         return v.upper()
 
 
+class ReorderRequest(BaseModel):
+    stage: str = Field(...)
+    ordered_ids: List[str] = Field(..., min_length=1)
 
-# ENH-14: Health check endpoint for Docker
-@app.get("/health")
-async def health_check():
-    """Health check endpoint for container orchestration."""
-    try:
-        # Verify state manager can load state
-        _ = state_manager.load_state()
-        return {"status": "healthy", "service": "hermes-kanban-api"}
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
-
-@app.get("/api/state", summary="Get full pipeline state", description="Returns the complete mapping of all pipeline items and their current status.")
-async def get_state():
-    return state_manager.load_state()
+    @field_validator('stage')
+    @classmethod
+    def validate_stage(cls, v: str) -> str:
+        if v.upper() not in VALID_STAGES:
+            raise ValueError(f'Invalid stage. Must be one of: {VALID_STAGES}')
+        return v.upper()
 
 
 class UpdateItemRequest(BaseModel):
@@ -114,7 +115,26 @@ class UpdateItemRequest(BaseModel):
         return v.lower() if v else None
 
 
-@app.post("/api/items", summary="Create new pipeline item", description="Initializes a new automation idea in the INTAKE stage.")
+class CommentRequest(BaseModel):
+    author: str = Field(..., min_length=1, max_length=100)
+    body: str = Field(..., min_length=1, max_length=5000)
+
+
+@app.get("/health")
+async def health_check():
+    try:
+        _ = state_manager.load_state()
+        return {"status": "healthy", "service": "hermes-kanban-api"}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
+
+
+@app.get("/api/state", summary="Get full pipeline state")
+async def get_state():
+    return state_manager.load_state()
+
+
+@app.post("/api/items", summary="Create new pipeline item")
 async def create_item(request: CreateItemRequest):
     success = state_manager.create_item(
         request.item_id,
@@ -128,7 +148,7 @@ async def create_item(request: CreateItemRequest):
     return {"status": "success", "message": f"Item {request.item_id} created"}
 
 
-@app.patch("/api/item/{item_id}", summary="Update item details", description="Updates metadata for a specific item (title, priority, etc.).")
+@app.patch("/api/item/{item_id}", summary="Update item details")
 async def update_item(item_id: str, request: UpdateItemRequest):
     normalized_id = item_id.upper()
     updates = request.model_dump(exclude_unset=True)
@@ -140,8 +160,7 @@ async def update_item(item_id: str, request: UpdateItemRequest):
     return {"status": "success", "message": f"Item {normalized_id} updated"}
 
 
-# ENH-01: Delete item endpoint
-@app.delete("/api/item/{item_id}", summary="Delete pipeline item", description="Removes an item completely from the pipeline state.")
+@app.delete("/api/item/{item_id}", summary="Delete pipeline item")
 async def delete_item(item_id: str):
     normalized_id = item_id.upper()
     success = state_manager.delete_item(normalized_id)
@@ -150,12 +169,7 @@ async def delete_item(item_id: str):
     return {"status": "success", "message": f"Item {normalized_id} deleted"}
 
 
-class CommentRequest(BaseModel):
-    author: str = Field(..., min_length=1, max_length=100)
-    body: str = Field(..., min_length=1, max_length=5000)
-
-
-@app.post("/api/item/{item_id}/comment", summary="Add comment to item", description="Appends a new discussion comment to a specific pipeline item.")
+@app.post("/api/item/{item_id}/comment", summary="Add comment to item")
 async def add_comment(item_id: str, request: CommentRequest):
     normalized_id = item_id.upper()
     comment = state_manager.add_comment(normalized_id, request.author, request.body)
@@ -164,8 +178,7 @@ async def add_comment(item_id: str, request: CommentRequest):
     return {"status": "success", "comment": comment}
 
 
-# ENH-04: Delete comment endpoint
-@app.delete("/api/item/{item_id}/comment/{comment_id}", summary="Delete comment", description="Removes a specific comment from an item's discussion history.")
+@app.delete("/api/item/{item_id}/comment/{comment_id}", summary="Delete comment")
 async def delete_comment(item_id: str, comment_id: str):
     normalized_id = item_id.upper()
     success = state_manager.delete_comment(normalized_id, comment_id)
@@ -174,7 +187,7 @@ async def delete_comment(item_id: str, comment_id: str):
     return {"status": "success", "message": f"Comment {comment_id} deleted"}
 
 
-@app.post("/api/move", summary="Move item to stage", description="Updates the stage and optional order of a pipeline item.")
+@app.post("/api/move", summary="Move item to stage")
 async def move_item(request: MoveRequest):
     normalized_id = request.item_id.upper()
     updates: dict = {"stage": request.new_stage}
@@ -186,58 +199,46 @@ async def move_item(request: MoveRequest):
     return {"status": "success", "message": f"Item {normalized_id} moved to {request.new_stage}"}
 
 
-# ENH-05: Bulk reorder endpoint
-class ReorderRequest(BaseModel):
-    stage: str = Field(...)
-    ordered_ids: List[str] = Field(..., min_length=1)
-
-    @field_validator('stage')
-    @classmethod
-    def validate_stage(cls, v: str) -> str:
-        if v.upper() not in VALID_STAGES:
-            raise ValueError(f'Invalid stage. Must be one of: {VALID_STAGES}')
-        return v.upper()
-
-
-@app.post("/api/items/reorder", summary="Bulk reorder items", description="Sets the sequence of items within a specific stage.")
+@app.post("/api/items/reorder", summary="Bulk reorder items")
 async def reorder_items(request: ReorderRequest):
     state_manager.reorder_items(request.stage, request.ordered_ids)
     return {"status": "success", "message": f"Reordered {len(request.ordered_ids)} items in {request.stage}"}
 
 
-@app.get("/api/item/{item_id}", summary="Get item details", description="Retrieves full metadata and history for a specific pipeline item.")
+@app.get("/api/item/{item_id}", summary="Get item details")
 async def get_item(item_id: str):
-    item_id = item_id.upper()
-    item = state_manager.get_item_details(item_id)
+    normalized_id = item_id.upper()
+    item = state_manager.get_item_details(normalized_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
 
 
-@app.get("/api/item/{item_id}/artifact/{artifact_name}", summary="Get item artifact", description="Retrieves a specific markdown artifact (spec, architecture, etc.) for an item.")
+@app.get("/api/item/{item_id}/artifact/{artifact_name}", summary="Get item artifact")
 async def get_artifact(item_id: str, artifact_name: str):
     item_id = item_id.upper()
     if not re.match(r'^[A-Z0-9-]+$', item_id):
         raise HTTPException(status_code=400, detail="Invalid item ID")
-    valid_artifacts = ["spec.md", "architecture.md", "tests.md", "review.md"]
+    valid_artifacts = ["spec.md", "architecture.md", "tests.md", "review.md", "execution_report.md", "deliverables.md"]
     if artifact_name not in valid_artifacts:
         raise HTTPException(status_code=400, detail="Invalid artifact name")
     artifact_path = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", item_id, artifact_name)
     if not os.path.exists(artifact_path):
         from fastapi import Response
         return Response(status_code=204)
-    from fastapi.responses import FileResponse
     return FileResponse(artifact_path)
 
 
-@app.post("/api/item/{item_id}/artifact/{artifact_name}/content", summary="Update artifact content", description="Writes new content to a specific artifact.")
+@app.post("/api/item/{item_id}/artifact/{artifact_name}/content", summary="Update artifact content", description="Writes new content to a specific artifact. Only review.md is editable via this endpoint.")
 async def update_artifact_content(item_id: str, artifact_name: str, request: dict):
     item_id = item_id.upper()
     if not re.match(r'^[A-Z0-9-]+$', item_id):
         raise HTTPException(status_code=400, detail="Invalid item ID")
-    valid_artifacts = ["spec.md", "architecture.md", "tests.md", "review.md"]
-    if artifact_name not in valid_artifacts:
-        raise HTTPException(status_code=400, detail="Invalid artifact name")
+    
+    # Only review.md is allowed to be updated via this endpoint to prevent manual tampering with technical specs.
+    if artifact_name != "review.md":
+        raise HTTPException(status_code=400, detail="Only review.md can be edited")
+
     content = request.get("content")
     if content is None:
         raise HTTPException(status_code=400, detail="Missing content field")
@@ -252,18 +253,20 @@ async def update_artifact_content(item_id: str, artifact_name: str, request: dic
     return {"status": "success", "message": f"Updated {artifact_name} for {item_id}"}
 
 
-@app.post("/api/item/{item_id}/inline-output", summary="Update inline output", description="Writes content to the item's inline_output field.")
+@app.post("/api/item/{item_id}/inline-output", summary="Update inline output")
 async def update_inline_output(item_id: str, content: str):
+    normalized_id = item_id.upper()
     from agents.state import load_state, save_state
     state = load_state()
-    if item_id not in state["items"]:
+    if normalized_id not in state["items"]:
         raise HTTPException(status_code=404, detail="Item not found")
     
-    state["items"][item_id]["inline_output"] = content
+    state["items"][normalized_id]["inline_output"] = content
     save_state(state)
     return {"message": "Inline output updated"}
 
-@app.post("/api/item/{item_id}/promote-pattern", summary="Promote artifact to pattern", description="Analyzes a successful artifact and extracts patterns to the global brain.")
+
+@app.post("/api/item/{item_id}/promote-pattern", summary="Promote artifact to pattern")
 async def promote_pattern(item_id: str, artifact_name: str):
     from agents.orchestrator import get_orchestrator
     orchestrator = get_orchestrator()
@@ -294,6 +297,20 @@ async def promote_pattern(item_id: str, artifact_name: str):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+@app.get("/api/item/{item_id}/timeline", summary="Get task timeline", description="Retrieves the structured execution log (JSONL) for a specific task.")
+async def get_item_timeline(item_id: str):
+    normalized_id = item_id.upper()
+    timeline_path = get_timeline_path(normalized_id)
+    
+    if not os.path.exists(timeline_path):
+        return []
+    
+    try:
+        timeline = []
+        with open(timeline_path, "r") as f:
+            for line in f:
+                if line.strip():
+                    timeline.append(json.loads(line))
+        return timeline
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read timeline: {str(e)}")

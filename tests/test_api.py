@@ -201,15 +201,16 @@ class TestApi(unittest.TestCase):
         """Only review.md should be editable."""
         test_dir = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", "ID-001")
         os.makedirs(test_dir, exist_ok=True)
-
+    
         response = self.client.post("/api/item/ID-001/artifact/spec.md/content", json={"content": "new content"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Only review.md can be edited")
-
+        
         try:
             os.removedirs(test_dir)
         except OSError:
             pass
+
 
     def test_update_artifact_content_path_traversal(self):
         """Path traversal in item_id should return 400."""

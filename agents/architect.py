@@ -8,6 +8,7 @@ and constraints/assumptions.
 
 import os
 import logging
+from typing import Optional
 from agents.llm_client import LLMClient
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -80,6 +81,40 @@ def calculate_confidence(architecture_content):
     return min(score, 100)
 
 
+def _generate_architecture_content(idea_id: str, spec_content: str, patterns_content: Optional[str] = None) -> str:
+    """
+    Internal method to generate the markdown content for the architecture.
+    This is used by tests and can be exposed if needed.
+    """
+    system_prompt = f"""You are the Hermes Architect Agent. Your goal is to transform a technical specification into a detailed technical architecture document.
+
+Your output must be in valid Markdown format.
+
+Follow these guidelines:
+1. **Structure**: Use these exact headings: 
+   # Architecture for [ID]: [Title]
+   ## Architecture Diagram (Include a Mermaid graph TD diagram)
+   ## Tech Stack Decisions
+   ## Risk Flags (Low/Medium/High)
+   ## Dry-Run Notes
+   ## Constraints and Assumptions
+2. **Diagrams**: Always include a `mermaid` code block with a `graph TD` diagram that visually represents the data flow or component interaction.
+3. **Detail**: Be specific about technology choices, error handling strategies, and data persistence.
+4. **Patterns**: Incorporate the following patterns from the system's brain:
+{patterns_content if patterns_content else "No specific patterns provided."}
+
+Your response should ONLY contain the markdown content for the architecture document."""
+
+    user_prompt = f"Based on this specification, design a technical architecture:\n\n{spec_content}"
+
+    architecture_content = llm.generate_structured_content(system_prompt, user_prompt)
+    
+    if patterns_content:
+        architecture_content += f"\n\n## Patterns Referenced\n{patterns_content}"
+        
+    return architecture_content
+
+
 def architect_idea(idea_id, patterns_path=None):
     """
     Generate an architecture document for a pipeline item using an LLM.
@@ -113,29 +148,8 @@ def architect_idea(idea_id, patterns_path=None):
 
     logger.info("Architecting idea %s: %s", idea_id, title)
 
-    system_prompt = f"""You are the Hermes Architect Agent. Your goal is to transform a technical specification into a detailed technical architecture document.
-
-Your output must be in valid Markdown format.
-
-Follow these guidelines:
-1. **Structure**: Use these exact headings: 
-   # Architecture for [ID]: [Title]
-   ## Architecture Diagram (Include a Mermaid graph TD diagram)
-   ## Tech Stack Decisions
-   ## Risk Flags (Low/Medium/High)
-   ## Dry-Run Notes
-   ## Constraints and Assumptions
-2. **Diagrams**: Always include a `mermaid` code block with a `graph TD` diagram that visually represents the data flow or component interaction.
-3. **Detail**: Be specific about technology choices, error handling strategies, and data persistence.
-4. **Patterns**: Incorporate the following patterns from the system's brain:
-{patterns_content if patterns_content else "No specific patterns provided."}
-
-Your response should ONLY contain the markdown content for the architecture document."""
-
-    user_prompt = f"Based on this specification, design a technical architecture:\n\n{spec_content}"
-
     try:
-        architecture_content = llm.generate_structured_content(system_prompt, user_prompt)
+        architecture_content = _generate_architecture_content(idea_id, spec_content, patterns_content)
         write_architecture(idea_id, architecture_content)
         confidence = calculate_confidence(architecture_content)
         logger.info("Architect completed for %s with confidence %d", idea_id, confidence)

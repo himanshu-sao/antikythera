@@ -4,6 +4,7 @@ import { apiUrl } from '../config';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import mermaid from 'mermaid';
+import { Clock, CheckCircle2, AlertCircle, Info, ChevronDown, ChevronUp, Terminal, FileText, CheckSquare } from 'lucide-react';
 
 // Initialize mermaid
 mermaid.initialize({ 
@@ -18,7 +19,6 @@ const MermaidCodeBlock = ({ code }: { code: string }) => {
 
   useEffect(() => {
     if (containerRef.current) {
-      // Small delay to ensure the element is in the DOM and mermaid is ready
       const timer = setTimeout(() => {
         mermaid.contentLoaded();
         mermaid.init(undefined, containerRef.current);
@@ -57,10 +57,101 @@ const Mermaid = ({ chart }: { chart: string }) => {
   );
 };
 
+// NEW: Timeline Component
+interface TimelineEvent {
+  timestamp: string;
+  level: 'INFO' | 'WARN' | 'ERROR';
+  agent: string;
+  action: string;
+  message: string;
+  metadata?: any;
+}
+
+const Timeline = ({ itemId }: { itemId: string }) => {
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
+  const [isOpen, setIsOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  const fetchTimeline = async () => {
+    try {
+      const res = await fetch(`${apiUrl}/api/item/${itemId}/timeline`);
+      if (res.ok) {
+        const data = await res.json();
+        setTimeline(data);
+      }
+    } catch (e) {
+      console.error('Failed to fetch timeline', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchTimeline();
+  }, [itemId]);
+
+  const getLevelColor = (level: string) => {
+    switch (level) {
+      case 'ERROR': return 'text-red-600 bg-red-50 border-red-100';
+      case 'WARN': return 'text-amber-600 bg-amber-50 border-amber-100';
+      default: return 'text-blue-600 bg-blue-50 border-blue-100';
+    }
+  };
+
+  const getLevelIcon = (level: string) => {
+    switch (level) {
+      case 'ERROR': return <AlertCircle size={14} />;
+      case 'WARN': return <Info size={14} />;
+      default: return <CheckCircle2 size={14} />;
+    }
+  };
+
+  if (loading) return null;
+  if (timeline.length === 0) return null;
+
+  return (
+    <div className="mt-6 border-t border-gray-200 pt-4">
+      <button 
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
+      >
+        <Terminal size={16} />
+        Execution Timeline ({timeline.length} events)
+        {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+
+      {isOpen && (
+        <div className="mt-4 space-y-4 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+          {timeline.map((event, idx) => (
+            <div key={idx} className="relative pl-6 before:content-[''] before:absolute before:left-[7px] before:top-[18px] before:bottom-[-16px] before:w-[2px] before:bg-gray-200 last:before:hidden">
+              <div className={`absolute left-0 top-1 w-4 h-4 rounded-full border-2 border-white ring-2 ring-gray-100 flex items-center justify-center ${getLevelColor(event.level).split(' ')[0]}`}>
+                {React.cloneElement(getLevelIcon(event.level) as React.ReactElement, { size: 10 })}
+              </div>
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase text-gray-500">{event.agent}</span>
+                  <span className="text-[10px] text-gray-400">{new Date(event.timestamp).toLocaleTimeString()}</span>
+                </div>
+                <div className={`mt-1 text-xs p-2 rounded-md border ${getLevelColor(event.level)}`}>
+                  <div className="font-semibold">{event.action}</div>
+                  <div className="opacity-90">{event.message}</div>
+                  {event.metadata && Object.entries(event.metadata).map(([k, v]) => (
+                    <div key={k} className="text-[10px] opacity-70">{k}: {JSON.stringify(v)}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 interface Artifact {
   name: string;
   content: string;
-  type: 'spec' | 'architecture' | 'tests' | 'review';
+  type: 'spec' | 'architecture' | 'tests' | 'review' | 'report' | 'deliverable';
 }
 
 interface ArtifactViewerProps {
@@ -68,7 +159,6 @@ interface ArtifactViewerProps {
   onClose: () => void;
 }
 
-// Add this before ArtifactViewer component
 const ReviewForm = ({ reviewStatus, setReviewStatus, reviewComments, setReviewComments, submitReview }: any) => (
     <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-4">
       <h3 className="font-bold text-gray-900">Submit Review</h3>
@@ -176,6 +266,9 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
           
           if (isReviewStage) return base;
 
+          // If stage is DONE, we want to show the outputs
+          if (stage === 'DONE') return ['execution_report.md', 'deliverables.md'];
+
           return ['spec.md', 'architecture.md', 'tests.md'];
         };
 
@@ -188,10 +281,12 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
             const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}`);
             if (res.ok) {
               const content = await res.text();
-              const type = name.replace('.md', '') as any;
+              let type: any = name.replace('.md', '');
+              if (name === 'execution_report.md') type = 'report';
+              if (name === 'deliverables.md') type = 'deliverable';
               fetchedArtifacts.push({ name, content, type });
             }
-          } catch (e) {
+          } catch (e: any) {
             console.error(`Failed to fetch artifact ${name}`, e);
             hasError = true;
           }
@@ -203,7 +298,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
 
         setArtifacts(fetchedArtifacts);
         setLoading(false);
-      } catch (e) {
+      } catch (e: any) {
         console.error('Failed to fetch artifacts', e);
         setError(e.message);
         setLoading(false);
@@ -290,8 +385,8 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
   }
 
   return (
-    <div className="flex h-full">
-      <div className="w-64 border-r border-gray-200 bg-gray-50 overflow-y-auto flex flex-col justify-between">
+    <div className="flex h-full overflow-hidden">
+      <div className="w-64 border-r border-gray-200 bg-gray-50 overflow-y-auto flex flex-col justify-between shrink-0">
         <div className="p-4">
           {itemDetails && (
             <div className="mb-6 pb-4 border-b border-gray-200 text-sm text-gray-600">
@@ -337,9 +432,11 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
             ))}
           </div>
         </div>
+        
+        <Timeline itemId={itemId} />
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className="flex-1 overflow-y-auto p-6 bg-white">
         {selectedArtifact ? (
           <div>
             {/* Action Center - Only visible if we have instructions and no artifact selected */}

@@ -9,6 +9,7 @@ from agents import architect
 from agents import tester
 from agents import audit as audit_module
 from agents import telegram
+from agents import logger as task_logger
 
 # Configure logging
 logging.basicConfig(
@@ -80,6 +81,14 @@ class Orchestrator:
 
         if item_id:
             state_module.add_history_entry(state, item_id, new_stage, agent=agent)
+            
+            # Task Logging Integration
+            try:
+                t_logger = task_logger.get_logger(item_id)
+                t_logger.info(agent or "orchestrator", "STAGE_TRANSITION", f"Moved from {old_stage} to {new_stage}")
+            except Exception as e:
+                self.logger.error("Failed to log stage transition for %s: %s", item_id, str(e))
+
             try:
                 with open("config.yaml", "r") as f:
                     config = yaml.safe_load(f)
@@ -98,15 +107,25 @@ class Orchestrator:
 
     def handle_intake(self, item, state, item_id):
         self.logger.info("Processing %s at INTAKE stage", item_id)
+        
+        # Task Logging
+        task_logger.get_logger(item_id).info("orchestrator", "INTAKE_START", f"Beginning intake process for {item_id}")
+        
         self.transition_stage(item, "REFINEMENT", state, item_id)
 
     def handle_refinement(self, item, state, item_id):
         self.logger.info("Processing %s at REFINEMENT stage", item_id)
+        t_logger = task_logger.get_logger(item_id)
+        t_logger.info("orchestrator", "REFINEMENT_START", f"Starting refinement for {item_id}")
+
         title = item.get("title", "Untitled")
         try:
             confidence = refiner.refine_idea(item_id, title)
             item["confidence_score"] = confidence
             self.logger.info("Refiner completed for %s with confidence %d", item_id, confidence)
+            
+            t_logger.info("refiner", "REFINEMENT_COMPLETE", f"Refinement completed with confidence {confidence}", {"confidence": confidence})
+
             audit_module.log_action(
                 agent_name="refiner",
                 idea_id=item_id,
@@ -117,6 +136,7 @@ class Orchestrator:
             )
         except Exception as e:
             self.logger.error("Refiner failed for %s: %s", item_id, str(e))
+            t_logger.error("refiner", "REFINEMENT_FAILED", str(e))
             item["blocked_reason"] = f"Refiner failed: {str(e)}"
         self.transition_stage(item, "REVIEW_SPEC", state, item_id)
 
@@ -134,10 +154,16 @@ class Orchestrator:
 
     def handle_architecture(self, item, state, item_id):
         self.logger.info("Processing %s at ARCHITECTURE stage", item_id)
+        t_logger = task_logger.get_logger(item_id)
+        t_logger.info("orchestrator", "ARCHITECTURE_START", f"Starting architecture design for {item_id}")
+
         try:
             confidence = architect.architect_idea(item_id)
             item["confidence_score"] = confidence
             self.logger.info("Architect completed for %s with confidence %d", item_id, confidence)
+            
+            t_logger.info("architect", "ARCHITECTURE_COMPLETE", f"Architecture completed with confidence {confidence}", {"confidence": confidence})
+
             audit_module.log_action(
                 agent_name="architect",
                 idea_id=item_id,
@@ -148,6 +174,7 @@ class Orchestrator:
             )
         except Exception as e:
             self.logger.error("Architect failed for %s: %s", item_id, str(e))
+            t_logger.error("architect", "ARCHITECTURE_FAILED", str(e))
             item["blocked_reason"] = f"Architect failed: {str(e)}"
         self.transition_stage(item, "REVIEW_ARCH", state, item_id)
 
@@ -165,10 +192,16 @@ class Orchestrator:
 
     def handle_testing(self, item, state, item_id):
         self.logger.info("Processing %s at TESTING stage", item_id)
+        t_logger = task_logger.get_logger(item_id)
+        t_logger.info("orchestrator", "TESTING_START", f"Starting verification for {item_id}")
+
         try:
             confidence = tester.tester_idea(item_id, use_docker=False)
             item["confidence_score"] = confidence
             self.logger.info("Tester completed for %s with confidence %d", item_id, confidence)
+            
+            t_logger.info("tester", "TESTING_COMPLETE", f"Testing completed with confidence {confidence}", {"confidence": confidence})
+
             audit_module.log_action(
                 agent_name="tester",
                 idea_id=item_id,
@@ -179,6 +212,7 @@ class Orchestrator:
             )
         except Exception as e:
             self.logger.error("Tester failed for %s: %s", item_id, str(e))
+            t_logger.error("tester", "TESTING_FAILED", str(e))
             item["blocked_reason"] = f"Tester failed: {str(e)}"
         self.transition_stage(item, "REVIEW_TEST", state, item_id)
 
@@ -200,6 +234,9 @@ class Orchestrator:
 
     def handle_executing(self, item, state, item_id):
         self.logger.info("Processing %s at EXECUTING stage", item_id)
+        t_logger = task_logger.get_logger(item_id)
+        t_logger.info("orchestrator", "EXECUTION_START", f"Starting implementation for {item_id}")
+
         confidence = 0
         try:
             # Check for INLINE execution mode
@@ -213,12 +250,16 @@ class Orchestrator:
                 from agents import state as state_module
                 state_module.save_state(state)
                 self.transition_stage(item, 'DONE', state, item_id)
+                t_logger.info("executor", "EXECUTION_COMPLETE_INLINE", f"Inline execution successful")
                 return
-
+            
             from agents import executor
             confidence = executor.executor_idea(item_id)
             item["confidence_score"] = confidence
             self.logger.info("Executor completed for %s with confidence %d", item_id, confidence)
+            
+            t_logger.info("executor", "EXECUTION_COMPLETE", f"Implementation completed with confidence {confidence}", {"confidence": confidence})
+
             audit_module.log_action(
                 agent_name="executor",
                 idea_id=item_id,
@@ -229,6 +270,7 @@ class Orchestrator:
             )
         except Exception as e:
             self.logger.error("Executor failed for %s: %s", item_id, str(e))
+            t_logger.error("executor", "EXECUTION_FAILED", str(e))
             item["blocked_reason"] = f"Executor failed: {str(e)}"
         
         if confidence > 0:
@@ -238,6 +280,8 @@ class Orchestrator:
 
     def handle_done(self, item, state, item_id):
         self.logger.info("%s is already DONE, skipping", item_id)
+        t_logger = task_logger.get_logger(item_id)
+        t_logger.info("orchestrator", "PIPELINE_END", f"Task {item_id} completed")
 
     def promote_artifact_to_pattern(self, item_id, artifact_name, content):
         """
