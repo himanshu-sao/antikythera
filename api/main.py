@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.state_manager import StateManager
 from fastapi.responses import FileResponse
 
-app = FastAPI(title="Hermes Kanban API")
+app = FastAPI(title="Antikythera Kanban API")
 
 # ENH-02: CORS middleware - allows the Vite dev server to communicate with the API
 app.add_middleware(
@@ -124,7 +124,7 @@ class CommentRequest(BaseModel):
 async def health_check():
     try:
         _ = state_manager.load_state()
-        return {"status": "healthy", "service": "hermes-kanban-api"}
+        return {"status": "healthy", "service": "antikythera-kanban-api"}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
 

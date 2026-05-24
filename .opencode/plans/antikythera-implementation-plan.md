@@ -1,4 +1,4 @@
-# Hermes Multi-Agent Automation System — Implementation Plan
+# Antikythera Multi-Agent Automation System — Implementation Plan
 
 > Generated: 2026-05-14
 > Source: `memory.md` (design document)
@@ -91,7 +91,7 @@
 
 **Deliverables:**
 - `agents/telegram.py` — notification + slash command handlers
-- Integration with existing Hermes Telegram MCP server
+- Integration with existing Antikythera Telegram MCP server
 - `tests/` — Telegram handler tests
 
 ---

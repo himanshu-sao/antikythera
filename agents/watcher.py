@@ -1,5 +1,5 @@
 """
-File watcher agent for Hermes system.
+File watcher agent for Antikythera system.
 Monitors the automation-ideas/ directory for changes and triggers appropriate events.
 """
 
@@ -13,7 +13,7 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class HermesFileHandler(FileSystemEventHandler):
+class AntikytheraFileHandler(FileSystemEventHandler):
     """Handler for file system events in the automation-ideas directory."""
 
     def __init__(self, orchestrator):
@@ -68,7 +68,7 @@ class FileWatcher:
         self.watch_path = watch_path
         self.orchestrator = orchestrator
         self.observer = Observer()
-        self.handler = HermesFileHandler(orchestrator)
+        self.handler = AntikytheraFileHandler(orchestrator)
         
     def start(self):
         """Start the file watcher."""

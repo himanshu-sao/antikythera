@@ -18,7 +18,7 @@
       "Bash(cp *)",
       "Bash(rm *)",
       "Bash(npm test *)",
-      "Bash(/Users/himanshusao/Work/src/extra/himanshu-sao/hermes/ui/node_modules/.bin/vitest run *)",
+      "Bash(/Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/ui/node_modules/.bin/vitest run *)",
       "Bash(python3 *)",
       "Bash(pip --version)",
       "mcp__plugin_ecc_playwright__browser_navigate",

@@ -14,7 +14,7 @@ logging.basicConfig(
 logger = logging.getLogger("OrchestratorLoop")
 
 def main():
-    logger.info("Starting Hermes Orchestrator Loop...")
+    logger.info("Starting Antikythera Orchestrator Loop...")
     logger.info("Press Ctrl+C to stop.")
     
     try:

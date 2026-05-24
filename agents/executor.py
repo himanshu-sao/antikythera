@@ -125,7 +125,7 @@ You must respond with a JSON object representing the tool call.
 Example response:
 {"tool": "terminal", "args": {"command": "ls -la"}}
 """
-            system_prompt = f"You are the Hermes Executor Agent. Complete the task. {tools_description}"
+            system_prompt = f"You are the Antikythera Executor Agent. Complete the task. {tools_description}"
 
             try:
                 response_text = self.llm.chat(system_prompt=system_prompt, user_prompt=context)
@@ -145,7 +145,7 @@ Example response:
 
                 # 3. Execute tool
                 if tool_name == "terminal":
-                    from hermes_tools import terminal
+                    from antikythera_tools import terminal
                     result = terminal(command=args["command"])
                     # Feed result back to context for next turn
                     task_context += f"\nTOOL RESULT (terminal): {result.get('output')}\n"
@@ -169,17 +169,17 @@ Example response:
                             task_context += "\nDIAGNOSTIC: No specific suggestion found. Try a different approach.\n"
                 
                 elif tool_name == "write_file":
-                    from hermes_tools import write_file
+                    from antikythera_tools import write_file
                     write_file(path=args["path"], content=args["content"])
                     task_context += f"\nSUCCESS: Wrote to {args['path']}\n"
                 
                 elif tool_name == "patch":
-                    from hermes_tools import patch
+                    from antikythera_tools import patch
                     patch(path=args["path"], old_string=args["old_string"], new_string=args["new_string"])
                     task_context += f"\nSUCCESS: Patched {args['path']}\n"
                 
                 elif tool_name == "read_file":
-                    from hermes_tools import read_file
+                    from antikythera_tools import read_file
                     content = read_file(path=args["path"])
                     task_context += f"\nFILE CONTENT ({args['path']}):\n{content}\n"
                 

@@ -21,7 +21,7 @@ class ExecutorPlanner:
         """
         logger.info("Generating implementation checklist using LLM...")
         
-        system_prompt = """You are the Hermes Implementation Planner. 
+        system_prompt = """You are the Antikythera Implementation Planner. 
 Your goal is to decompose a technical specification and architecture into a highly granular, atomic, and sequential implementation checklist.
 
 ### OBJECTIVE

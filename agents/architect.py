@@ -86,7 +86,7 @@ def _generate_architecture_content(idea_id: str, spec_content: str, patterns_con
     Internal method to generate the markdown content for the architecture.
     This is used by tests and can be exposed if needed.
     """
-    system_prompt = f"""You are the Hermes Architect Agent. Your goal is to transform a technical specification into a detailed technical architecture document.
+    system_prompt = f"""You are the Antikythera Architect Agent. Your goal is to transform a technical specification into a detailed technical architecture document.
 
 Your output must be in valid Markdown format.
 

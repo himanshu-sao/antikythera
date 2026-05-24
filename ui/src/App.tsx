@@ -193,7 +193,7 @@ export default function App() {
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 p-6">
         <header className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Hermes Pipeline</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">Antikythera Pipeline</h1>
           <div className="mt-4 flex flex-wrap gap-2 items-center justify-between">
             <div className="flex gap-2">
               <button onClick={() => setShowWorkflow(true)} className="px-4 py-2 bg-white border rounded-lg text-sm">Workflow</button>

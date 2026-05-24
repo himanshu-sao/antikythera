@@ -1,6 +1,6 @@
-# 📡 Hermes API Specification
+# 📡 Antikythera API Specification
 
-This document defines the REST API contract between the Hermes Kanban UI and the Backend.
+This document defines the REST API contract between the Antikythera Kanban UI and the Backend.
 
 ## 🌐 Base Configuration
 - **Base URL**: `http://localhost:8000` (or as defined by `VITE_API_URL`)
@@ -16,7 +16,7 @@ This document defines the REST API contract between the Hermes Kanban UI and the
 - **Description**: Verifies API connectivity and state manager availability.
 - **Success Response**: `200 OK`
   ```json
-  { "status": "healthy", "service": "hermes-kanban-api" }
+  { "status": "healthy", "service": "antikythera-kanban-api" }
   ```
 - **Error Response**: `503 Service Unavailable` if state cannot be loaded.
 

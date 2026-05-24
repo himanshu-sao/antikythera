@@ -1,4 +1,4 @@
-# 📈 Hermes Project Progress
+# 📈 Antikythera Project Progress
 
 This file is the authoritative source of truth for the current status of all phases and remediation tasks. It is used by the `SUPERPOWER-REVIEW` and `SUPERPOWER-IMPLEMENT` loops to determine the next work target.
 

@@ -70,7 +70,7 @@ class MemoryAgent:
         """
         logger.info("Analyzing entries for patterns...")
         
-        system_prompt = """You are the Hermes Memory Agent.
+        system_prompt = """You are the Antikythera Memory Agent.
 Your goal is to analyze audit logs and extract structured, reusable patterns.
 
 ### OBJECTIVE
@@ -152,7 +152,7 @@ def extract_pattern_from_content(item_id: str, artifact_name: str, content: str)
     logger.info("Memory Agent: Extracting pattern from %s/%s", item_id, artifact_name)
 
     system_prompt = """
-    You are the Hermes Memory Agent. Your goal is to perform 'Pattern Promotion'.
+    You are the Antikythera Memory Agent. Your goal is to perform 'Pattern Promotion'.
     You will receive a successful technical artifact (spec, architecture, or test) from a completed automation task.
     Your job is to extract the underlying architectural, organizational, or operational patterns that made this task successful.
 
@@ -179,7 +179,7 @@ def extract_pattern_from_content(item_id: str, artifact_name: str, content: str)
             with open(BRAIN_PATTERNS, 'r') as f:
                 current_content = f.read()
         else:
-            current_content = "# Hermes Architectural Patterns\n\n"
+            current_content = "# Antikythera Architectural Patterns\n\n"
 
         with open(BRAIN_PATTERNS, 'w') as f:
             f.write(current_content + "\n" + new_pattern_markdown + "\n")
