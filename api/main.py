@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field, field_validator
 from api.state_manager import StateManager
 from fastapi.responses import FileResponse
 
+from api.workflow_router import router as workflow_router
 app = FastAPI(title="Antikythera Kanban API")
+app.include_router(workflow_router)
 
 # ENH-02: CORS middleware - allows the Vite dev server to communicate with the API
 app.add_middleware(

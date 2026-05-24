@@ -10,6 +10,7 @@ class WorkflowStateManager:
         self.templates_path = os.path.join(base_dir, "workflow_templates.json")
         self.runs_path = os.path.join(base_dir, "workflow_runs.json")
         self.bindings_path = os.path.join(base_dir, "workflow_bindings.json")
+        self.events_dir = os.path.join(base_dir, "events")
         
         # Locks for each file
         self._templates_lock = FileLock(self.templates_path + ".lock")
@@ -83,6 +84,43 @@ class WorkflowStateManager:
     def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         runs = self._load_json(self.runs_path, self._runs_lock)
         return runs.get(run_id)
+
+    # --- Event Logging (The Timeline) ---
+
+    def log_event(self, run_id: str, event_type: str, payload: Dict[str, Any], actor: str = "system") -> bool:
+        try:
+            run_events_path = os.path.join(self.events_dir, f"{run_id}.jsonl")
+            os.makedirs(self.events_dir, exist_ok=True)
+            
+            event = {
+                "event_id": f"ev_{int(datetime.utcnow().timestamp() * 1000)}",
+                "run_id": run_id,
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "event_type": event_type,
+                "payload": payload,
+                "actor": actor
+            }
+            
+            with open(run_events_path, "a") as f:
+                f.write(json.dumps(event) + "\n")
+            return True
+        except Exception:
+            return False
+
+    def get_run_timeline(self, run_id: str) -> List[Dict[str, Any]]:
+        run_events_path = os.path.join(self.events_dir, f"{run_id}.jsonl")
+        if not os.path.exists(run_events_path):
+            return []
+        
+        events = []
+        try:
+            with open(run_events_path, "r") as f:
+                for line in f:
+                    if line.strip():
+                        events.append(json.loads(line))
+        except Exception:
+            pass
+        return events
 
     # --- Binding Management ---
 
