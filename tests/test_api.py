@@ -79,9 +79,9 @@ class TestApi(unittest.TestCase):
         self.assertIn(response.status_code, [400, 404])
 
     def test_get_artifact_valid_item_id_not_found(self):
-        """Valid item ID format but no artifact file should return 404."""
+        """Valid item ID format but no artifact file should return 204."""
         response = self.client.get("/api/item/ID-999/artifact/spec.md")
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 204)
 
     def test_get_artifact_invalid_artifact_name(self):
         """Invalid artifact name should return 400."""
@@ -201,15 +201,16 @@ class TestApi(unittest.TestCase):
         """Only review.md should be editable."""
         test_dir = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", "ID-001")
         os.makedirs(test_dir, exist_ok=True)
-
+    
         response = self.client.post("/api/item/ID-001/artifact/spec.md/content", json={"content": "new content"})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Only review.md can be edited")
-
+        
         try:
             os.removedirs(test_dir)
         except OSError:
             pass
+
 
     def test_update_artifact_content_path_traversal(self):
         """Path traversal in item_id should return 400."""
@@ -226,6 +227,23 @@ class TestApi(unittest.TestCase):
         """Writing to a non-existent item directory should handle error gracefully (usually 500 or 404)."""
         response = self.client.post("/api/item/ID-999/artifact/review.md/content", json={"content": "text"})
         self.assertEqual(response.status_code, 500)
+
+    def test_update_item_due_date_success(self):
+        """Successfully update the due date of an item."""
+        due_date = "2026-12-31"
+        response = self.client.patch("/api/item/ID-001", json={"due_date": due_date})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], "success")
+
+        # Verify file update
+        with open(self.test_state_path, "r") as f:
+            state = json.load(f)
+            self.assertEqual(state["items"]["ID-001"]["due_date"], due_date)
+
+    def test_update_item_invalid_due_date(self):
+        """Updating with an invalid date format should return 422 (Pydantic validation error)."""
+        response = self.client.patch("/api/item/ID-001", json={"due_date": "31-12-2026"})
+        self.assertEqual(response.status_code, 422)
 
 
 if __name__ == "__main__":

@@ -76,15 +76,31 @@ const mockState: PipelineState = {
 };
 
 describe('App drag-and-drop handleDragEnd', () => {
+  let mockFetch: any;
+
   beforeEach(() => {
     vi.clearAllMocks();
     (window as Record<string, unknown>).__dndOnDragEnd = undefined;
 
-    // Mock fetch for initial state load
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockState,
-    } as Response);
+    // Use a dynamic mock implementation that handles state requests and move requests robustly
+    mockFetch = vi.fn().mockImplementation((url) => {
+      if (url.includes('/api/state')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => mockState,
+        } as Response);
+      }
+      if (url.includes('/api/move')) {
+        return Promise.resolve({
+          ok: true,
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true,
+      } as Response);
+    });
+
+    vi.spyOn(global, 'fetch').mockImplementation(mockFetch);
   });
 
   afterEach(() => {
@@ -104,12 +120,6 @@ describe('App drag-and-drop handleDragEnd', () => {
   });
 
   it('handleDragEnd moves item to a column when dropped on column header', async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => mockState } as Response) // initial load
-      .mockResolvedValueOnce({ ok: true } as Response); // move API call
-
-    vi.spyOn(global, 'fetch').mockImplementation(mockFetch);
-
     render(<App />);
 
     await waitFor(() => {
@@ -125,7 +135,7 @@ describe('App drag-and-drop handleDragEnd', () => {
       over: { id: 'REVIEW_SPEC' },
     });
 
-    // Should call move API with new stage
+    // Should call move API with new stage and order 2 (there are already 2 items in REVIEW_SPEC column)
     const moveCall = mockFetch.mock.calls.find(
       (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
@@ -136,16 +146,11 @@ describe('App drag-and-drop handleDragEnd', () => {
     expect(JSON.parse((moveCall as unknown[])[1].body as string)).toEqual({
       item_id: 'ID-001',
       new_stage: 'REVIEW_SPEC',
+      order: 2,
     });
   });
 
   it('handleDragEnd moves item to another item\'s stage when dropped on a card', async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => mockState } as Response) // initial load
-      .mockResolvedValueOnce({ ok: true } as Response); // move API call
-
-    vi.spyOn(global, 'fetch').mockImplementation(mockFetch);
-
     render(<App />);
 
     await waitFor(() => {
@@ -161,7 +166,7 @@ describe('App drag-and-drop handleDragEnd', () => {
       over: { id: 'ID-002' },
     });
 
-    // Should call move API with REVIEW_SPEC (ID-002's stage)
+    // Should call move API with REVIEW_SPEC (ID-002's stage) and order 0
     const moveCall = mockFetch.mock.calls.find(
       (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
@@ -172,15 +177,11 @@ describe('App drag-and-drop handleDragEnd', () => {
     expect(JSON.parse((moveCall as unknown[])[1].body as string)).toEqual({
       item_id: 'ID-001',
       new_stage: 'REVIEW_SPEC',
+      order: 0,
     });
   });
 
   it('handleDragEnd does nothing when dropped on same stage', async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => mockState } as Response); // only initial load
-
-    vi.spyOn(global, 'fetch').mockImplementation(mockFetch);
-
     render(<App />);
 
     await waitFor(() => {
@@ -197,18 +198,13 @@ describe('App drag-and-drop handleDragEnd', () => {
     });
 
     // Should NOT call move API (same stage)
-const moveCalls = mockFetch.mock.calls.filter(
+    const moveCalls = mockFetch.mock.calls.filter(
       (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
     expect(moveCalls.length).toBe(0);
   });
 
   it('handleDragEnd does nothing when over is null', async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => mockState } as Response);
-
-    vi.spyOn(global, 'fetch').mockImplementation(mockFetch);
-
     render(<App />);
 
     await waitFor(() => {
@@ -230,11 +226,6 @@ const moveCalls = mockFetch.mock.calls.filter(
   });
 
   it('handleDragEnd does nothing when active item does not exist in state', async () => {
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => mockState } as Response);
-
-    vi.spyOn(global, 'fetch').mockImplementation(mockFetch);
-
     render(<App />);
 
     await waitFor(() => {
@@ -256,14 +247,6 @@ const moveCalls = mockFetch.mock.calls.filter(
   });
 
   it('handleDragEnd uses state.items[overId]?.stage for card-to-card drop', async () => {
-    // This test specifically verifies the R5.4 fix:
-    // The lookup uses state.items[overId]?.stage (not i.id or any other incorrect property)
-    const mockFetch = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => mockState } as Response)
-      .mockResolvedValueOnce({ ok: true } as Response);
-
-    vi.spyOn(global, 'fetch').mockImplementation(mockFetch);
-
     render(<App />);
 
     await waitFor(() => {
@@ -279,7 +262,7 @@ const moveCalls = mockFetch.mock.calls.filter(
       over: { id: 'ID-003' },
     });
 
-    // Verify the move API was called with REVIEW_SPEC (ID-003's stage)
+    // Verify the move API was called with REVIEW_SPEC (ID-003's stage) and order 1
     const moveCall = mockFetch.mock.calls.find(
       (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
     );
@@ -287,6 +270,7 @@ const moveCalls = mockFetch.mock.calls.filter(
     expect(JSON.parse((moveCall as unknown[])[1].body as string)).toEqual({
       item_id: 'ID-001',
       new_stage: 'REVIEW_SPEC',
+      order: 1,
     });
   });
 });

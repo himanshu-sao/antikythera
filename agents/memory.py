@@ -1,146 +1,191 @@
 """
-Memory Agent — analyzes audit logs and review comments to evolve brain/patterns.md.
-
-The Memory Agent identifies recurring patterns, owner preferences, and constraints
-from the pipeline's history and proposes updates to the system's "brain".
+Memory Agent — The continuous learner.
+Analyzes audit logs to discover patterns and update patterns.md.
 """
 
 import os
-import re
 import logging
-from datetime import datetime
+import glob
+import datetime
+from typing import List, Dict, Any, Optional
+from agents.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BRAIN_DIR = os.path.join(PROJECT_ROOT, "automation-ideas", "brain")
-REQUIREMENTS_DIR = os.path.join(PROJECT_ROOT, "automation-ideas", "requirements")
 AUDIT_DIR = os.path.join(PROJECT_ROOT, "automation-ideas", "audit")
-PATTERNS_FILE = os.path.join(BRAIN_DIR, "patterns.md")
-PENDING_UPDATES_FILE = os.path.join(BRAIN_DIR, "pending-updates.md")
+PATTERNS_FILE = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "patterns.md")
 
-def _read_file(path):
-    if os.path.exists(path):
-        with open(path, "r") as f:
-            return f.read()
-    return ""
+class MemoryAgent:
+    def __init__(self, config_path: str):
+        self.llm = LLMClient(config_path=config_path)
 
-def _extract_review_comments(requirements_dir):
+    def run_learning_loop(self):
+        """
+        Main loop for the Memory Agent.
+        1. Collect audit logs.
+        2. Extract patterns.
+        3. Propose updates to patterns.md.
+        """
+        logger.info("Memory Agent starting learning loop...")
+        
+        audit_entries = self._collect_audit_entries()
+        if not audit_entries:
+            logger.info("No new audit entries found to learn from.")
+            return
+
+        logger.info(f"Collected {len(audit_entries)} audit entries.")
+        
+        patterns = self._analyze_patterns(audit_entries)
+        if patterns:
+            self._update_patterns_file(patterns)
+        else:
+            logger.info("No new patterns identified.")
+
+    def _collect_audit_entries(self) -> List[str]:
+        """
+        Reads all audit files and collects their contents.
+        """
+        entries = []
+        audit_files = sorted(glob.glob(os.path.join(AUDIT_DIR, "*.md")))
+        
+        for file_path in audit_files:
+            try:
+                with open(file_path, "r") as f:
+                    # We only want the entries, not the header
+                    content = f.read()
+                    # Basic heuristic: entries are separated by ---
+                    # We'll take everything after the first header
+                    parts = content.split("## ")
+                    if len(parts) > 1:
+                        entries.extend(parts[1:])
+            except Exception as e:
+                logger.error(f"Error reading audit file {file_path}: {str(e)}")
+        
+        return entries
+
+    def _analyze_patterns(self, entries: List[str]) -> Optional[str]:
+        """
+        Uses the LLM to synthesize patterns from audit entries.
+        """
+        logger.info("Analyzing entries for patterns...")
+        
+        system_prompt = """You are the Antikythera Memory Agent.
+Your goal is to analyze audit logs and extract structured, reusable patterns.
+
+### OBJECTIVE
+Identify recurring themes in agent behavior, tech stack choices, naming conventions, and workflow patterns.
+
+### OUTPUT FORMAT
+Return ONLY a valid Markdown formatted section that can be appended or merged into patterns.md.
+Use the following structure:
+
+## [Category Name]
+- **Pattern**: [Description]
+- **Context**: [When to use]
+
+### GUIDELINES
+1. **Be Specific**: Don't just say "Python". Say "Preferred use of Python 3.9+ with type hinting".
+2. **Be Actionable**: Patterns should be useful for future agents.
+3. **Avoid Redundancy**: If a pattern already exists in the provided context, do not repeat it.
+"""
+
+        user_prompt = f"""
+Here are the recent audit log entries:
+
+{chr(10).join(entries)}
+
+Based on these entries, propose NEW patterns to add to the patterns.md file.
+If no new patterns are found, return an empty string.
+"""
+
+        try:
+            response_text = self.llm.chat(system_prompt=system_prompt, user_prompt=user_prompt)
+            return response_text.strip()
+        except Exception as e:
+            logger.error(f"Failed to analyze patterns: {str(e)}")
+            return None
+
+    def _update_patterns_file(self, new_patterns: str):
+        """
+        Appends new patterns to patterns.md.
+        """
+        logger.info("Updating patterns.md with new insights...")
+        
+        if not new_patterns or len(new_patterns.strip()) < 10:
+            return
+
+        try:
+            # In a production system, we would use an LLM to merge these 
+            # to avoid duplicates and ensure logical ordering.
+            # For now, we append with a timestamp.
+            timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            
+            with open(PATTERNS_FILE, "a") as f:
+                f.write(f"\n\n## Learned on {timestamp}\n\n")
+                f.write(new_patterns)
+            
+            logger.info(f"Successfully updated {PATTERNS_FILE}")
+        except Exception as e:
+            logger.error(f"Failed to update patterns.md: {str(e)}")
+
+if __name__ == "__main__":
+    # Manual run for testing
+    import yaml
+    config_path = "config.yaml"
+    agent = MemoryAgent(config_path=config_path)
+    agent.run_learning_loop()
+
+def extract_pattern_from_content(item_id: str, artifact_name: str, content: str) -> bool:
     """
-    Find all review.md files and extract comments and review status.
+    Analyzes the provided artifact content to extract reusable patterns and updates patterns.md.
     """
-    all_comments = []
-    for root, dirs, files in os.walk(requirements_dir):
-        if "review.md" in files:
-            path = os.path.join(root, "review.md")
-            content = _read_file(path)
-            # Basic extraction of comments and status
-            # Looking for patterns like **review_status:** APPROVED/NEEDS_REVISION
-            status_match = re.search(r"\*\*review_status:\*\*\s*(\w+)", content)
-            status = status_match.group(1) if status_match else "UNKNOWN"
+    import logging
+    from agents.llm_client import LLMClient
+    import os
+    from datetime import datetime
 
-            # Extract bullet points under "Comments:"
-            comments_section = re.split(r"\*\*Comments:\*\*", content)
-            if len(comments_section) > 1:
-                comment_text = comments_section[1].split("---")[0].strip()
-                all_comments.append({
-                    "item_id": os.path.basename(os.path.dirname(path)),
-                    "status": status,
-                    "comments": comment_text
-                })
-    return all_comments
+    logger = logging.getLogger(__name__)
+    llm = LLMClient(config_path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config.yaml'))
+    BRAIN_PATTERNS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'automation-ideas', 'brain', 'patterns.md')
 
-def _extract_audit_patterns(audit_dir):
+    logger.info("Memory Agent: Extracting pattern from %s/%s", item_id, artifact_name)
+
+    system_prompt = """
+    You are the Antikythera Memory Agent. Your goal is to perform 'Pattern Promotion'.
+    You will receive a successful technical artifact (spec, architecture, or test) from a completed automation task.
+    Your job is to extract the underlying architectural, organizational, or operational patterns that made this task successful.
+
+    Guidelines for Extraction:
+    1. **Identify Reusable Logic**: Look for specific error handling strategies, security patterns, or structural elements.
+    2. **Abstract the Pattern**: Do NOT include specific implementation details (like variable names or specific IDs). Instead, describe the *princness* of the pattern.
+    3. **Format for patterns.md**: Output your findings as a new Markdown section with a clear heading and bullet points. Use a style that is easy for other AI agents to read as instructions.
+    4. **Avoid Redundancy**: If a similar pattern already exists in the provided context, refine the existing pattern rather than duplicating it.
+
+    Input format: [ARTIFACT TYPE] | [ARTIFACT CONTENT]
+    Output format: A new Markdown section ready to be appended to patterns.md.
     """
-    Parse audit logs to find recurring agent actions or failures.
-    """
-    patterns = []
-    for file in os.listdir(audit_dir):
-        if file.endswith(".md"):
-            path = os.path.join(audit_dir, file)
-            content = _read_file(path)
-            # Extract entries between "## [timestamp]" and "---"
-            entries = re.split(r"## \d{4}-\d{2}-\d{2}T", content)
-            for entry in entries[1:]:
-                # Simple pattern: look for "Action: ..." and "Inputs: ..."
-                action_match = re.search(r"- \*\*Action\*\*: (.+)", entry)
-                if action_match:
-                    action = action_match.group(1).strip()
-                    patterns.append(action)
-    return patterns
 
-def _synthesize_proposed_updates(review_comments, audit_patterns):
-    """
-    Analyze collected data and propose updates to patterns.md.
-    In a real implementation, this would use an LLM.
-    For this scaffold, it uses heuristic-based synthesis.
-    """
-    proposals = []
+    user_prompt = f"<{artifact_name.upper()}>\n{content}"
 
-    # Example heuristic: if "secret" appears in multiple review comments, propose a secret management pattern
-    secret_mentions = [c for c in review_comments if "secret" in c["comments"].lower() or "credential" in c["comments"].lower()]
-    if len(secret_mentions) >= 1:
-        evidence = ", ".join([f"{c['item_id']}" for c in secret_mentions])
-        proposals.append({
-            "area": "Secret Management",
-            "update": "Ensure all secrets are read from environment variables via `os.getenv()` and never hardcoded in specs or code.",
-            "evidence": f"Mentioned in review comments for: {evidence}",
-            "confidence": "High"
-        })
+    try:
+        new_pattern_markdown = llm.generate_structured_content(system_prompt, user_prompt)
+        if not new_pattern_markdown or len(new_pattern_markdown) < 50:
+            logger.warning("Pattern extraction yielded insufficient content. Skipping.")
+            return False
 
-    # Example heuristic: if certain tools are mentioned frequently in audit logs
-    # (Simulated logic)
-    if any("Docker" in p for p in audit_patterns):
-        proposals.append({
-            "area": "Infrastructure",
-            "update": "Use Docker Compose for all sandbox testing to ensure environment parity.",
-            "evidence": "Recurring use of Docker in audit logs",
-            "confidence": "Medium"
-        })
+        # Append to patterns.md
+        if os.path.exists(BRAIN_PATTERNS):
+            with open(BRAIN_PATTERNS, 'r') as f:
+                current_content = f.read()
+        else:
+            current_content = "# Antikythera Architectural Patterns\n\n"
 
-    return proposals
+        with open(BRAIN_PATTERNS, 'w') as f:
+            f.write(current_content + "\n" + new_pattern_markdown + "\n")
 
-def _write_pending_updates(proposals):
-    """
-    Write proposals to brain/pending-updates.md in the specified format.
-    """
-    if not proposals:
-        return
-
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
-    header = f"## Pending Brain Update — {date_str}\n\n"
-
-    body = ""
-    for i, prop in enumerate(proposals, 1):
-        body += f"### Proposed Change {i}\n"
-        body += f"**Pattern area:** {prop['area']}\n"
-        body += f"**What to add:** {prop['update']}\n"
-        body += f"**Evidence:** {prop['evidence']}\n"
-        body += f"**Confidence:** {prop['confidence']}\n\n"
-        body += f"**review_status:** PENDING\n\n---\n\n"
-
-    with open(PENDING_UPDATES_FILE, "w") as f:
-        f.write(header + body)
-
-def analyze_and_propose(patterns_path=None):
-    """
-    Main entry point for Memory Agent.
-    Analyzes audit logs and review comments to propose updates to brain/patterns.md.
-
-    Returns:
-        bool: True if proposals were written, False otherwise.
-    """
-    logger.info("Memory Agent: Starting brain analysis")
-
-    review_comments = _extract_review_comments(REQUIREMENTS_DIR)
-    audit_patterns = _extract_audit_patterns(AUDIT_DIR)
-
-    proposals = _synthesize_proposed_updates(review_comments, audit_patterns)
-
-    if proposals:
-        _write_pending_updates(proposals)
-        logger.info("Memory Agent: Wrote %d proposals to pending-updates.md", len(proposals))
+        logger.info("Successfully updated patterns.md with new pattern from %s", item_id)
         return True
-
-    logger.info("Memory Agent: No new patterns identified")
-    return False
+    except Exception as e:
+        logger.error("Pattern extraction failed for %s: %s", item_id, str(e))
+        return False

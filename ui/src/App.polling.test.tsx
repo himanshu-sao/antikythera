@@ -40,22 +40,19 @@ describe('App Real-time Polling', () => {
 
     render(<App />);
 
-    // Initial fetch
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('http://localhost:8000/api/state');
-    });
+    // Flush initial useEffect and its async fetch
+    await vi.advanceTimersByTimeAsync(0);
 
-    // Advance time by 10 seconds
-    vi.advanceTimersByTime(10000);
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8000/api/state');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // Since the interval callback is async, we need to allow promises to resolve
-    await vi.runAllTimersAsync();
+    // Advance time by 10 seconds and resolve async callbacks
+    await vi.advanceTimersByTimeAsync(10000);
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
 
     // Advance time by another 10 seconds
-    vi.advanceTimersByTime(10000);
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(10000);
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
   }, 20000);
@@ -68,9 +65,8 @@ describe('App Real-time Polling', () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -78,8 +74,7 @@ describe('App Real-time Polling', () => {
     });
     document.dispatchEvent(new Event('visibilitychange'));
 
-    vi.advanceTimersByTime(20000);
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(20000);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   }, 20000);
@@ -92,17 +87,15 @@ describe('App Real-time Polling', () => {
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       value: 'hidden',
     });
     document.dispatchEvent(new Event('visibilitychange'));
-    vi.advanceTimersByTime(10000);
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(10000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     Object.defineProperty(document, 'visibilityState', {
@@ -111,12 +104,11 @@ describe('App Real-time Polling', () => {
     });
     document.dispatchEvent(new Event('visibilitychange'));
 
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-    });
+    // The visibilitychange listener calls fetchState immediately when visible
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
-    vi.advanceTimersByTime(10000);
-    await vi.runAllTimersAsync();
+    await vi.advanceTimersByTimeAsync(10000);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   }, 20000);
 });

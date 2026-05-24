@@ -93,6 +93,8 @@ def start_scheduler():
     global _scheduler_running
 
     import schedule
+    import datetime
+    from agents import brain_loop
 
     config = _load_config()
     heartbeat_config = config.get("heartbeat", {})

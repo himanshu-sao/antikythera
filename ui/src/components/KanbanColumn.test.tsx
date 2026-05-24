@@ -28,6 +28,10 @@ describe('KanbanCard', () => {
         priority={mockItem.priority}
         confidence_score={mockItem.confidence_score}
         onCardClick={mockOnCardClick}
+        onEditClick={vi.fn()}
+        onDeleteClick={vi.fn()}
+        updated_at="2026-05-20T10:00:00Z"
+        due_date="2026-06-01"
       />
     );
 
@@ -35,6 +39,8 @@ describe('KanbanCard', () => {
     expect(screen.getByText(mockItem.title)).toBeInTheDocument();
     expect(screen.getByText('High')).toBeInTheDocument();
     expect(screen.getByText('Confidence: 85%')).toBeInTheDocument();
+    expect(screen.getByText(/5\/20\/2026/i)).toBeInTheDocument();
+    expect(screen.getByText('2026-06-01')).toBeInTheDocument();
   });
 
   it('displays correct priority color badge', () => {
@@ -45,6 +51,7 @@ describe('KanbanCard', () => {
         priority="High"
         confidence_score={85}
         onCardClick={mockOnCardClick}
+        onEditClick={vi.fn()}
       />
     );
 
@@ -60,6 +67,7 @@ describe('KanbanCard', () => {
         priority={mockItem.priority}
         confidence_score={mockItem.confidence_score}
         onCardClick={mockOnCardClick}
+        onEditClick={vi.fn()}
       />
     );
 
@@ -82,6 +90,7 @@ describe('KanbanCard', () => {
           priority={priority}
           confidence_score={50}
           onCardClick={mockOnCardClick}
+          onEditClick={vi.fn()}
         />
       );
       
@@ -114,10 +123,11 @@ describe('KanbanColumn', () => {
         id="REVIEW_SPEC"
         items={mockItems}
         onCardClick={mockOnCardClick}
+        onEditClick={vi.fn()}
       />
     );
 
-    expect(screen.getByText(/REVIEW_SPEC/)).toBeInTheDocument();
+    expect(screen.getByText(/Review Spec/i)).toBeInTheDocument();
     expect(screen.getByText('(2)')).toBeInTheDocument();
   });
 
@@ -127,6 +137,7 @@ describe('KanbanColumn', () => {
         id="REVIEW_SPEC"
         items={mockItems}
         onCardClick={mockOnCardClick}
+        onEditClick={vi.fn()}
       />
     );
 
@@ -142,10 +153,11 @@ describe('KanbanColumn', () => {
         id="INTAKE"
         items={[]}
         onCardClick={mockOnCardClick}
+        onEditClick={vi.fn()}
       />
     );
 
-    expect(screen.getByText(/INTAKE/)).toBeInTheDocument();
+    expect(screen.getByText(/Intake/i)).toBeInTheDocument();
     expect(screen.getByText('(0)')).toBeInTheDocument();
   });
 
@@ -155,6 +167,7 @@ describe('KanbanColumn', () => {
         id="REVIEW_SPEC"
         items={mockItems}
         onCardClick={mockOnCardClick}
+        onEditClick={vi.fn()}
       />
     );
 

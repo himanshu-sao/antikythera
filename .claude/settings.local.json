@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pytest *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(ruff check *)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(npx vitest *)",
+      "Bash(npx tsc *)",
+      "Bash(uv run *)",
+      "Bash(python *)",
+      "Bash(docker compose *)",
+      "Bash(curl *)",
+      "Bash(mkdir *)",
+      "Bash(ls *)",
+      "Bash(cp *)",
+      "Bash(rm *)",
+      "Bash(npm test *)",
+      "Bash(/Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/ui/node_modules/.bin/vitest run *)",
+      "Bash(python3 *)",
+      "Bash(pip --version)",
+      "mcp__plugin_ecc_playwright__browser_navigate",
+      "mcp__plugin_ecc_playwright__browser_snapshot",
+      "mcp__plugin_ecc_playwright__browser_take_screenshot",
+      "mcp__plugin_ecc_playwright__browser_console_messages",
+      "mcp__plugin_desktop-commander_desktop-commander__create_directory",
+      "mcp__plugin_desktop-commander_desktop-commander__write_file",
+      "Skill(superpowers:subagent-driven-development)",
+      "Bash(npx playwright *)",
+      "Skill(superpowers:finishing-a-development-branch)",
+      "Skill(superpowers:brainstorming)"
+    ]
+  }
+}

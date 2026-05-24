@@ -1,5 +1,5 @@
 """
-Telegram Integration Handler for the Hermes Pipeline.
+Telegram Integration Handler for the Antikythera Pipeline.
 
 This module handles sending notifications to the owner and processing
 incoming slash commands to interact with the pipeline state.
@@ -24,7 +24,7 @@ class TelegramHandler:
         """
         Internal method to send a message via the Telegram API.
         In a real implementation, this would call the Telegram Bot API
-        or interface with the Hermes Telegram MCP server.
+        or interface with the Antikythera Telegram MCP server.
         """
         if not self.enabled:
             logger.info("[Telegram Mock] Notification disabled. Message: %s", text)
@@ -42,7 +42,7 @@ class TelegramHandler:
             return
 
         msg = (
-            f"🧠 [Hermes Brain] Memory Agent has identified {proposal_count} new patterns!\n\n"
+            f"🧠 [Antikythera Brain] Memory Agent has identified {proposal_count} new patterns!\n\n"
             f"Proposed updates are waiting for your review in:\n"
             f"automation-ideas/brain/pending-updates.md\n\n"
             f"Please mark them as APPROVED or REJECTED to evolve the system brain."
@@ -58,14 +58,14 @@ class TelegramHandler:
 
         if stage in {"REVIEW_SPEC", "REVIEW_ARCH", "REVIEW_TEST"}:
             msg = (
-                f"🔔 [Hermes Pipeline] {item_id} ready for review\n\n"
+                f"🔔 [Antikythera Pipeline] {item_id} ready for review\n\n"
                 f"Stage: {stage}\n"
                 f"Title: {title}\n"
                 f"Confidence: {confidence if confidence else 'N/A'}/100\n\n"
                 f"Please review: automation-ideas/requirements/{item_id}/review.md"
             )
         elif stage == "DONE":
-            msg = f"✅ [Hermes Pipeline] {item_id} ({title}) is now DONE!"
+            msg = f"✅ [Antikythera Pipeline] {item_id} ({title}) is now DONE!"
         else:
             return # Only notify on review gates or completion
 
@@ -116,7 +116,7 @@ class TelegramHandler:
         if not items:
             return "Pipeline is currently empty."
 
-        summary = ["🚀 *Hermes Pipeline Status*"]
+        summary = ["🚀 *Antikythera Pipeline Status*"]
         for item_id, item in items.items():
             stage = item.get("stage", "INTAKE")
             status = item.get("review_status", "PENDING")

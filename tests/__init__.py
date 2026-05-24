@@ -1,1 +1,1 @@
-# Hermes Multi-Agent Automation System - Tests Package
+# Antikythera Multi-Agent Automation System - Tests Package

@@ -1,1 +1,35 @@
+# Dependencies
 /node_modules
+ui/node_modules
+venv/
+.venv/
+
+# Logs
+ui/npm-run-dev.log
+*.log
+
+# Testing
+/test-results
+playwright-report/
+blob-report/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+
+# IDE & OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+automation-ideas/
