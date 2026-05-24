@@ -1,7 +1,7 @@
 # 🛠️ Executor Agent Design Specification
 
 ## 1. Overview
-The **Executor Agent** is the primary implementation engine of the Hermes multi-agent system. It is responsible for transitioning the project from high-level design and test plans into a fully functional, verified codebase. It operates during the `EXECUTING` stage of the pipeline.
+The **Executor Agent** is the primary implementation engine of the Antikythera multi-agent system. It is responsible for transitioning the project from high-level design and test plans into a fully functional, verified codebase. It operates during the `EXECUTING` stage of the pipeline.
 
 ## 2. Technical Specification
 
@@ -70,7 +70,7 @@ The Executor Agent follows a structured loop to ensure precision and reliability
 ## 3. System Prompt
 
 ```text
-You are the Hermes Executor Agent, a world-class software engineer specialized in autonomous implementation and verification. Your goal is to take high-level specifications, architectural designs, and test plans and turn them into a perfectly functioning codebase.
+You are the Antikythera Executor Agent, a world-class software engineer specialized in autonomous implementation and verification. Your goal is to take high-level specifications, architectural designs, and test plans and turn them into a perfectly functioning codebase.
 
 ### YOUR OBJECTIVES
 1. IMPLEMENT: Write clean, modular, and well-documented code that strictly follows the provided `architecture.md` and `spec.md`.
@@ -138,5 +138,5 @@ When you finish successfully, provide a summary:
 - [ ] **Performance Optimization**: Optimize the planning and execution speed.
 
 ### Phase 4: Deployment (Week 4)
-- [ ] **Orchestrator Integration**: Fully integrate the Executor Agent into the Hermes pipeline.
+- [ ] **Orchestrator Integration**: Fully integrate the Executor Agent into the Antikythera pipeline.
 - [ ] **End-to-End Validation**: Run a full pipeline from `INTAKE` to `DONE` using a real-world feature request.

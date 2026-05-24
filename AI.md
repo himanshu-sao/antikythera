@@ -1,11 +1,11 @@
-# 🤖 Hermes AI Context & Briefing
+# 🤖 Antikythera AI Context & Briefing
 
-**Purpose**: This file provides a high-density, token-efficient briefing for AI agents to understand the Hermes project, its architecture, and its operational constraints.
+**Purpose**: This file provides a high-density, token-efficient briefing for AI agents to understand the Antikythera project, its architecture, and its operational constraints.
 
 ---
 
 ## 🎯 Core Identity
-Hermes is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. It transforms simple ideas into technical specifications, architectures, and verified code through a gated, stage-based workflow.
+Antikythera is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. It transforms simple ideas into technical specifications, architectures, and verified code through a gated, stage-based workflow.
 
 ## 📚 Hierarchy of Truth (Precedence)
 When information conflicts, follow this order:
@@ -56,10 +56,10 @@ If a technical artifact (e.g., `spec.md`) is manually edited by a user, the Orch
 Successful technical artifacts (specs, architectures, tests) can be analyzed and promoted to a global pattern library to improve future automation quality.
 
 --- HERMES_PRODUCT_SPEC.md ---
-# 🚀 Hermes Product Specification
+# 🚀 Antikythera Product Specification
 
 ## 1. Vision & Purpose
-Hermes is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. It converts simple idea descriptions into structured specifications, architecture, and verified tests, allowing a human operator to review and approve progress via a Kanban UI.
+Antikythera is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. It converts simple idea descriptions into structured specifications, architecture, and verified tests, allowing a human operator to review and approve progress via a Kanban UI.
 
 ## 2. System Architecture
 
@@ -205,7 +205,7 @@ When adding new remediation tasks, follow this format:
 #### ENH-06: Replace hardcoded `'Current User'` author with a configurable user identity
 - **Area**: `ui/src/components/CommentSection.tsx`
 - **Description**: The comment author is hardcoded as `'Current User'` in `handleSubmit`. This should be driven by a configurable value — even a simple `localStorage`-persisted username set on first use would be a significant improvement.
-- **Suggested Implementation**: Add a `useLocalStorage('hermes_username', 'Operator')` hook and pass it as the author in the comment payload.
+- **Suggested Implementation**: Add a `useLocalStorage('antikythera_username', 'Operator')` hook and pass it as the author in the comment payload.
 - **Impact**: Improves auditability of comments.
 
 #### ENH-07: Add delete card button to `CardEditor` with confirmation
@@ -282,18 +282,18 @@ When adding new remediation tasks, follow this format:
 
 ## 7. Implementation Approach
 
-- **Single codebase** within Hermes (local)
+- **Single codebase** within Antikythera (local)
 - **Single repo** — all agents, orchestrator, UI, and brain tools live together
 - This enables the Memory Agent to learn cross-cutting patterns (secrets, PII, stack) that apply to the codebase itself
 - Language: Python for agent logic; Node/React for UI
-- Hermes integration: local MCP server already running with Telegram
+- Antikythera integration: local MCP server already running with Telegram
 
 ---
 
 ## 8. Sample Notification (Telegram)
 
 ```
-🔔 [Hermes Pipeline] ID-001 ready for review
+🔔 [Antikythera Pipeline] ID-001 ready for review
 
 Stage: REVIEW_SPEC
 Title: Shell script to auto assign vulnerability tickets
@@ -312,12 +312,12 @@ Use /status for full pipeline overview.
 
 
 --- README.md ---
-# 🚀 Hermes Multi-Agent Automation System
+# 🚀 Antikythera Multi-Agent Automation System
 
-Hermes is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. It converts simple idea descriptions into structured specifications, architecture, and verified tests, allowing a human operator to review and approve progress via a Kanban UI and Telegram.
+Antikythera is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. It converts simple idea descriptions into structured specifications, architecture, and verified tests, allowing a human operator to review and approve progress via a Kanban UI and Telegram.
 
 ## 🌟 Vision
-The goal of Hermes is to provide a high-leverage platform where AI agents handle the "heavy lifting" of software engineering (refining requirements, designing architecture, writing tests), while the human maintains absolute control through gated review stages.
+The goal of Antikythera is to provide a high-leverage platform where AI agents handle the "heavy lifting" of software engineering (refining requirements, designing architecture, writing tests), while the human maintains absolute control through gated review stages.
 
 ## 🛠 Tech Stack
 - **Agent Logic**: Python 3.x
@@ -406,4 +406,4 @@ Ideas move through a linear sequence of stages. Each stage is mapped to a column
 
 ---
 
-*Hermes: Automating the mundane, empowering the human.*
+*Antikythera: Automating the mundane, empowering the human.*

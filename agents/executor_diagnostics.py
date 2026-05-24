@@ -20,7 +20,7 @@ class ExecutorDiagnostics:
         """
         logger.info("Analyzing error for diagnostics...")
 
-        system_prompt = """You are the Hermes Error Diagnostic Agent.
+        system_prompt = """You are the Antikythera Error Diagnostic Agent.
 Your goal is to analyze error messages and provide a concise, actionable solution.
 
 ### OBJECTIVE

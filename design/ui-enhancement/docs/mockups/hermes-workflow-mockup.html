@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hermes Workflow Mockup</title>
+  <style>
+    :root {
+      --bg: #f6f4ef;
+      --panel: #fcfbf8;
+      --panel-2: #f1eee8;
+      --text: #231f19;
+      --muted: #6f6a63;
+      --line: #d8d3ca;
+      --accent: #0b6b72;
+      --accent-soft: #d5e7e6;
+      --warning: #a45a12;
+      --success: #2f6b2a;
+      --chip: #ebe7df;
+      --shadow: 0 8px 24px rgba(25,20,12,.08);
+      --r: 14px;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: var(--text); background: var(--bg); line-height: 1.4; }
+    .app { padding: 20px; display: grid; gap: 18px; }
+    .topbar, .panel, .column, .step, .runlog { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); }
+    .topbar { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; position: sticky; top: 0; z-index: 3; }
+    .brand { font-weight: 700; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tab { padding: 8px 12px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); background: transparent; }
+    .tab.active { background: var(--text); color: white; border-color: var(--text); }
+    .layout { display: grid; grid-template-columns: 1.8fr 1.1fr; gap: 18px; }
+    .panel { padding: 16px; }
+    h1,h2,h3,h4,p { margin: 0; }
+    .muted { color: var(--muted); }
+    .toolbar { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .pill, .btn { padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: white; }
+    .btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
+    .board { margin-top: 16px; display: grid; grid-template-columns: repeat(5, minmax(220px, 1fr)); gap: 14px; overflow-x: auto; padding-bottom: 4px; }
+    .column { padding: 12px; min-height: 340px; background: #fbfaf7; }
+    .colhead { display:flex; justify-content:space-between; align-items:center; margin-bottom: 10px; }
+    .count, .tag, .badge { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); }
+    .card { background: white; border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin-bottom: 10px; display: grid; gap: 8px; }
+    .card .title { font-weight: 700; }
+    .meta { display:flex; gap:6px; flex-wrap: wrap; }
+    .tag.workflow { background: var(--accent-soft); color: var(--accent); }
+    .tag.wait { background: #f8ead8; color: var(--warning); }
+    .tag.ok { background: #dbead8; color: var(--success); }
+    .side { display:grid; gap: 18px; }
+    .workflow-list { display:grid; gap: 10px; margin-top: 14px; }
+    .workflow-item { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: #fff; }
+    .workflow-item.active { border-color: var(--accent); background: #f9fdfd; }
+    .steps { margin-top: 14px; display:grid; gap: 10px; }
+    .step { padding: 12px; display:grid; gap: 8px; }
+    .stephead { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+    .stepnum { width: 28px; height: 28px; border-radius: 999px; background: var(--text); color:#fff; display:grid; place-items:center; font-size:12px; }
+    .row { display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+    .connector { border-left: 2px dashed var(--line); height: 18px; margin-left: 13px; }
+    .runlog { padding: 12px; }
+    .logitem { padding: 10px 0; border-bottom: 1px solid var(--line); }
+    .logitem:last-child { border-bottom: 0; }
+    @media (max-width: 1100px) { .layout { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div>
+        <div class="brand">Hermes</div>
+        <div class="muted">Generic pipeline + workflow templates</div>
+      </div>
+      <div class="tabs">
+        <div class="tab active">Pipeline</div>
+        <div class="tab">Workflows</div>
+        <div class="tab">Runs</div>
+        <div class="tab">Integrations</div>
+      </div>
+    </div>
+    <div class="layout">
+      <div class="panel">
+        <h2>Pipeline board</h2>
+        <p class="muted">Keep the existing board generic. Workflow runs create cards and move them through the same shared stages.</p>
+        <div class="toolbar">
+          <div class="pill">All priorities</div>
+          <div class="pill">All stages</div>
+          <div class="pill">Type: workflow-backed</div>
+          <div class="btn primary">+ New workflow run</div>
+        </div>
+        <div class="board">
+          <div class="column"><div class="colhead"><strong>INTAKE</strong><span class="count">2</span></div><div class="card"><div class="meta"><span class="tag workflow">jira-triage</span><span class="tag">high</span></div><div class="title">JIRA-4821 detected from JQL watcher</div><div class="muted">New ticket arrived, queued for triage analysis.</div></div><div class="card"><div class="meta"><span class="tag workflow">pr-release</span><span class="tag">medium</span></div><div class="title">PR #184 merged into main</div><div class="muted">Release workflow auto-created from merge event.</div></div></div>
+          <div class="column"><div class="colhead"><strong>REVIEW_SPEC</strong><span class="count">1</span></div><div class="card"><div class="meta"><span class="tag workflow">jira-triage</span><span class="tag wait">needs approval</span></div><div class="title">Recommend assigning JIRA-4821 to platform team</div><div class="muted">Agent checked labels, ownership and severity; waiting on human approval.</div></div></div>
+          <div class="column"><div class="colhead"><strong>EXECUTING</strong><span class="count">2</span></div><div class="card"><div class="meta"><span class="tag workflow">pr-release</span><span class="tag wait">waiting on CI</span></div><div class="title">Trigger dev build for PR #184</div><div class="muted">Build started 2 min ago; polling CI every 30 seconds.</div></div><div class="card"><div class="meta"><span class="tag workflow">jira-triage</span><span class="tag">fan-out task</span></div><div class="title">Validate ticket completeness</div><div class="muted">Checking repro steps, labels, priority and linked issues.</div></div></div>
+          <div class="column"><div class="colhead"><strong>REVIEW_TEST</strong><span class="count">1</span></div><div class="card"><div class="meta"><span class="tag workflow">pr-release</span><span class="tag wait">tests failed</span></div><div class="title">Dev test suite needs review</div><div class="muted">4 failures found; summarize and decide whether to retry or block release.</div></div></div>
+          <div class="column"><div class="colhead"><strong>DONE</strong><span class="count">1</span></div><div class="card"><div class="meta"><span class="tag workflow">jira-triage</span><span class="tag ok">completed</span></div><div class="title">JIRA-4708 triaged and commented</div><div class="muted">Owner assigned, comment posted and status updated.</div></div></div>
+        </div>
+      </div>
+      <div class="side">
+        <div class="panel">
+          <h2>Workflow templates</h2>
+          <p class="muted">Separate tab for creating highly specific automation recipes without changing the generic pipeline.</p>
+          <div class="workflow-list">
+            <div class="workflow-item active"><strong>GitHub PR → Release</strong><p class="muted">Watch merged PRs, build, test, create release PR, run release validation.</p></div>
+            <div class="workflow-item"><strong>Jira Ticket Triage</strong><p class="muted">Watch JQL, create todo tasks, inspect fields, assign/comment/transition.</p></div>
+            <div class="workflow-item"><strong>Custom Workflow</strong><p class="muted">User-defined trigger, steps, approvals and action bindings.</p></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h2>Workflow builder</h2>
+          <p class="muted">Example of how one detailed workflow would be authored.</p>
+          <div class="steps">
+            <div class="step"><div class="stephead"><div class="row"><div class="stepnum">1</div><div><strong>Watch PR merge</strong><div class="muted">Trigger: merged PR with label <code>deploy</code></div></div></div><span class="badge">trigger</span></div></div>
+            <div class="connector"></div>
+            <div class="step"><div class="stephead"><div class="row"><div class="stepnum">2</div><div><strong>Trigger dev build</strong><div class="muted">Action: call CI provider with environment = dev</div></div></div><span class="badge">action</span></div></div>
+            <div class="connector"></div>
+            <div class="step"><div class="stephead"><div class="row"><div class="stepnum">3</div><div><strong>Wait for completion</strong><div class="muted">Poll every 30s until build status is success or failed</div></div></div><span class="badge">wait_for</span></div></div>
+            <div class="connector"></div>
+            <div class="step"><div class="stephead"><div class="row"><div class="stepnum">4</div><div><strong>Evaluate tests</strong><div class="muted">Branch: retry, block, or continue to release PR</div></div></div><span class="badge">decision</span></div></div>
+            <div class="connector"></div>
+            <div class="step"><div class="stephead"><div class="row"><div class="stepnum">5</div><div><strong>Human approval gate</strong><div class="muted">Only proceed if release manager approves</div></div></div><span class="badge">approval</span></div></div>
+          </div>
+        </div>
+        <div class="runlog">
+          <h3>Run detail preview</h3>
+          <div class="logitem"><strong>12:01</strong> — Webhook received: PR #184 merged.</div>
+          <div class="logitem"><strong>12:02</strong> — Workflow run created and board cards generated.</div>
+          <div class="logitem"><strong>12:03</strong> — Dev build triggered in GitHub Actions.</div>
+          <div class="logitem"><strong>12:07</strong> — Build succeeded; test suite started.</div>
+          <div class="logitem"><strong>12:12</strong> — 4 failures found; moved to review gate.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

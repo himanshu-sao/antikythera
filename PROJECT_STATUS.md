@@ -1,10 +1,10 @@
-# Hermes Project Status & Execution Map
+# Antikythera Project Status & Execution Map
 
-This document is the consolidated source of truth for the implementation state, build plan, and technical baseline of the Hermes Multi-Agent Automation System.
+This document is the consolidated source of truth for the implementation state, build plan, and technical baseline of the Antikythera Multi-Agent Automation System.
 
 ## 🗺️ Project Roadmap & Phase Map
 
-The Hermes system follows a phased build approach. Phases 0–10 are the core foundation.
+The Antikythera system follows a phased build approach. Phases 0–10 are the core foundation.
 
 || Phase | Title | Status | Notes ||
 |---|---|---|---|

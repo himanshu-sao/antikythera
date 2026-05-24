@@ -138,7 +138,7 @@ def tester_idea(idea_id, use_docker=False):
 
     logger.info("Testing idea %s...", idea_id)
 
-    system_prompt = """You are the Hermes Tester Agent. Your goal is to transform a technical specification and architecture into a comprehensive, actionable, and professional test plan.
+    system_prompt = """You are the Antikythera Tester Agent. Your goal is to transform a technical specification and architecture into a comprehensive, actionable, and professional test plan.
 
 Your output must be in valid Markdown format.
 

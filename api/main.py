@@ -8,7 +8,32 @@ from pydantic import BaseModel, Field, field_validator
 from api.state_manager import StateManager
 from fastapi.responses import FileResponse
 
-app = FastAPI(title="Hermes Kanban API")
+from api.workflow_router import router as workflow_router
+from api.integrations_router import router as integrations_router
+from api.trigger_router import router as trigger_router
+from api.builder_router import router as builder_router
+from api.board_router import router as board_router
+from api.workflow_state_manager import WorkflowStateManager
+from api.integration_hub import IntegrationHub
+from api.secret_vault import SecretVault
+
+app = FastAPI(title="Antikythera Kanban API")
+
+# Initialize dependencies
+BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "automation-ideas")
+vault = SecretVault(BASE_DIR)
+hub = IntegrationHub(BASE_DIR, vault)
+state_manager = WorkflowStateManager(BASE_DIR)
+
+# Set dependencies for trigger router
+from api.trigger_router import set_trigger_deps
+set_trigger_deps(state_manager, hub)
+
+app.include_router(workflow_router)
+app.include_router(integrations_router)
+app.include_router(trigger_router)
+app.include_router(builder_router)
+app.include_router(board_router)
 
 # ENH-02: CORS middleware - allows the Vite dev server to communicate with the API
 app.add_middleware(
@@ -20,8 +45,10 @@ app.add_middleware(
 )
 
 # Path to pipeline-state.json from the api directory
-STATE_PATH = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "pipeline-state.json")
-state_manager = StateManager(STATE_PATH)
+# We use the state_manager already initialized above instead of creating a second one
+# to avoid file lock conflicts and state inconsistency.
+# state_manager = StateManager(STATE_PATH) # REMOVED to prevent override
+
 
 # Path for task logs
 LOG_BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "logs")
@@ -124,14 +151,17 @@ class CommentRequest(BaseModel):
 async def health_check():
     try:
         _ = state_manager.load_state()
-        return {"status": "healthy", "service": "hermes-kanban-api"}
+        return {"status": "healthy", "service": "antikythera-kanban-api"}
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Service unhealthy: {str(e)}")
 
 
 @app.get("/api/state", summary="Get full pipeline state")
 async def get_state():
-    return state_manager.load_state()
+    try:
+        return state_manager.load_state()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load state: {str(e)}")
 
 
 @app.post("/api/items", summary="Create new pipeline item")

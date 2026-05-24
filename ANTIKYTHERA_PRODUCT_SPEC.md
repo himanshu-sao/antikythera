@@ -1,7 +1,7 @@
-# 🚀 Hermes Product Specification
+# 🚀 Antikythera Product Specification
 
 ## 1. Vision & Purpose
-Hermes is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. It converts simple idea descriptions into structured specifications, architecture, and verified tests, allowing a human operator to review and approve progress via a Kanban UI.
+Antikythera is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. It converts simple idea descriptions into structured specifications, architecture, and verified tests, allowing a human operator to review and approve progress via a Kanban UI.
 
 ## 2. System Architecture
 
@@ -147,7 +147,7 @@ When adding new remediation tasks, follow this format:
 #### ENH-06: Replace hardcoded `'Current User'` author with a configurable user identity
 - **Area**: `ui/src/components/CommentSection.tsx`
 - **Description**: The comment author is hardcoded as `'Current User'` in `handleSubmit`. This should be driven by a configurable value — even a simple `localStorage`-persisted username set on first use would be a significant improvement.
-- **Suggested Implementation**: Add a `useLocalStorage('hermes_username', 'Operator')` hook and pass it as the author in the comment payload.
+- **Suggested Implementation**: Add a `useLocalStorage('antikythera_username', 'Operator')` hook and pass it as the author in the comment payload.
 - **Impact**: Improves auditability of comments.
 
 #### ENH-07: Add delete card button to `CardEditor` with confirmation

@@ -6,13 +6,13 @@ from types import ModuleType
 # 1. Add current directory to path FIRST
 sys.path.append(os.getcwd())
 
-# 2. Mock hermes_tools (leaf)
-mock_hermes = ModuleType("hermes_tools")
-mock_hermes.terminal = MagicMock()
-mock_hermes.write_file = MagicMock()
-mock_hermes.patch = MagicMock()
-mock_hermes.read_file = MagicMock()
-sys.modules["hermes_tools"] = mock_hermes
+# 2. Mock antikythera_tools (leaf)
+mock_antikythera = ModuleType("antikythera_tools")
+mock_antikythera.terminal = MagicMock()
+mock_antikythera.write_file = MagicMock()
+mock_antikythera.patch = MagicMock()
+mock_antikythera.read_file = MagicMock()
+sys.modules["antikythera_tools"] = mock_antikythera
 
 # 3. Mock agents.llm_client (leaf)
 mock_llm_instance = MagicMock()
@@ -64,13 +64,13 @@ def test_executor_agentic_mocked():
             return False
 
         # Verify tool calls
-        print(f"Verifying tool calls... (write_file called: {mock_hermes.write_file.called})")
-        if not mock_hermes.write_file.called:
+        print(f"Verifying tool calls... (write_file called: {mock_antikythera.write_file.called})")
+        if not mock_antikythera.write_file.called:
             print("FAILED: write_file was never called!")
             return False
         
         # Verify the arguments passed to write_file
-        args, kwargs = mock_hermes.write_file.call_args
+        args, kwargs = mock_antikythera.write_file.call_args
         print(f"Arguments passed to write_file: {args}")
         
         return True

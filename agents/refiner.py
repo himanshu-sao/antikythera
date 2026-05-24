@@ -115,7 +115,7 @@ def refine_idea(idea_id, title, patterns_path=None):
 
     patterns_content = _read_patterns(patterns_path)
     
-    system_prompt = f"""You are the Hermes Refiner Agent. Your goal is to transform simple automation ideas into professional, comprehensive, and actionable technical specifications.
+    system_prompt = f"""You are the Antikythera Refiner Agent. Your goal is to transform simple automation ideas into professional, comprehensive, and actionable technical specifications.
 
 Your output must be in valid Markdown format.
 

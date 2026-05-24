@@ -3,6 +3,11 @@ import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, use
 import { KanbanColumn, KanbanCardContent } from './components/KanbanColumn';
 import { ArtifactViewer } from './components/ArtifactViewer';
 import { WorkflowDiagram } from './components/WorkflowDiagram';
+import { WorkflowManager } from './components/WorkflowManager';
+import { IntegrationsManager } from './components/IntegrationsManager';
+import { WorkflowBuilder } from './components/WorkflowBuilder';
+import { VirtualBoard } from './components/VirtualBoard';
+import RunDetail from './components/RunDetail';
 import { CardEditor } from './components/CardEditor';
 import { CommentSection } from './components/CommentSection';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -19,10 +24,14 @@ export default function App() {
   const [state, setState] = useState<PipelineState>({ items: {} });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  const [showIntegrations, setShowIntegrations] = useState(false);
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [virtualBoardTemplate, setVirtualBoardTemplate] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -82,7 +91,9 @@ export default function App() {
     };
   }, [selectedId]);
 
-  const handleDragStart = (event: DragStartEvent) => setActiveId(String(event.active.id));
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(String(event.active.id));
+  };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveId(null);
@@ -130,6 +141,23 @@ export default function App() {
         await fetchState();
       }
     } catch (e) { console.error("Failed to move item", e); }
+  };
+
+  const handleCardClick = async (id: string) => {
+    setSelectedId(id);
+    setEditMode(false);
+    
+    try {
+      const res = await fetch(`${apiUrl}/api/workflows/items/${id}/run`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.run_id) {
+          setSelectedRunId(data.run_id);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to check workflow binding", e);
+    }
   };
 
   const handleUpdateItem = async (updates: any) => {
@@ -192,50 +220,66 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 p-6">
-        <header className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Hermes Pipeline</h1>
-          <div className="mt-4 flex flex-wrap gap-2 items-center justify-between">
-            <div className="flex gap-2">
-              <button onClick={() => setShowWorkflow(true)} className="px-4 py-2 bg-white border rounded-lg text-sm">Workflow</button>
-              <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">+ New Idea</button>
-              <button onClick={fetchState} className="px-4 py-2 bg-white border rounded-lg text-sm">Refresh</button>
-            </div>
-            <div className="flex gap-2">
-              <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="p-2 border rounded-lg text-sm">
-                <option value="all">All Priorities</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} className="p-2 border rounded-lg text-sm">
-                <option value="all">All Stages</option>
-                {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <input type="text" placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="p-2 border rounded-lg text-sm" />
-            </div>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex flex-col">
+            <h1 className="text-3xl font-bold text-[#231f19]">Antikythera Pipeline</h1>
+            <p className="text-sm text-[#6f6a63]">Generic pipeline + workflow templates</p>
           </div>
-        </header>
+          <div className="ml-auto flex gap-2">
+            <button 
+              onClick={() => setShowWorkflow(true)} 
+              className={`px-4 py-2 rounded-full text-sm transition-all border ${showWorkflow ? 'bg-[#231f19] text-white border-[#231f19]' : 'bg-white text-[#6f6a63] border-[#d8d3ca] hover:border-[#231f19]'}`}
+            >
+              Workflows
+            </button>
+            <button 
+              onClick={() => setShowBuilder(true)} 
+              className={`px-4 py-2 rounded-full text-sm transition-all border ${showBuilder ? 'bg-[#231f19] text-white border-[#231f19]' : 'bg-white text-[#6f6a63] border-[#d8d3ca] hover:border-[#231f19]'}`}
+            >
+              Architect
+            </button>
+            <button 
+              onClick={() => setShowIntegrations(true)} 
+              className={`px-4 py-2 rounded-full text-sm transition-all border ${showIntegrations ? 'bg-[#231f19] text-white border-[#231f19]' : 'bg-white text-[#6f6a63] border-[#d8d3ca] hover:border-[#231f19]'}`}
+            >
+              Integrations
+            </button>
+            <button 
+              onClick={() => setShowCreateModal(true)} 
+              className="px-4 py-2 bg-[#0b6b72] text-white rounded-full text-sm font-medium hover:bg-[#0a5c62] transition-all shadow-sm"
+            >
+              + New Idea
+            </button>
+            <button 
+              onClick={fetchState} 
+              className="px-4 py-2 bg-white border border-[#d8d3ca] rounded-full text-sm text-[#6f6a63] hover:bg-gray-50 transition-all"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
 
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-5 gap-4 overflow-x-auto pb-4">
+          <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
             {STAGES.map(stage => (
-              <KanbanColumn
-                key={stage}
-                id={stage}
-                items={Object.entries(state.items)
-                  .filter(([_, item]) => item.stage === stage)
-                  .filter(([_, item]) => {
-                    const mSearch = !searchQuery || item.id.toLowerCase().includes(searchQuery.toLowerCase()) || item.title.toLowerCase().includes(searchQuery.toLowerCase());
-                    const mPri = priorityFilter === 'all' || item.priority?.toLowerCase() === priorityFilter;
-                    const mStage = stageFilter === 'all' || item.stage === stageFilter;
-                    return mSearch && mPri && mStage;
-                  })
-                  .map(([id, item]) => ({ ...item, id }))
-                  .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
-                onCardClick={(id) => { setSelectedId(id); setEditMode(false); }}
-                onEditClick={(id) => { setSelectedId(id); setEditMode(true); }}
-                onDeleteClick={(id) => { setDeleteTargetId(id); setShowDeleteConfirm(true); }}
-              />
+              <div key={stage} className="flex-shrink-0 snap-start">
+                <KanbanColumn
+                  id={stage}
+                  items={Object.entries(state.items)
+                    .filter(([_, item]) => item.stage === stage)
+                    .filter(([_, item]) => {
+                      const mSearch = !searchQuery || item.id.toLowerCase().includes(searchQuery.toLowerCase()) || item.title.toLowerCase().includes(searchQuery.toLowerCase());
+                      const mPri = priorityFilter === 'all' || item.priority?.toLowerCase() === priorityFilter;
+                      const mStage = stageFilter === 'all' || item.stage === stageFilter;
+                      return mSearch && mPri && mStage;
+                    })
+                    .map(([id, item]) => ({ ...item, id }))
+                    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
+                  onCardClick={(id) => { setSelectedId(id); setEditMode(false); }}
+                  onEditClick={(id) => { setSelectedId(id); setEditMode(true); }}
+                  onDeleteClick={(id) => { setDeleteTargetId(id); setShowDeleteConfirm(true); }}
+                />
+              </div>
             ))}
           </div>
           <DragOverlay>
@@ -346,14 +390,62 @@ export default function App() {
           </div>
         )}
 
+        {virtualBoardTemplate && (
+          <div className="fixed inset-0 bg-white z-50 overflow-auto">
+            <VirtualBoard 
+              templateId={virtualBoardTemplate} 
+              onBack={() => setVirtualBoardTemplate(null)} 
+            />
+          </div>
+        )}
+
+        {showBuilder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Workflow Architect</h2>
+                <button onClick={() => setShowBuilder(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <WorkflowBuilder />
+              </div>
+            </div>
+          </div>
+        )}
+
+
+        {showIntegrations && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Integration Hub</h2>
+                <button onClick={() => setShowIntegrations(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <IntegrationsManager />
+              </div>
+            </div>
+          </div>
+        )}
+
         {showWorkflow && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] overflow-auto p-6">
+            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Workflow Guide</h2>
+                <h2 className="text-2xl font-bold">Workflow Automation</h2>
                 <button onClick={() => setShowWorkflow(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
               </div>
-              <WorkflowDiagram onClose={() => setShowWorkflow(false)} />
+              <div className="flex-1 overflow-hidden">
+                <WorkflowManager />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {selectedRunId && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[70]">
+            <div className="bg-white rounded-lg shadow-xl max-w-3xl max-h-[80vh] overflow-auto p-6 w-full h-full flex flex-col">
+              <RunDetail runId={selectedRunId} onClose={() => setSelectedRunId(null)} />
             </div>
           </div>
         )}

@@ -1,10 +1,10 @@
-# Contributing to Hermes
+# Contributing to Antikythera
 
-Hermes is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. This guide provides instructions on how to set up the development environment and contribute to the project.
+Antikythera is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. This guide provides instructions on how to set up the development environment and contribute to the project.
 
 ## 🚀 Project Overview
 
-Hermes converts simple automation ideas into structured specifications, architecture, and verified tests.
+Antikythera converts simple automation ideas into structured specifications, architecture, and verified tests.
 
 - **Backend**: FastAPI (Python 3.11+)
 - **Frontend**: React 19, Vite, Tailwind CSS, TypeScript

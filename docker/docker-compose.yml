@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.sandbox
-    container_name: hermes-tester-sandbox
+    container_name: antikythera-tester-sandbox
     volumes:
       - ../automation-ideas/requirements:/workspace/requirements
     environment:

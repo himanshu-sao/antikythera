@@ -1,5 +1,5 @@
 """
-LLM Client for Hermes Agents.
+LLM Client for Antikythera Agents.
 Provides a unified interface for interacting with multiple LLM providers,
 configured via central configuration and optionally via .env files.
 """

@@ -1,6 +1,6 @@
-# 🏁 Hermes Verification Criteria (Definition of Done)
+# 🏁 Antikythera Verification Criteria (Definition of Done)
 
-This document serves as the absolute completion gate for the Hermes Multi-Agent Automation System. No phase, remediation task, or feature is considered "Verified" until it satisfies the criteria listed here.
+This document serves as the absolute completion gate for the Antikythera Multi-Agent Automation System. No phase, remediation task, or feature is considered "Verified" until it satisfies the criteria listed here.
 
 ## 🛠 Global Verification Standards
 Regardless of the phase, all implementation work must meet these baseline standards:

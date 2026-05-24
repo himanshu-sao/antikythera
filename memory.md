@@ -1,4 +1,4 @@
-# Project Memory: Hermes Multi-Agent Automation System
+# Project Memory: Antikythera Multi-Agent Automation System
 > Last Updated: 2026-05-14  
 > Purpose: Shared reference document for system design decisions, architecture, and open items.
 
@@ -6,7 +6,7 @@
 
 ## 1. Vision
 
-A **perpetual, human-in-the-loop, async multi-agent automation pipeline** powered by Hermes (local), where:
+A **perpetual, human-in-the-loop, async multi-agent automation pipeline** powered by Antikythera (local), where:
 
 - Ideas are captured as one-liners in a single markdown file
 - Agents autonomously refine, validate, and test each idea
@@ -296,11 +296,11 @@ Every agent writes a `confidence_score` (0–100) to `pipeline-state.json`.
 
 ## 13. Implementation Approach
 
-- **Single codebase** within Hermes (local)
+- **Single codebase** within Antikythera (local)
 - **Single repo** — all agents, orchestrator, UI, and brain tools live together
 - This enables the Memory Agent to learn cross-cutting patterns (secrets, PII, stack) that apply to the codebase itself
 - Language: Python for agent logic; Node/React for UI
-- Hermes integration: local MCP server already running with Telegram
+- Antikythera integration: local MCP server already running with Telegram
 
 ---
 
@@ -341,7 +341,7 @@ Every agent writes a `confidence_score` (0–100) to `pipeline-state.json`.
 - **Tester Agent**: Docker Compose for on-demand sandbox provisioning
 
 ### Telegram Integration
-- **Bot Configuration**: Using existing Hermes Telegram integration
+- **Bot Configuration**: Using existing Antikythera Telegram integration
 - **Heartbeat Times**: Daily at 10 PM (adjustable to 4 times/day later)
 
 ### ID Management
@@ -352,18 +352,18 @@ Every agent writes a `confidence_score` (0–100) to `pipeline-state.json`.
 - **Access**: Local hosting only for security and simplicity
 
 ### Implementation Approach
-- **Single codebase** within Hermes (local)
+- **Single codebase** within Antikythera (local)
 - **Single repo** — all agents, orchestrator, UI, and brain tools live together
 - This enables the Memory Agent to learn cross-cutting patterns (secrets, PII, stack) that apply to the codebase itself
 - Language: Python for agent logic; Node/React for UI
-- Hermes integration: local MCP server already running with Telegram
+- Antikythera integration: local MCP server already running with Telegram
 
 ---
 
 ## 16. Sample Notification (Telegram)
 
 ```
-🔔 [Hermes Pipeline] ID-001 ready for review
+🔔 [Antikythera Pipeline] ID-001 ready for review
 
 Stage: REVIEW_SPEC
 Title: Shell script to auto assign vulnerability tickets

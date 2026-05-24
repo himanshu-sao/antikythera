@@ -7,7 +7,7 @@ import tempfile
 import os
 import time
 from unittest.mock import Mock, patch
-from agents.watcher import FileWatcher, HermesFileHandler
+from agents.watcher import FileWatcher, AntikytheraFileHandler
 from agents.orchestrator import Orchestrator
 
 class TestFileWatcher(unittest.TestCase):
@@ -30,8 +30,8 @@ class TestFileWatcher(unittest.TestCase):
 
     def test_file_handler_creation(self):
         """Test that the file handler can be created."""
-        handler = HermesFileHandler(self.mock_orchestrator)
-        self.assertIsInstance(handler, HermesFileHandler)
+        handler = AntikytheraFileHandler(self.mock_orchestrator)
+        self.assertIsInstance(handler, AntikytheraFileHandler)
 
     @patch('agents.watcher.Observer')
     def test_watcher_start_stop(self, mock_observer_class):
@@ -50,7 +50,7 @@ class TestFileWatcher(unittest.TestCase):
 
     def test_handler_triggers_orchestrator(self):
         """Test that the handler triggers the correct orchestrator methods."""
-        handler = HermesFileHandler(self.mock_orchestrator)
+        handler = AntikytheraFileHandler(self.mock_orchestrator)
 
         # Test ideas.md trigger
         mock_event_idea = Mock()
@@ -68,7 +68,7 @@ class TestFileWatcher(unittest.TestCase):
 
     def test_handler_debouncing(self):
         """Test that rapid file events are debounced."""
-        handler = HermesFileHandler(self.mock_orchestrator)
+        handler = AntikytheraFileHandler(self.mock_orchestrator)
 
         mock_event = Mock()
         mock_event.is_directory = False

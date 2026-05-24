@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Implement a robust end-to-end test suite using Playwright to verify the core functionality of the Hermes Pipeline UI.
+**Goal:** Implement a robust end-to-end test suite using Playwright to verify the core functionality of the Antikythera Pipeline UI.
 
 **Architecture:** 
 - Use the Page Object Model (POM) to encapsulate page-specific logic and selectors.
