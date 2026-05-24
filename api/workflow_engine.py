@@ -5,14 +5,17 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from api.workflow_state_manager import WorkflowStateManager
 from api.adapters.internal import InternalKanbanAdapter
+from api.adapters.github import GitHubAdapter
+from api.adapters.jira import JiraAdapter
 
 class WorkflowEngine:
     def __init__(self, state_dir: str):
         self.state_mgr = WorkflowStateManager(state_dir)
         # Registry of available adapters
         self.adapters = {
-            "INTERNAL": InternalKanbanAdapter()
-            # Future adapters (GITHUB, JIRA) will be added here
+            "INTERNAL": InternalKanbanAdapter(),
+            "GITHUB": GitHubAdapter(),
+            "JIRA": JiraAdapter()
         }
 
     def trigger_run(self, template_id: str, inputs: Dict[str, Any], trigger_event_id: Optional[str] = None) -> Optional[str]:
@@ -68,9 +71,8 @@ class WorkflowEngine:
 
             # 2. Dispatch to Adapter
             category = step.get("category")
-            # For this simple engine, we map category 'ACTION' or 'INTERNAL' to the Internal adapter
-            # In a full version, we'd have a mapping of step_id -> adapter_type
-            adapter_type = "INTERNAL" 
+            # Determine adapter type from step config or default to INTERNAL
+            adapter_type = step.get("config", {}).get("adapter", "INTERNAL") 
             adapter = self.adapters.get(adapter_type)
             
             if not adapter:
