@@ -3,6 +3,8 @@ import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, use
 import { KanbanColumn, KanbanCardContent } from './components/KanbanColumn';
 import { ArtifactViewer } from './components/ArtifactViewer';
 import { WorkflowDiagram } from './components/WorkflowDiagram';
+import { WorkflowManager } from './components/WorkflowManager';
+import RunDetail from './components/RunDetail';
 import { CardEditor } from './components/CardEditor';
 import { CommentSection } from './components/CommentSection';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -19,6 +21,7 @@ export default function App() {
   const [state, setState] = useState<PipelineState>({ items: {} });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -131,6 +134,71 @@ export default function App() {
       }
     } catch (e) { console.error("Failed to move item", e); }
   };
+
+    const handleCardClick = async (id: string) => {
+      setSelectedId(id);
+      setEditMode(false);
+      
+      try {
+        const res = await fetch(`${apiUrl}/api/workflows/items/${id}/run`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.run_id) {
+            setSelectedRunId(data.run_id);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to check workflow binding", e);
+      }
+    };
+
+    const handleDragEnd = async (event: DragEndEvent) => {
+      setActiveId(null);
+      const { active, over } = event;
+      if (!over) return;
+      const itemId = String(active.id);
+      const overId = String(over.id);
+      if (!itemId || !overId) return;
+
+      const activeItem = state.items[itemId];
+      if (!activeItem) return;
+
+      let targetStage = '';
+      let targetOrder = 0;
+
+      const isStage = STAGES.includes(overId);
+      if (isStage) {
+        targetStage = overId;
+        const columnItems = Object.entries(state.items)
+          .map(([id, item]) => ({ ...item, id }))
+          .filter(item => item.stage === targetStage && item.id !== itemId)
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        targetOrder = columnItems.length;
+      } else {
+        const overItem = state.items[overId];
+        if (!overItem) return;
+        targetStage = overItem.stage;
+        const columnItems = Object.entries(state.items)
+          .map(([id, item]) => ({ ...item, id }))
+          .filter(item => item.stage === targetStage && item.id !== itemId)
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        const overIndex = columnItems.findIndex(item => item.id === overId);
+        targetOrder = overIndex === -1 ? columnItems.length : overIndex;
+      }
+
+      if (activeItem.stage === targetStage && (activeItem.order ?? 0) === targetOrder) return;
+
+      try {
+        const res = await fetch(`${apiUrl}/api/move`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: itemId, new_stage: targetStage, order: targetOrder }),
+        });
+        if (res.ok) {
+          await fetchState();
+        }
+      } catch (e) { console.error("Failed to move item", e); }
+    };
 
   const handleUpdateItem = async (updates: any) => {
     if (!selectedId) return;
@@ -348,12 +416,21 @@ export default function App() {
 
         {showWorkflow && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] overflow-auto p-6">
+            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Workflow Guide</h2>
+                <h2 className="text-2xl font-bold">Workflow Automation</h2>
                 <button onClick={() => setShowWorkflow(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
               </div>
-              <WorkflowDiagram onClose={() => setShowWorkflow(false)} />
+              <div className="flex-1 overflow-hidden">
+                <WorkflowManager />
+              </div>
+            </div>
+          </div>
+        )}
+        {selectedRunId && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[70]">
+            <div className="bg-white rounded-lg shadow-xl max-w-3xl max-h-[80vh] overflow-auto p-6 w-full h-full flex flex-col">
+              <RunDetail runId={selectedRunId} onClose={() => setSelectedRunId(null)} />
             </div>
           </div>
         )}

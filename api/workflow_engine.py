@@ -92,10 +92,21 @@ class WorkflowEngine:
                     
                     # 4. Handle Board Mapping (if any)
                     if "board_mapping" in step:
-                        # Move the card on the board
-                        self.state_mgr.bind_run_to_item(run_id, "AUTO-GEN") # Simulating auto-gen
-                        # In real logic, we'd actually create the item and use that ID
-                        pass
+                        # In a real system, we'd find the item_id from the run binding
+                        # For this implementation, we assume the 'item_id' is provided in the config
+                        item_id = step.get("config", {}).get("item_id")
+                        if item_id:
+                            self.state_mgr.bind_run_to_item(run_id, item_id)
+                        else:
+                            # Simulate auto-generation if not provided
+                            self.state_mgr.bind_run_to_item(run_id, "AUTO-GEN")
+                        
+                        # ACTUALLY MOVE THE ITEM ON THE BOARD
+                        if item_id:
+                            from api.state_manager import StateManager
+                            main_state_mgr = StateManager("./automation-ideas/pipeline-state.json")
+                            main_state_mgr.update_item(item_id, {"stage": step["board_mapping"]["stage"]})
+
                     
                     # 5. Transition to next step
                     next_step = step.get("next_step")
