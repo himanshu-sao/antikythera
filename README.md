@@ -74,7 +74,7 @@ Antikythera implements "Self-Learning" through human intervention:
 - Setup frontend: `cd ui && npm install`
 
 ### 2. Running the System
-- **Backend**: `python -m uvicorn api.main:app --host 0.0.0.0 --port 8000`
+- **Backend**: `python -m uvicorn api.main:app --host 0.0.0.0 --port 8006`
 - **Frontend**: `npm run dev`
 
 ### 3. Key Directories
