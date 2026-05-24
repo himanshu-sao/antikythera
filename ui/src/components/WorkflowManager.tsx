@@ -57,6 +57,23 @@ export function WorkflowManager() {
     }
   };
 
+  const deleteTemplate = async (e: React.MouseEvent, templateId: string) => {
+    e.stopPropagation();
+    if (!window.confirm(`Are you sure you want to delete template ${templateId}?`)) return;
+    
+    try {
+      const res = await fetch(`${apiUrl}/api/workflows/templates/${templateId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Failed to delete template');
+      toast.success('Template deleted successfully');
+      fetchTemplates();
+      if (selectedTemplate?.id === templateId) setSelectedTemplate(null);
+    } catch (e: any) {
+      toast.error(e.message);
+    }
+  };
+
   const triggerTemplate = async (templateId: string) => {
     try {
       const res = await fetch(`${apiUrl}/api/workflows/trigger`, {
@@ -64,7 +81,10 @@ export function WorkflowManager() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_id: templateId, inputs: {} }),
       });
-      if (!res.ok) throw new Error('Failed to trigger workflow');
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || 'Failed to trigger workflow');
+      }
       const data = await res.json();
       toast.success(`Workflow started! Run ID: ${data.run_id}`);
     } catch (e: any) {
@@ -84,7 +104,10 @@ export function WorkflowManager() {
             <p className="text-[10px] text-[#6f6a63]">Automation recipes</p>
           </div>
           <button 
-            onClick={() => toast.success("Template Creator coming soon!")} 
+            onClick={() => {
+              // Dispatch event or use a prop to tell App.tsx to open the builder
+              window.dispatchEvent(new CustomEvent('open-workflow-builder'));
+            }} 
             className="p-1.5 hover:bg-[#d8d3ca] rounded-lg text-xs bg-[#0b6b72] text-white transition-colors font-medium shadow-sm"
           >
             + New
@@ -95,13 +118,22 @@ export function WorkflowManager() {
             <div 
               key={t.id} 
               onClick={() => setSelectedTemplate(t)}
-              className={`p-3 cursor-pointer rounded-xl border transition-all ${
+              className={`p-3 cursor-pointer rounded-xl border transition-all group ${
                 selectedTemplate?.id === t.id 
                 ? 'bg-[#f9fdfd] border-[#0b6b72] shadow-sm ring-1 ring-[#0b6b72]/20' 
                 : 'bg-white border-transparent hover:border-[#d8d3ca] hover:bg-[#fcfbf8]'
               }`}
             >
-              <div className="font-bold text-sm text-[#231f19]">{t.name}</div>
+              <div className="flex justify-between items-start">
+                <div className="font-bold text-sm text-[#231f19]">{t.name}</div>
+                <button 
+                  onClick={(e) => deleteTemplate(e, t.id)}
+                  className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 text-red-400 hover:text-red-600 rounded-md transition-all"
+                  title="Delete Template"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                </button>
+              </div>
               <div className="text-[11px] text-[#6f6a63] leading-tight mt-1">v{t.version} • {t.trigger.type}</div>
             </div>
           ))}
@@ -114,7 +146,7 @@ export function WorkflowManager() {
         {!selectedTemplate ? (
           <div className="h-full flex flex-col items-center justify-center text-[#6f6a63] text-center">
             <div className="w-16 h-16 bg-[#ebe7df] rounded-full flex items-center justify-center mb-4">
-              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#6f6a63]"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#6f6a63]"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 1 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             </div>
             <p className="text-lg font-medium text-[#231f19]">No Template Selected</p>
             <p className="text-sm opacity-70">Select a workflow from the sidebar to view and trigger its blueprint</p>
@@ -181,6 +213,11 @@ export function WorkflowManager() {
                       </div>
                     </div>
                   ))}
+                  {selectedTemplate.steps.length === 0 && (
+                    <div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+                      <p className="text-sm text-gray-400 italic">This blueprint currently has no defined execution steps.</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

@@ -4,6 +4,9 @@ import { KanbanColumn, KanbanCardContent } from './components/KanbanColumn';
 import { ArtifactViewer } from './components/ArtifactViewer';
 import { WorkflowDiagram } from './components/WorkflowDiagram';
 import { WorkflowManager } from './components/WorkflowManager';
+import { IntegrationsManager } from './components/IntegrationsManager';
+import { WorkflowBuilder } from './components/WorkflowBuilder';
+import { VirtualBoard } from './components/VirtualBoard';
 import RunDetail from './components/RunDetail';
 import { CardEditor } from './components/CardEditor';
 import { CommentSection } from './components/CommentSection';
@@ -26,6 +29,9 @@ export default function App() {
   const [editMode, setEditMode] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWorkflow, setShowWorkflow] = useState(false);
+  const [showIntegrations, setShowIntegrations] = useState(false);
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [virtualBoardTemplate, setVirtualBoardTemplate] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -227,6 +233,18 @@ export default function App() {
               Workflows
             </button>
             <button 
+              onClick={() => setShowBuilder(true)} 
+              className={`px-4 py-2 rounded-full text-sm transition-all border ${showBuilder ? 'bg-[#231f19] text-white border-[#231f19]' : 'bg-white text-[#6f6a63] border-[#d8d3ca] hover:border-[#231f19]'}`}
+            >
+              Architect
+            </button>
+            <button 
+              onClick={() => setShowIntegrations(true)} 
+              className={`px-4 py-2 rounded-full text-sm transition-all border ${showIntegrations ? 'bg-[#231f19] text-white border-[#231f19]' : 'bg-white text-[#6f6a63] border-[#d8d3ca] hover:border-[#231f19]'}`}
+            >
+              Integrations
+            </button>
+            <button 
               onClick={() => setShowCreateModal(true)} 
               className="px-4 py-2 bg-[#0b6b72] text-white rounded-full text-sm font-medium hover:bg-[#0a5c62] transition-all shadow-sm"
             >
@@ -372,6 +390,44 @@ export default function App() {
           </div>
         )}
 
+        {virtualBoardTemplate && (
+          <div className="fixed inset-0 bg-white z-50 overflow-auto">
+            <VirtualBoard 
+              templateId={virtualBoardTemplate} 
+              onBack={() => setVirtualBoardTemplate(null)} 
+            />
+          </div>
+        )}
+
+        {showBuilder && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Workflow Architect</h2>
+                <button onClick={() => setShowBuilder(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <WorkflowBuilder />
+              </div>
+            </div>
+          </div>
+        )}
+
+
+        {showIntegrations && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold">Integration Hub</h2>
+                <button onClick={() => setShowIntegrations(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
+              </div>
+              <div className="flex-1 overflow-hidden">
+                <IntegrationsManager />
+              </div>
+            </div>
+          </div>
+        )}
+
         {showWorkflow && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
@@ -385,6 +441,7 @@ export default function App() {
             </div>
           </div>
         )}
+
         {selectedRunId && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[70]">
             <div className="bg-white rounded-lg shadow-xl max-w-3xl max-h-[80vh] overflow-auto p-6 w-full h-full flex flex-col">

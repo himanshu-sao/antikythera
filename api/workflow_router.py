@@ -9,6 +9,12 @@ router = APIRouter(prefix="/api/workflows", tags=["Workflows"])
 STATE_DIR = os.path.join(os.path.dirname(__file__), "..", "automation-ideas")
 workflow_mgr = WorkflowStateManager(STATE_DIR)
 
+@router.delete("/templates/{template_id}", summary="Delete a workflow template")
+async def delete_template(template_id: str):
+    if workflow_mgr.delete_template(template_id):
+        return {"status": "success", "message": f"Template {template_id} deleted"}
+    raise HTTPException(status_code=404, detail="Template not found")
+
 @router.get("/templates", summary="List all workflow templates")
 async def list_templates():
     return workflow_mgr.list_templates()

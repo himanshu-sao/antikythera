@@ -10,12 +10,14 @@ class WorkflowStateManager:
         self.templates_path = os.path.join(base_dir, "workflow_templates.json")
         self.runs_path = os.path.join(base_dir, "workflow_runs.json")
         self.bindings_path = os.path.join(base_dir, "workflow_bindings.json")
+        self.state_path = os.path.join(base_dir, "pipeline-state.json")
         self.events_dir = os.path.join(base_dir, "events")
         
         # Locks for each file
         self._templates_lock = FileLock(self.templates_path + ".lock")
         self._runs_lock = FileLock(self.runs_path + ".lock")
         self._bindings_lock = FileLock(self.bindings_path + ".lock")
+        self._state_lock = FileLock(self.state_path + ".lock")
 
     def _load_json(self, path: str, lock: Any) -> Dict[str, Any]:
         with lock:
@@ -35,7 +37,106 @@ class WorkflowStateManager:
                 json.dump(data, f, indent=2)
             os.replace(tmp_path, path)
 
-    # --- Template Management ---
+    def load_state(self) -> Dict[str, Any]:
+        """Returns the legacy Kanban board state."""
+        with self._state_lock:
+            if not os.path.exists(self.state_path):
+                return {"items": {}, "stages": ["INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE", "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"]}
+            try:
+                with open(self.state_path, "r") as f:
+                    return json.load(f)
+            except Exception:
+                return {"items": {}}
+
+    def create_item(self, item_id: str, title: str, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
+        with self._state_lock:
+            state = self.load_state()
+            normalized_id = item_id.upper()
+            if normalized_id in state["items"]:
+                return False
+            state["items"][normalized_id] = {
+                "title": title,
+                "stage": "INTAKE",
+                "priority": "medium",
+                "source_type": source_type,
+                "source_value": source_value,
+                "due_date": due_date,
+                "created_at": datetime.utcnow().isoformat() + "Z",
+                "updated_at": datetime.utcnow().isoformat() + "Z",
+                "comments": []
+            }
+            self._save_json(self.state_path, self._state_lock, state)
+            return True
+
+    def update_item(self, item_id: str, updates: Dict[str, Any]) -> bool:
+        with self._state_lock:
+            state = self.load_state()
+            normalized_id = item_id.upper()
+            if normalized_id not in state["items"]:
+                return False
+            state["items"][normalized_id].update(updates)
+            state["items"][normalized_id]["updated_at"] = datetime.utcnow().isoformat() + "Z"
+            self._save_json(self.state_path, self._state_lock, state)
+            return True
+
+    def delete_item(self, item_id: str) -> bool:
+        with self._state_lock:
+            state = self.load_state()
+            normalized_id = item_id.upper()
+            if normalized_id in state["items"]:
+                del state["items"][normalized_id]
+                self._save_json(self.state_path, self._state_lock, state)
+                return True
+            return False
+
+    def get_item_details(self, item_id: str) -> Optional[Dict[str, Any]]:
+        state = self.load_state()
+        return state["items"].get(item_id.upper())
+
+    def add_comment(self, item_id: str, author: str, body: str) -> Optional[Dict[str, Any]]:
+        with self._state_lock:
+            state = self.load_state()
+            normalized_id = item_id.upper()
+            if normalized_id not in state["items"]:
+                return None
+            comment = {
+                "id": f"com_{int(datetime.utcnow().timestamp() * 1000)}",
+                "author": author,
+                "body": body,
+                "timestamp": datetime.utcnow().isoformat() + "Z"
+            }
+            state["items"][normalized_id]["comments"].append(comment)
+            self._save_json(self.state_path, self._state_lock, state)
+            return comment
+
+    def delete_comment(self, item_id: str, comment_id: str) -> bool:
+        with self._state_lock:
+            state = self.load_state()
+            normalized_id = item_id.upper()
+            if normalized_id not in state["items"]:
+                return False
+            item = state["items"][normalized_id]
+            initial_len = len(item["comments"])
+            item["comments"] = [c for c in item["comments"] if c["id"] != comment_id]
+            if len(item["comments"]) < initial_len:
+                self._save_json(self.state_path, self._state_lock, state)
+                return True
+            return False
+
+    def reorder_items(self, stage: str, ordered_ids: List[str]):
+        # Implementation as requested in legacy specs
+        pass
+
+    def delete_template(self, template_id: str) -> bool:
+        try:
+            templates = self._load_json(self.templates_path, self._templates_lock)
+            if template_id not in templates:
+                return False
+            del templates[template_id]
+            self._save_json(self.templates_path, self._templates_lock, templates)
+            return True
+        except Exception:
+            return False
 
     def save_template(self, template_id: str, template_data: Dict[str, Any]) -> bool:
         try:
