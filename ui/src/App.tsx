@@ -85,7 +85,9 @@ export default function App() {
     };
   }, [selectedId]);
 
-  const handleDragStart = (event: DragStartEvent) => setActiveId(String(event.active.id));
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(String(event.active.id));
+  };
 
   const handleDragEnd = async (event: DragEndEvent) => {
     setActiveId(null);
@@ -135,70 +137,22 @@ export default function App() {
     } catch (e) { console.error("Failed to move item", e); }
   };
 
-    const handleCardClick = async (id: string) => {
-      setSelectedId(id);
-      setEditMode(false);
-      
-      try {
-        const res = await fetch(`${apiUrl}/api/workflows/items/${id}/run`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.run_id) {
-            setSelectedRunId(data.run_id);
-          }
+  const handleCardClick = async (id: string) => {
+    setSelectedId(id);
+    setEditMode(false);
+    
+    try {
+      const res = await fetch(`${apiUrl}/api/workflows/items/${id}/run`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.run_id) {
+          setSelectedRunId(data.run_id);
         }
-      } catch (e) {
-        console.error("Failed to check workflow binding", e);
       }
-    };
-
-    const handleDragEnd = async (event: DragEndEvent) => {
-      setActiveId(null);
-      const { active, over } = event;
-      if (!over) return;
-      const itemId = String(active.id);
-      const overId = String(over.id);
-      if (!itemId || !overId) return;
-
-      const activeItem = state.items[itemId];
-      if (!activeItem) return;
-
-      let targetStage = '';
-      let targetOrder = 0;
-
-      const isStage = STAGES.includes(overId);
-      if (isStage) {
-        targetStage = overId;
-        const columnItems = Object.entries(state.items)
-          .map(([id, item]) => ({ ...item, id }))
-          .filter(item => item.stage === targetStage && item.id !== itemId)
-          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-        targetOrder = columnItems.length;
-      } else {
-        const overItem = state.items[overId];
-        if (!overItem) return;
-        targetStage = overItem.stage;
-        const columnItems = Object.entries(state.items)
-          .map(([id, item]) => ({ ...item, id }))
-          .filter(item => item.stage === targetStage && item.id !== itemId)
-          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-        const overIndex = columnItems.findIndex(item => item.id === overId);
-        targetOrder = overIndex === -1 ? columnItems.length : overIndex;
-      }
-
-      if (activeItem.stage === targetStage && (activeItem.order ?? 0) === targetOrder) return;
-
-      try {
-        const res = await fetch(`${apiUrl}/api/move`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_id: itemId, new_stage: targetStage, order: targetOrder }),
-        });
-        if (res.ok) {
-          await fetchState();
-        }
-      } catch (e) { console.error("Failed to move item", e); }
-    };
+    } catch (e) {
+      console.error("Failed to check workflow binding", e);
+    }
+  };
 
   const handleUpdateItem = async (updates: any) => {
     if (!selectedId) return;
@@ -260,50 +214,54 @@ export default function App() {
   return (
     <ErrorBoundary>
       <div className="min-h-screen bg-gray-50 p-6">
-        <header className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Antikythera Pipeline</h1>
-          <div className="mt-4 flex flex-wrap gap-2 items-center justify-between">
-            <div className="flex gap-2">
-              <button onClick={() => setShowWorkflow(true)} className="px-4 py-2 bg-white border rounded-lg text-sm">Workflow</button>
-              <button onClick={() => setShowCreateModal(true)} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm">+ New Idea</button>
-              <button onClick={fetchState} className="px-4 py-2 bg-white border rounded-lg text-sm">Refresh</button>
-            </div>
-            <div className="flex gap-2">
-              <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} className="p-2 border rounded-lg text-sm">
-                <option value="all">All Priorities</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-              <select value={stageFilter} onChange={e => setStageFilter(e.target.value)} className="p-2 border rounded-lg text-sm">
-                <option value="all">All Stages</option>
-                {STAGES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <input type="text" placeholder="Search..." value={searchQuery} onChange={e => setSearchQuery(e.target.value)} className="p-2 border rounded-lg text-sm" />
-            </div>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex flex-col">
+            <h1 className="text-3xl font-bold text-[#231f19]">Antikythera Pipeline</h1>
+            <p className="text-sm text-[#6f6a63]">Generic pipeline + workflow templates</p>
           </div>
-        </header>
+          <div className="ml-auto flex gap-2">
+            <button 
+              onClick={() => setShowWorkflow(true)} 
+              className={`px-4 py-2 rounded-full text-sm transition-all border ${showWorkflow ? 'bg-[#231f19] text-white border-[#231f19]' : 'bg-white text-[#6f6a63] border-[#d8d3ca] hover:border-[#231f19]'}`}
+            >
+              Workflows
+            </button>
+            <button 
+              onClick={() => setShowCreateModal(true)} 
+              className="px-4 py-2 bg-[#0b6b72] text-white rounded-full text-sm font-medium hover:bg-[#0a5c62] transition-all shadow-sm"
+            >
+              + New Idea
+            </button>
+            <button 
+              onClick={fetchState} 
+              className="px-4 py-2 bg-white border border-[#d8d3ca] rounded-full text-sm text-[#6f6a63] hover:bg-gray-50 transition-all"
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
 
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          <div className="grid grid-cols-5 gap-4 overflow-x-auto pb-4">
+          <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
             {STAGES.map(stage => (
-              <KanbanColumn
-                key={stage}
-                id={stage}
-                items={Object.entries(state.items)
-                  .filter(([_, item]) => item.stage === stage)
-                  .filter(([_, item]) => {
-                    const mSearch = !searchQuery || item.id.toLowerCase().includes(searchQuery.toLowerCase()) || item.title.toLowerCase().includes(searchQuery.toLowerCase());
-                    const mPri = priorityFilter === 'all' || item.priority?.toLowerCase() === priorityFilter;
-                    const mStage = stageFilter === 'all' || item.stage === stageFilter;
-                    return mSearch && mPri && mStage;
-                  })
-                  .map(([id, item]) => ({ ...item, id }))
-                  .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
-                onCardClick={(id) => { setSelectedId(id); setEditMode(false); }}
-                onEditClick={(id) => { setSelectedId(id); setEditMode(true); }}
-                onDeleteClick={(id) => { setDeleteTargetId(id); setShowDeleteConfirm(true); }}
-              />
+              <div key={stage} className="flex-shrink-0 snap-start">
+                <KanbanColumn
+                  id={stage}
+                  items={Object.entries(state.items)
+                    .filter(([_, item]) => item.stage === stage)
+                    .filter(([_, item]) => {
+                      const mSearch = !searchQuery || item.id.toLowerCase().includes(searchQuery.toLowerCase()) || item.title.toLowerCase().includes(searchQuery.toLowerCase());
+                      const mPri = priorityFilter === 'all' || item.priority?.toLowerCase() === priorityFilter;
+                      const mStage = stageFilter === 'all' || item.stage === stageFilter;
+                      return mSearch && mPri && mStage;
+                    })
+                    .map(([id, item]) => ({ ...item, id }))
+                    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
+                  onCardClick={(id) => { setSelectedId(id); setEditMode(false); }}
+                  onEditClick={(id) => { setSelectedId(id); setEditMode(true); }}
+                  onDeleteClick={(id) => { setDeleteTargetId(id); setShowDeleteConfirm(true); }}
+                />
+              </div>
             ))}
           </div>
           <DragOverlay>
