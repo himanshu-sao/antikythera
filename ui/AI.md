@@ -7,7 +7,7 @@
 ## 🛠 Tech Stack
 - **Framework**: React 19, Vite, TypeScript
 - **Styling**: Tailwind CSS
-- **DND**: Atlassian Pragmatic Drag and Drop
+|- **DND**: @dnd-kit/core
 - **State**: Polling-based updates from the FastAPI backend.
 
 ## 📋 The Kanban Board (Operational Surface)

@@ -23,6 +23,7 @@ Depending on your current task, refer to the following specialized `AI.md` files
 | **Backend/API** | `api/AI.md` | FastAPI, `StateManager`, API routes, and integration adapters. |
 | **Workflows** | `api/workflow_AI.md` | Workflow engine, trigger management, and automation logic. |
 | **Frontend/UI** | `ui/AI.md` | React 19, Tailwind, Kanban board UX, and design enhancements. |
+| **UI Enhancements** | `design/ui-enhancement/AI.md` | Specialized design specs for visual polish and UX upgrades. |
 
 ## 🛠 Global Constraints (Non-Negotiable)
 - **ID Normalization**: All Idea IDs (e.g., `ID-001`) MUST be **UPPERCASE**.

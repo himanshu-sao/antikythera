@@ -3,18 +3,18 @@ import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, use
 import { KanbanColumn, KanbanCardContent } from './components/KanbanColumn';
 import { ArtifactViewer } from './components/ArtifactViewer';
 import { WorkflowDiagram } from './components/WorkflowDiagram';
-import { WorkflowManager } from './components/WorkflowManager';
-import { IntegrationsManager } from './components/IntegrationsManager';
-import { WorkflowBuilder } from './components/WorkflowBuilder';
-import { VirtualBoard } from './components/VirtualBoard';
 import { SkeletonBoard } from './components/SkeletonBoard';
-import RunDetail from './components/RunDetail';
 import { CardEditor } from './components/CardEditor';
-import { CommentSection } from './components/CommentSection';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { apiUrl } from './config';
-import toast, { Toaster } from 'react-hot-toast';
+import { VirtualBoard } from './components/VirtualBoard';
+import { Toaster } from 'react-hot-toast';
 import type { PipelineItem, PipelineState } from './types';
+import { apiUrl } from './config';
+
+import { usePipelineState } from './hooks/usePipelineState';
+import { CreateItemModal } from './components/modals/CreateItemModal';
+import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
+import { WorkflowModal, IntegrationsModal, BuilderModal } from './components/modals/ManagementModals';
 
 const STAGES = [
   "INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE",
@@ -22,9 +22,17 @@ const STAGES = [
 ];
 
 export default function App() {
-  const [state, setState] = useState<PipelineState>({ items: {} });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { 
+    state, 
+    loading, 
+    error, 
+    handleUpdateItem, 
+    handleDeleteItem, 
+    handleCreateItem, 
+    handleMoveItem,
+    fetchState
+  } = usePipelineState();
+
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
@@ -37,20 +45,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [stageFilter, setStageFilter] = useState('all');
-
-  // MODAL STATES
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-
-  // CREATE ITEM STATE
-  const [newItem, setNewItem] = useState({ 
-    id: '', 
-    title: '', 
-    priority: 'medium',
-    source_type: 'directory', 
-    source_value: '', 
-    due_date: '' 
-  });
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -58,47 +54,19 @@ export default function App() {
     })
   );
 
-  const fetchState = async () => {
-    try {
-      setError(null);
-      const res = await fetch(`${apiUrl}/api/state`);
-      if (!res.ok) throw new Error('Failed to fetch state');
-      const data = await res.json();
-      setState(data);
-    } catch (e: any) {
-      console.error("Failed to fetch state", e);
-      setError(e.message || 'Failed to load data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    let currentDelay = 10000;
-    const poll = async () => {
-      await fetchState();
-      setTimeout(poll, currentDelay);
-    };
-
-    poll();
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        // We don't stop the poll, but we can slow it down
-      } else {
-        fetchState();
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { 
+        setSelectedId(null); 
+        setEditMode(false); 
+        setShowCreateModal(false); 
+        setShowWorkflow(false); 
+        setShowDeleteConfirm(false); 
       }
     };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { setSelectedId(null); setEditMode(false); setShowCreateModal(false); setShowWorkflow(false); setShowDeleteConfirm(false); }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      // Simple cleanup for this demo
-    };
-  }, [selectedId]);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(String(event.active.id));
@@ -139,88 +107,19 @@ export default function App() {
     }
 
     if (activeItem.stage === targetStage && (activeItem.order ?? 0) === targetOrder) return;
-
-    try {
-      const res = await fetch(`${apiUrl}/api/move`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ item_id: itemId, new_stage: targetStage, order: targetOrder }),
-      });
-      if (res.ok) {
-        await fetchState();
-      }
-    } catch (e) { console.error("Failed to move item", e); }
+    await handleMoveItem(itemId, targetStage, targetOrder);
   };
 
   const handleCardClick = async (id: string) => {
     setSelectedId(id);
     setEditMode(false);
-    
     try {
       const res = await fetch(`${apiUrl}/api/workflows/items/${id}/run`);
       if (res.ok) {
         const data = await res.json();
-        if (data.run_id) {
-          setSelectedRunId(data.run_id);
-        }
+        if (data.run_id) setSelectedRunId(data.run_id);
       }
-    } catch (e) {
-      console.error("Failed to check workflow binding", e);
-    }
-  };
-
-  const handleUpdateItem = async (updates: any) => {
-    if (!selectedId) return;
-    try {
-      const res = await fetch(`${apiUrl}/api/item/${selectedId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error('Failed to update item');
-      await fetchState();
-    } catch (e: any) { toast.error(e.message); }
-  };
-
-  const handleDeleteItem = async (itemId: string) => {
-    try {
-      const res = await fetch(`${apiUrl}/api/item/${itemId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete item');
-      setSelectedId(null);
-      setShowDeleteConfirm(false);
-      await fetchState();
-      toast.success("Item deleted");
-    } catch (e: any) { toast.error(e.message); }
-  };
-
-  const confirmDelete = () => {
-    if (deleteTargetId) handleDeleteItem(deleteTargetId);
-  };
-
-  const handleCreateItem = async () => {
-    if (!newItem.id || !newItem.title) return;
-    const itemId = newItem.id.toUpperCase();
-    try {
-      const res = await fetch(`${apiUrl}/api/items`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          item_id: itemId,
-          title: newItem.title,
-          priority: newItem.priority,
-          source_type: newItem.source_type,
-          source_value: newItem.source_value,
-          due_date: newItem.due_date,
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to create item');
-      setShowCreateModal(false);
-      setNewItem({ id: '', title: '', priority: 'medium', source_type: 'directory', source_value: '', due_date: '' });
-      await fetchState();
-      toast.success("New idea created");
-    } catch (e: any) {
-      toast.error(e.message);
-    }
+    } catch (e) { console.error("Failed to check workflow binding", e); }
   };
 
   if (loading) return <SkeletonBoard />;
@@ -298,68 +197,27 @@ export default function App() {
           </DragOverlay>
         </DndContext>
 
-        {/* CREATE MODAL */}
-        {showCreateModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-              <h2 className="text-xl font-bold mb-4">Create New Idea</h2>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Item ID <span className="text-red-500">*</span></label>
-                  <input type="text" className="w-full p-2 border rounded" value={newItem.id} onChange={e => setNewItem({...newItem, id: e.target.value})} placeholder="e.g. IDEA-1" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Title <span className="text-red-500">*</span></label>
-                  <input type="text" className="w-full p-2 border rounded" value={newItem.title} onChange={e => setNewItem({...newItem, title: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Priority</label>
-                  <select className="w-full p-2 border rounded" value={newItem.priority} onChange={e => setNewItem({...newItem, priority: e.target.value})}>
-                    <option value="high">High</option>
-                    <option value="medium">Medium</option>
-                    <option value="low">Low</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Source Type</label>
-                  <select className="w-full p-2 border rounded" value={newItem.source_type} onChange={e => setNewItem({...newItem, source_type: e.target.value})}>
-                    <option value="directory">Directory (Local File)</option>
-                    <option value="url">URL (Web Link)</option>
-                    <option value="text">Direct Text</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Source Value (Path/URL/Text)</label>
-                  <input type="text" className="w-full p-2 border rounded" value={newItem.source_value} onChange={e => setNewItem({...newItem, source_value: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700">Due Date</label>
-                  <input type="date" className="w-full p-2 border rounded" value={newItem.due_date} onChange={e => setNewItem({...newItem, due_date: e.target.value})} />
-                </div>
-                <div className="flex justify-end gap-2 pt-4">
-                  <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-gray-600">Cancel</button>
-                  <button onClick={handleCreateItem} className="px-4 py-2 bg-indigo-600 text-white rounded-lg">Create</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Modals */}
+        <CreateItemModal 
+          isOpen={showCreateModal} 
+          onClose={() => setShowCreateModal(false)} 
+          onCreate={handleCreateItem} 
+        />
+        <DeleteConfirmModal 
+          isOpen={showDeleteConfirm} 
+          onClose={() => setShowDeleteConfirm(false)} 
+          onConfirm={() => {
+            if (deleteTargetId) {
+              handleDeleteItem(deleteTargetId);
+              setShowDeleteConfirm(false);
+            }
+          }} 
+          targetId={deleteTargetId} 
+        />
+        <WorkflowModal isOpen={showWorkflow} onClose={() => setShowWorkflow(false)} />
+        <IntegrationsModal isOpen={showIntegrations} onClose={() => setShowIntegrations(false)} />
+        <BuilderModal isOpen={showBuilder} onClose={() => setShowBuilder(false)} />
 
-        {/* DELETE CONFIRM MODAL */}
-        {showDeleteConfirm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[60]">
-            <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6">
-              <h2 className="text-xl font-bold text-red-600 mb-2">Delete Item?</h2>
-              <p className="text-gray-600 mb-6">Are you sure you want to delete <span className="font-bold">{deleteTargetId}</span>? This cannot be undone.</p>
-              <div className="flex justify-end gap-2">
-                <button onClick={() => setShowDeleteConfirm(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg">Cancel</button>
-                <button onClick={confirmDelete} className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Delete</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* DETAIL MODAL (EDITOR / VIEWER) */}
         {selectedId && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] overflow-auto p-6 w-full">
@@ -379,15 +237,15 @@ export default function App() {
                   itemId={selectedId}
                   initialData={{
                     title: state.items[selectedId]?.title || '',
-                    description: state.items[selectedId]?.description || '',
+                    description: (state.items[selectedId] as any)?.description || '',
                     priority: state.items[selectedId]?.priority || 'medium',
                     confidence_score: state.items[selectedId]?.confidence_score ?? 0,
                     source_type: state.items[selectedId]?.source_type || 'directory',
                     source_value: state.items[selectedId]?.source_value || '',
                     due_date: state.items[selectedId]?.due_date || '',
                   }}
-                  onSave={handleUpdateItem}
-                  onDelete={handleDeleteItem}
+                  onSave={(updates) => handleUpdateItem(selectedId, updates)}
+                  onDelete={() => handleDeleteItem(selectedId)}
                   onClose={() => setEditMode(false)}
                 />
               ) : (
@@ -405,57 +263,6 @@ export default function App() {
               templateId={virtualBoardTemplate} 
               onBack={() => setVirtualBoardTemplate(null)} 
             />
-          </div>
-        )}
-
-        {showBuilder && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Workflow Architect</h2>
-                <button onClick={() => setShowBuilder(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <WorkflowBuilder />
-              </div>
-            </div>
-          </div>
-        )}
-
-
-        {showIntegrations && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Integration Hub</h2>
-                <button onClick={() => setShowIntegrations(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <IntegrationsManager />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {showWorkflow && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-6xl max-h-[90vh] overflow-auto p-6 w-full h-full flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">Workflow Automation</h2>
-                <button onClick={() => setShowWorkflow(false)} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
-              </div>
-              <div className="flex-1 overflow-hidden">
-                <WorkflowManager />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {selectedRunId && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-[70]">
-            <div className="bg-white rounded-lg shadow-xl max-w-3xl max-h-[80vh] overflow-auto p-6 w-full h-full flex flex-col">
-              <RunDetail runId={selectedRunId} onClose={() => setSelectedRunId(null)} />
-            </div>
           </div>
         )}
 
