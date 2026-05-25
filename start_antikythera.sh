@@ -28,7 +28,8 @@ if [ -z "$PORT" ]; then
 fi
 
 echo -e "Starting Backend API on port $PORT..."
-$PYTHON_EXE -m uvicorn api.main:app --host 0.0.0.0 --port $PORT > backend.log 2>&1 &
+# Use PYTHONPATH to ensure the 'api' package is discoverable
+PYTHONPATH=$ROOT_DIR $PYTHON_EXE -m uvicorn api.main:app --host 0.0.0.0 --port $PORT > backend.log 2>&1 &
 BACKEND_PID=$!
 echo -e "${GREEN}✅ Backend started (PID: $BACKEND_PID) - logs: backend.log${NC}"
 

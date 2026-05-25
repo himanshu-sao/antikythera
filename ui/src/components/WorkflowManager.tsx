@@ -181,7 +181,7 @@ export function WorkflowManager() {
               <div className="p-8">
                 <div className="space-y-0">
                   {selectedTemplate.steps.map((step, idx) => (
-                    <div key={step.step_id} className="flex gap-6">
+                    <div key={`${step.step_id || idx}`} className="flex gap-6">
                       <div className="flex flex-col items-center">
                         <div className="w-8 h-8 rounded-full bg-[#231f19] text-white flex items-center justify-center text-xs font-bold shadow-sm">
                           {idx + 1}

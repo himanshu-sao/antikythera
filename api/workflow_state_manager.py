@@ -124,8 +124,18 @@ class WorkflowStateManager:
             return False
 
     def reorder_items(self, stage: str, ordered_ids: List[str]):
-        # Implementation as requested in legacy specs
-        pass
+        """
+        Persists the order of items within a specific stage.
+        Since pipeline-state.json doesn't have a top-level 'order' field,
+        we store the order as a list of IDs under the state['stages_order'][stage] key.
+        """
+        with self._state_lock:
+            state = self.load_state()
+            if "stages_order" not in state:
+                state["stages_order"] = {}
+            
+            state["stages_order"][stage.upper()] = ordered_ids
+            self._save_json(self.state_path, self._state_lock, state)
 
     def delete_template(self, template_id: str) -> bool:
         try:

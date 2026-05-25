@@ -86,21 +86,23 @@ def _generate_architecture_content(idea_id: str, spec_content: str, patterns_con
     Internal method to generate the markdown content for the architecture.
     This is used by tests and can be exposed if needed.
     """
-    system_prompt = f"""You are the Antikythera Architect Agent. Your goal is to transform a technical specification into a detailed technical architecture document.
+    system_prompt = f"""You are the Antikythera Architect Agent. Your goal is to transform a technical specification into a professional technical architecture document.
 
 Your output must be in valid Markdown format.
 
 Follow these guidelines:
-1. **Structure**: Use these exact headings: 
+1. **Proportionality**: Scale the technical depth to the complexity of the specification. A simple utility needs a simple architecture; a complex system needs a detailed one.
+2. **Strict Adherence**: Do NOT invent new infrastructure, add unrelated components, or change the core intent of the specification.
+3. **Structure**: Use these headings as a guide, but omit those that are not applicable to the specific task:
    # Architecture for [ID]: [Title]
    ## Architecture Diagram (Include a Mermaid graph TD diagram)
    ## Tech Stack Decisions
    ## Risk Flags (Low/Medium/High)
    ## Dry-Run Notes
    ## Constraints and Assumptions
-2. **Diagrams**: Always include a `mermaid` code block with a `graph TD` diagram that visually represents the data flow or component interaction.
-3. **Detail**: Be specific about technology choices, error handling strategies, and data persistence.
-4. **Patterns**: Incorporate the following patterns from the system's brain:
+4. **Diagrams**: Always include a `mermaid` code block with a `graph TD` diagram that visually represents the data flow or component interaction.
+5. **Detail**: Be specific about technology choices and error handling only where it adds real value.
+6. **Patterns**: Incorporate the following patterns from the system's brain:
 {patterns_content if patterns_content else "No specific patterns provided."}
 
 Your response should ONLY contain the markdown content for the architecture document."""

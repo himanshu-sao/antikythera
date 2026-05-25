@@ -7,6 +7,7 @@ import { WorkflowManager } from './components/WorkflowManager';
 import { IntegrationsManager } from './components/IntegrationsManager';
 import { WorkflowBuilder } from './components/WorkflowBuilder';
 import { VirtualBoard } from './components/VirtualBoard';
+import { SkeletonBoard } from './components/SkeletonBoard';
 import RunDetail from './components/RunDetail';
 import { CardEditor } from './components/CardEditor';
 import { CommentSection } from './components/CommentSection';
@@ -73,21 +74,29 @@ export default function App() {
   };
 
   useEffect(() => {
-    fetchState();
-    let interval = setInterval(fetchState, 10000);
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') clearInterval(interval);
-      else { fetchState(); clearInterval(interval); interval = setInterval(fetchState, 10000); }
+    let currentDelay = 10000;
+    const poll = async () => {
+      await fetchState();
+      setTimeout(poll, currentDelay);
     };
+
+    poll();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        // We don't stop the poll, but we can slow it down
+      } else {
+        fetchState();
+      }
+    };
+
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { setSelectedId(null); setEditMode(false); setShowCreateModal(false); setShowWorkflow(false); setShowDeleteConfirm(false); }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
-      clearInterval(interval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      document.removeEventListener('keydown', handleKeyDown);
+      // Simple cleanup for this demo
     };
   }, [selectedId]);
 
@@ -214,7 +223,7 @@ export default function App() {
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  if (loading) return <SkeletonBoard />;
   if (error) return <div className="flex items-center justify-center h-screen text-red-500">{error}</div>;
 
   return (
@@ -296,11 +305,11 @@ export default function App() {
               <h2 className="text-xl font-bold mb-4">Create New Idea</h2>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Item ID</label>
+                  <label className="block text-sm font-medium text-gray-700">Item ID <span className="text-red-500">*</span></label>
                   <input type="text" className="w-full p-2 border rounded" value={newItem.id} onChange={e => setNewItem({...newItem, id: e.target.value})} placeholder="e.g. IDEA-1" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Title</label>
+                  <label className="block text-sm font-medium text-gray-700">Title <span className="text-red-500">*</span></label>
                   <input type="text" className="w-full p-2 border rounded" value={newItem.title} onChange={e => setNewItem({...newItem, title: e.target.value})} />
                 </div>
                 <div>

@@ -18,6 +18,7 @@ export function KanbanCardContent({
   priority,
   source_type,
   source_value,
+  updated_at,
   onCardClick,
   onEditClick,
   onDeleteClick,
@@ -90,7 +91,11 @@ export function KanbanCardContent({
 
       {/* Subtle Footer */}
       <div className="mt-3 pt-2 border-t border-gray-50 flex justify-between items-center text-[10px] text-gray-400">
-        <span>{id}</span>
+        <div className="flex items-center gap-1">
+          <span>{id}</span>
+          <span className="mx-1">•</span>
+          <span>{updated_at ? new Date(updated_at).toLocaleDateString() : 'N/A'}</span>
+        </div>
         {source_type && <span>{source_type === 'url' ? '🌐' : '📄'}</span>}
       </div>
     </div>
@@ -186,9 +191,12 @@ export function KanbanColumn({ id, items, onCardClick, onEditClick, onDeleteClic
         className="min-h-[80px]"
       >
         {items.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-8 text-[#6f6a63] opacity-50">
-            <p className="text-xs">No items yet</p>
-          </div>
+            <div className="flex flex-col items-center justify-center py-8 text-[#6f6a63] opacity-50 border-2 border-dashed border-gray-200 rounded-xl">
+              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-2 opacity-40">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              <p className="text-xs italic">No items in this stage</p>
+            </div>
         ) : (
           <SortableContext items={items.map(i => i.id)} strategy={verticalListSortingStrategy}>
             {items

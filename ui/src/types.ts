@@ -47,6 +47,9 @@ export interface BoardCard {
   review_status?: string;
   created_at?: string;
   updated_at: string;
+  source_type?: string;
+  source_value?: string;
+  due_date?: string;
 }
 
 export interface CardComment {

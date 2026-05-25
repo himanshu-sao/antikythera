@@ -68,10 +68,20 @@ VALID_PRIORITIES = ["low", "medium", "high", "critical"]
 class CreateItemRequest(BaseModel):
     item_id: str = Field(..., min_length=1, max_length=50, pattern=r'^[A-Za-z0-9_-]+$')
     title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
     priority: Optional[str] = Field(default="medium")
     source_type: Optional[str] = Field(default=None)
     source_value: Optional[str] = Field(default=None)
-    due_date: Optional[str] = Field(default=None, pattern=r'^\d{4}-\d{2}-\d{2}$')
+    due_date: Optional[str] = Field(default=None)
+    
+    @field_validator('due_date')
+    @classmethod
+    def validate_due_date(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', v):
+            raise ValueError('due_date must be in YYYY-MM-DD format')
+        return v
 
     @field_validator('item_id')
     @classmethod
@@ -125,7 +135,16 @@ class UpdateItemRequest(BaseModel):
     confidence_score: Optional[int] = Field(default=None, ge=0, le=100)
     source_type: Optional[str] = Field(default=None)
     source_value: Optional[str] = Field(default=None)
-    due_date: Optional[str] = Field(default=None, pattern=r'^\d{4}-\d{2}-\d{2}$')
+    due_date: Optional[str] = Field(default=None)
+    
+    @field_validator('due_date')
+    @classmethod
+    def validate_due_date(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', v):
+            raise ValueError('due_date must be in YYYY-MM-DD format')
+        return v
 
     @field_validator('priority')
     @classmethod
@@ -171,7 +190,8 @@ async def create_item(request: CreateItemRequest):
         request.title,
         request.source_type,
         request.source_value,
-        request.due_date
+        request.due_date,
+        description=request.description
     )
     if not success:
         raise HTTPException(status_code=400, detail="Item already exists")
