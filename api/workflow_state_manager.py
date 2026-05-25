@@ -1,8 +1,11 @@
 from typing import Dict, Any, Optional, List
+import os
 from api.managers.template_manager import TemplateManager
 from api.managers.run_manager import RunManager
 from api.managers.binding_manager import BindingManager
 from api.managers.kanban_state_manager import KanbanStateManager
+from api.brain_managers import BrainManager, ObserverManager
+from api.brain_schemas import ObserverEvent
 
 class WorkflowStateManager:
     """
@@ -14,16 +17,53 @@ class WorkflowStateManager:
         self.runs = RunManager(base_dir)
         self.bindings = BindingManager(base_dir)
         self.kanban = KanbanStateManager(base_dir)
+        
+        # Intelligence Layer
+        knowledge_dir = os.path.join(base_dir, "knowledge")
+        deltas_dir = os.path.join(knowledge_dir, "deltas")
+        self.brain = BrainManager(knowledge_dir, deltas_dir)
+        self.observer = ObserverManager(self.brain, self.runs)
+
+    # --- Intelligence Integration ---
+    def notify_observer(self, event_type: str, event_data: Dict[str, Any], actor: str = "system"):
+        """Triggers the background observer to process an event."""
+        event = ObserverEvent(
+            event_type=event_type,
+            event_data=event_data,
+            actor=actor
+        )
+        self.observer.process_event(event)
 
     # --- Kanban / Item Management (Delegated to KanbanStateManager) ---
     def load_state(self) -> Dict[str, Any]:
         return self.kanban.load_state()
 
     def create_item(self, item_id: str, title: str, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
-        return self.kanban.create_item(item_id, title, source_type, source_value, due_date)
+        success = self.kanban.create_item(item_id, title, source_type, source_value, due_date)
+        if success:
+            self.notify_observer("KANBAN_TRANSITION", {"item_id": item_id, "body": f"Created item: {title}"})
+        return success
 
     def update_item(self, item_id: str, updates: Dict[str, Any]) -> bool:
-        return self.kanban.update_item(item_id, updates)
+        success = self.kanban.update_item(item_id, updates)
+        if success:
+            # If the update is a stage change, notify observer
+            if "stage" in updates:
+                new_stage = updates["stage"]
+                self.notify_observer("KANBAN_TRANSITION", {"item_id": item_id, "body": f"Moved to stage: {new_stage}"})
+                
+                # Automated Learning: If moved to DONE, scan logs for patterns
+                if new_stage == "DONE":
+                    # Find associated run
+                    run_id = self.get_run_id_for_item(item_id)
+                    if run_id:
+                        patterns = self.observer.analyze_kanban_logs(run_id)
+                        for pattern in patterns:
+                            # Directly notify observer of the pattern (simulated)
+                            self.notify_observer("TASK_SUCCESS", {
+                                "workflow_summary": f"Completed pattern for {item_id}: {pattern.reason}"
+                            })
+        return success
 
     def delete_item(self, item_id: str) -> bool:
         return self.kanban.delete_item(item_id)
@@ -32,7 +72,11 @@ class WorkflowStateManager:
         return self.kanban.get_item_details(item_id)
 
     def add_comment(self, item_id: str, author: str, body: str) -> Optional[Dict[str, Any]]:
-        return self.kanban.add_comment(item_id, author, body)
+        comment = self.kanban.add_comment(item_id, author, body)
+        if comment:
+            # Notify observer about the new comment
+            self.notify_observer("USER_INTERVENTION", {"user_comment": body, "item_id": item_id})
+        return comment
 
     def delete_comment(self, item_id: str, comment_id: str) -> bool:
         return self.kanban.delete_comment(item_id, comment_id)
@@ -58,13 +102,22 @@ class WorkflowStateManager:
         return self.runs.create_run(run_id, run_data)
 
     def update_run(self, run_id: str, updates: Dict[str, Any]) -> bool:
-        return self.runs.update_run(run_id, updates)
+        success = self.runs.update_run(run_id, updates)
+        if success:
+            # Check for task completion in the update
+            if updates.get("status") == "COMPLETED":
+                self.notify_observer("TASK_SUCCESS", {"workflow_summary": updates.get("summary", "Task completed successfully.")})
+        return success
 
     def get_run(self, run_id: str) -> Optional[Dict[str, Any]]:
         return self.runs.get_run(run_id)
 
     def log_event(self, run_id: str, event_type: str, payload: Dict[str, Any], actor: str = "system") -> bool:
-        return self.runs.log_event(run_id, event_type, payload, actor)
+        success = self.runs.log_event(run_id, event_type, payload, actor)
+        if success:
+            # Automatically notify observer of every logged event
+            self.notify_observer(event_type, payload, actor)
+        return success
 
     def get_run_timeline(self, run_id: str) -> List[Dict[str, Any]]:
         return self.runs.get_run_timeline(run_id)
