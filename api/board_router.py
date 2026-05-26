@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Response, Request
 from fastapi.responses import FileResponse
 from typing import List, Dict, Any, Optional
 import os
@@ -16,80 +16,82 @@ BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "automation-ideas")
 state_manager = WorkflowStateManager(BASE_DIR)
 
 @router.get("/state", summary="Get full pipeline state")
-async def get_state():
+async def get_state(request: Request):
     try:
-        return state_manager.load_state()
+        return request.app.state.state_manager.load_state()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load state: {str(e)}")
 
 @router.post("/items", summary="Create new pipeline item")
-async def create_item(request: CreateItemRequest):
-    success = state_manager.create_item(
-        request.item_id,
-        request.title,
-        request.source_type,
-        request.source_value,
-        request.due_date
+async def create_item(request: Request, item_request: CreateItemRequest):
+    success = request.app.state.state_manager.create_item(
+        item_request.item_id,
+        item_request.title,
+        goal=item_request.goal,
+        description=item_request.description,
+        source_type=item_request.source_type,
+        source_value=item_request.source_value,
+        due_date=item_request.due_date
     )
     if not success:
         raise HTTPException(status_code=400, detail="Item already exists")
-    return {"status": "success", "message": f"Item {request.item_id} created"}
+    return {"status": "success", "message": f"Item {item_request.item_id} created"}
 
 @router.patch("/item/{item_id}", summary="Update item details")
-async def update_item(item_id: str, request: UpdateItemRequest):
+async def update_item(request: Request, item_id: str, item_request: UpdateItemRequest):
     normalized_id = item_id.upper()
-    updates = request.model_dump(exclude_unset=True)
+    updates = item_request.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields provided for update")
-    success = state_manager.update_item(normalized_id, updates)
+    success = request.app.state.state_manager.update_item(normalized_id, updates)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "message": f"Item {normalized_id} updated"}
 
 @router.delete("/item/{item_id}", summary="Delete pipeline item")
-async def delete_item(item_id: str):
+async def delete_item(request: Request, item_id: str):
     normalized_id = item_id.upper()
-    success = state_manager.delete_item(normalized_id)
+    success = request.app.state.state_manager.delete_item(normalized_id)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "message": f"Item {normalized_id} deleted"}
 
 @router.post("/item/{item_id}/comment", summary="Add comment to item")
-async def add_comment(item_id: str, request: CommentRequest):
+async def add_comment(request: Request, item_id: str, comment_request: CommentRequest):
     normalized_id = item_id.upper()
-    comment = state_manager.add_comment(normalized_id, request.author, request.body)
+    comment = request.app.state.state_manager.add_comment(normalized_id, comment_request.author, comment_request.body)
     if not comment:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "comment": comment}
 
 @router.delete("/item/{item_id}/comment/{comment_id}", summary="Delete comment")
-async def delete_comment(item_id: str, comment_id: str):
+async def delete_comment(request: Request, item_id: str, comment_id: str):
     normalized_id = item_id.upper()
-    success = state_manager.delete_comment(normalized_id, comment_id)
+    success = request.app.state.state_manager.delete_comment(normalized_id, comment_id)
     if not success:
         raise HTTPException(status_code=404, detail="Item or comment not found")
     return {"status": "success", "message": f"Comment {comment_id} deleted"}
 
 @router.post("/move", summary="Move item to stage")
-async def move_item(request: MoveRequest):
-    normalized_id = request.item_id.upper()
-    updates: dict = {"stage": request.new_stage}
-    if request.order is not None:
-        updates["order"] = request.order
-    success = state_manager.update_item(normalized_id, updates)
+async def move_item(request: Request, move_request: MoveRequest):
+    normalized_id = move_request.item_id.upper()
+    updates: dict = {"stage": move_request.new_stage}
+    if move_request.order is not None:
+        updates["order"] = move_request.order
+    success = request.app.state.state_manager.update_item(normalized_id, updates)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
-    return {"status": "success", "message": f"Item {normalized_id} moved to {request.new_stage}"}
+    return {"status": "success", "message": f"Item {normalized_id} moved to {move_request.new_stage}"}
 
 @router.post("/items/reorder", summary="Bulk reorder items")
-async def reorder_items(request: ReorderRequest):
-    state_manager.reorder_items(request.stage, request.ordered_ids)
-    return {"status": "success", "message": f"Reordered {len(request.ordered_ids)} items in {request.stage}"}
+async def reorder_items(request: Request, reorder_request: ReorderRequest):
+    request.app.state.state_manager.reorder_items(reorder_request.stage, reorder_request.ordered_ids)
+    return {"status": "success", "message": f"Reordered {len(reorder_request.ordered_ids)} items in {reorder_request.stage}"}
 
 @router.get("/item/{item_id}", summary="Get item details")
-async def get_item(item_id: str):
+async def get_item(request: Request, item_id: str):
     normalized_id = item_id.upper()
-    item = state_manager.get_item_details(normalized_id)
+    item = request.app.state.state_manager.get_item_details(normalized_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return item

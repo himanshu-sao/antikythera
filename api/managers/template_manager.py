@@ -32,8 +32,27 @@ class TemplateManager(BaseJSONManager):
 
     def get_template(self, template_id: str) -> Optional[Dict[str, Any]]:
         templates = self._load()
-        return templates.get(template_id)
+        template = templates.get(template_id)
+        if template:
+            # Ensure frontend-required fields exist
+            if "name" not in template:
+                template["name"] = template_id
+            if "trigger" not in template:
+                template["trigger"] = {"type": "MANUAL"}
+            if "id" not in template:
+                template["id"] = template_id
+        return template
 
     def list_templates(self) -> List[Dict[str, Any]]:
         templates = self._load()
-        return [{"template_id": tid, **data} for tid, data in templates.items()]
+        result = []
+        for tid, data in templates.items():
+            # Ensure frontend-required fields exist for each template in the list
+            if "name" not in data:
+                data["name"] = tid
+            if "trigger" not in data:
+                data["trigger"] = {"type": "MANUAL"}
+            if "id" not in data:
+                data["id"] = tid
+            result.append(data)
+        return result

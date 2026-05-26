@@ -14,9 +14,16 @@ if [ -z "$VITE_API_URL" ]; then
 fi
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-echo -e "${BLUE}🚀 Starting Antikythera Full Stack...${NC}"
+echo -e "${BLUE}🚀 Preparing Antikythera environment...${NC}"
+
+# 0. Pre-flight check: Ensure no old processes are running
+echo "Running cleanup to prevent ghost processes..."
+./stop_antikythera.sh
+
+echo -e "\n${BLUE}🚀 Starting Antikythera Full Stack...${NC}"
 
 # 1. Start Backend API
 echo -e "Loading port from .env..."

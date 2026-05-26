@@ -1,65 +1,112 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from typing import List, Dict, Any, Optional
-from api.workflow_state_manager import WorkflowStateManager
 import os
 
-router = APIRouter(prefix="/api/workflows", tags=["Workflows"])
+router = APIRouter(prefix="/api", tags=["Workflows"])
 
-# Initialize manager using the project's state directory
-STATE_DIR = os.path.join(os.path.dirname(__file__), "..", "automation-ideas")
-workflow_mgr = WorkflowStateManager(STATE_DIR)
+@router.get("/state", summary="Get the current Kanban state")
+async def get_state(request: Request):
+    try:
+        state_manager = request.app.state.state_manager
+        return state_manager.load_state()
+    except AttributeError:
+        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.delete("/templates/{template_id}", summary="Delete a workflow template")
-async def delete_template(template_id: str):
-    if workflow_mgr.delete_template(template_id):
-        return {"status": "success", "message": f"Template {template_id} deleted"}
-    raise HTTPException(status_code=404, detail="Template not found")
-
-@router.get("/templates", summary="List all workflow templates")
-async def list_templates():
-    return workflow_mgr.list_templates()
-
-@router.get("/templates/{template_id}", summary="Get a specific template")
-async def get_template(template_id: str):
-    template = workflow_mgr.get_template(template_id)
-    if not template:
+@router.delete("/workflows/templates/{template_id}", summary="Delete a workflow template")
+async def delete_template(request: Request, template_id: str):
+    try:
+        state_manager = request.app.state.state_manager
+        if state_manager.templates.delete_template(template_id):
+            return {"status": "success", "message": f"Template {template_id} deleted"}
         raise HTTPException(status_code=404, detail="Template not found")
-    return template
+    except AttributeError:
+        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/templates", summary="Create or update a template")
-async def save_template(template: Dict[str, Any]):
+@router.get("/workflows/templates", summary="List all workflow templates")
+async def list_templates(request: Request):
+    try:
+        state_manager = request.app.state.state_manager
+        return state_manager.templates.list_templates()
+    except AttributeError:
+        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/workflows/templates/{template_id}", summary="Get a specific template")
+async def get_template(request: Request, template_id: str):
+    try:
+        state_manager = request.app.state.state_manager
+        template = state_manager.templates.get_template(template_id)
+        if not template:
+            raise HTTPException(status_code=404, detail="Template not found")
+        return template
+    except AttributeError:
+        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/workflows/templates", summary="Create or update a template")
+async def save_template(request: Request, template: Dict[str, Any]):
     template_id = template.get("template_id")
     if not template_id:
         raise HTTPException(status_code=400, detail="template_id is required")
-    if workflow_mgr.save_template(template_id, template):
-        return {"status": "success", "message": f"Template {template_id} saved"}
-    raise HTTPException(status_code=500, detail="Failed to save template")
+    try:
+        state_manager = request.app.state.state_manager
+        if state_manager.templates.save_template(template_id, template):
+            return {"status": "success", "message": f"Template {template_id} saved"}
+        raise HTTPException(status_code=500, detail="Failed to save template")
+    except AttributeError:
+        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/runs/{run_id}", summary="Get run details and summary")
-async def get_run_details(run_id: str):
-    run = workflow_mgr.get_run(run_id)
-    if not run:
-        raise HTTPException(status_code=404, detail="Run not found")
-    
-    template = workflow_mgr.get_template(run.get("template_id", ""))
-    timeline = workflow_mgr.get_run_timeline(run_id)
-    bindings = workflow_mgr.get_bindings_for_run(run_id)
-    
-    return {
-        "run": run,
-        "template": template,
-        "timeline": timeline,
-        "bindings": bindings
-    }
+@router.get("/workflows/runs/{run_id}", summary="Get run details and summary")
+async def get_run_details(request: Request, run_id: str):
+    try:
+        state_manager = request.app.state.state_manager
+        run = state_manager.runs.get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        
+        template = state_manager.templates.get_template(run.get("template_id", ""))
+        timeline = state_manager.runs.get_run_timeline(run_id)
+        bindings = state_manager.bindings.get_bindings_for_run(run_id)
+        
+        return {
+            "run": run,
+            "template": template,
+            "timeline": timeline,
+            "bindings": bindings
+        }
+    except AttributeError:
+        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/runs/{run_id}/timeline", summary="Get only the run timeline")
-async def get_run_timeline(run_id: str):
-    timeline = workflow_mgr.get_run_timeline(run_id)
-    return timeline
+@router.get("/workflows/runs/{run_id}/timeline", summary="Get only the run timeline")
+async def get_run_timeline(request: Request, run_id: str):
+    try:
+        state_manager = request.app.state.state_manager
+        timeline = state_manager.runs.get_run_timeline(run_id)
+        return timeline
+    except AttributeError:
+        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/items/{item_id}/run", summary="Find the run associated with a Kanban item")
-async def get_item_run(item_id: str):
-    run_id = workflow_mgr.get_run_id_for_item(item_id)
-    if not run_id:
-        return {"run_id": None}
-    return {"run_id": run_id}
+@router.get("/workflows/items/{item_id}/run", summary="Find the run associated with a Kanban item")
+async def get_item_run(request: Request, item_id: str):
+    try:
+        state_manager = request.app.state.state_manager
+        run_id = state_manager.bindings.get_run_id_for_item(item_id)
+        if not run_id:
+            return {"run_id": None}
+        return {"run_id": run_id}
+    except AttributeError:
+        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -30,6 +30,10 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
   const [itemDetails, setItemDetails] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
 
+  useEffect(() => {
+    setIsEditing(false);
+  }, [selectedArtifact?.name]);
+
   const submitReview = async () => {
     const content = `review_status: ${reviewStatus}\n\n## Comments\n${reviewComments}`;
     await saveContent('review.md', content);
@@ -121,6 +125,20 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
 
         setArtifacts(fetchedArtifacts);
         setLoading(false);
+
+        // --- NEW: Auto-select review.md if in a review stage ---
+        const stage = itemDetails?.stage || '';
+        const isReviewStage = stage.startsWith('REVIEW_') || 
+                             ['ARCHITECTURE', 'DESIGN', 'TESTING'].includes(stage);
+        
+        if (isReviewStage) {
+          const reviewArtifact = fetchedArtifacts.find(a => a.name === 'review.md');
+          if (reviewArtifact) {
+            setSelectedArtifact(reviewArtifact);
+          }
+        }
+        // ------------------------------------------------------
+
       } catch (e: any) {
         console.error('Failed to fetch artifacts', e);
         setError(e.message);
@@ -309,24 +327,34 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                     </button>
                   </div>
                 )}
-                <div className="relative group">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      code: ({node, inline, className, children, ...props}) => {
-                        const match = /language-mermaid/i.test(className || '');
-                        return !inline && match ? (
-                          <Mermaid chart={String(children).replace(/\n/g, ' ')} isCodeBlock={true} />
-                        ) : (
-                          <code className="bg-gray-100 px-1 rounded text-sm font-mono" {...props}>
-                          {children}
-                          </code>
-                        );
-                      }
-                    }}
-                  >
-                    {selectedArtifact.content}
-                  </ReactMarkdown>
+                <div className="relative flex-1 flex flex-col min-h-[500px]">
+                  {isEditing ? (
+                    <textarea
+                      value={selectedArtifact.content}
+                      onChange={(e) => handleContentChange(e.target.value)}
+                      className="flex-1 w-full p-6 font-mono text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none shadow-inner"
+                    />
+                  ) : (
+                    <div className="group flex-1">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          code: ({node, className, children, ...props}: any) => {
+                            const match = /language-mermaid/i.test(className || '');
+                            return !className?.includes('language-mermaid') && match ? (
+                              <Mermaid chart={String(children).replace(/\n/g, ' ')} isCodeBlock={true} />
+                            ) : (
+                              <code className="bg-gray-100 px-1 rounded text-sm font-mono" {...props}>
+                              {children}
+                              </code>
+                            );
+                          }
+                        }}
+                      >
+                        {selectedArtifact.content}
+                      </ReactMarkdown>
+                    </div>
+                  )}
                 </div>
                 {selectedArtifact.type === 'report' && (
                   <div className="mt-6 border-t border-gray-200 pt-4">

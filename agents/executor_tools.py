@@ -1,7 +1,8 @@
 import os
 import json
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
+from hermes_tools import terminal, write_file, patch, read_file
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,6 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
     """
     try:
         if tool_name == "terminal":
-            from antikythera_tools import terminal
             result = terminal(command=args["command"])
             output = result.get('output', 'No output')
             # If the command was a verification command (e.g. 'pytest'), we might be done
@@ -51,17 +51,14 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
             return False, f"TOOL RESULT (terminal): {output}"
         
         elif tool_name == "write_file":
-            from antikythera_tools import write_file
             write_file(path=args["path"], content=args["content"])
             return False, f"SUCCESS: Wrote to {args['path']}"
         
         elif tool_name == "patch":
-            from antikythera_tools import patch
             patch(path=args["path"], old_string=args["old_string"], new_string=args["new_string"])
             return False, f"SUCCESS: Patched {args['path']}"
         
         elif tool_name == "read_file":
-            from antikythera_tools import read_file
             content = read_file(path=args["path"])
             return False, f"FILE CONTENT ({args['path']}):\n{content}"
         

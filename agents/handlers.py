@@ -139,6 +139,17 @@ class StageHandler:
 
     def handle_executing(self, item, state, item_id):
         logger.info("Processing %s at EXECUTING stage", item_id)
+        import os
+        from api.managers.run_manager import RunManager
+        from api.workflow_state_manager import WorkflowStateManager
+        
+        # In a real production environment, we'd get this via dependency injection.
+        # For now, we reconstruct the manager to access the run_manager.
+        # The base_dir is 'automation-ideas' (as configured in api/main.py)
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "automation-ideas"))
+        state_manager = WorkflowStateManager(base_dir)
+        run_manager = state_manager.runs
+
         t_logger = task_logger.get_logger(item_id)
         t_logger.info("orchestrator", "EXECUTION_START", f"Starting implementation for {item_id}")
 
@@ -148,7 +159,13 @@ class StageHandler:
             if execution_mode == 'INLINE':
                 logger.info("Executing INLINE task for %s", item_id)
                 from agents import executor
-                result = executor.executor_idea(item_id)
+                
+                # Get the current run_id for this item
+                run_id = state_manager.bindings.get_run_id_for_item(item_id)
+                if not run_id:
+                    raise RuntimeError(f"No active run found for item {item_id}")
+                
+                result = executor.executor_idea(item_id, run_manager, run_id)
                 item['inline_output'] = result
                 from agents import state as state_module
                 state_module.save_state(state)
@@ -157,7 +174,13 @@ class StageHandler:
                 return
             
             from agents import executor
-            confidence = executor.executor_idea(item_id)
+            
+            # Get the current run_id for this item
+            run_id = state_manager.bindings.get_run_id_for_item(item_id)
+            if not run_id:
+                raise RuntimeError(f"No active run found for item {item_id}")
+
+            confidence = executor.executor_idea(item_id, run_manager, run_id)
             item["confidence_score"] = confidence
             logger.info("Executor completed for %s with confidence %d", item_id, confidence)
             t_logger.info("executor", "EXECUTION_COMPLETE", f"Implementation completed with confidence {confidence}", {"confidence": confidence})

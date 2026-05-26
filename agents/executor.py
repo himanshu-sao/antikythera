@@ -6,24 +6,34 @@ from agents.llm_client import LLMClient
 from agents.executor_planner import ExecutorPlanner
 from agents.executor_diagnostics import ExecutorDiagnostics
 from agents.executor_tools import get_workspace_files, get_tools_description, execute_tool
+from api.managers.run_manager import RunManager
 
 logger = logging.getLogger(__name__)
 
 class ExecutorAgent:
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str, run_manager: RunManager, run_id: str):
         self.llm = LLMClient(config_path=config_path)
         self.planner = ExecutorPlanner(self.llm)
         self.diagnostics = ExecutorDiagnostics(self.llm)
+        self.run_manager = run_manager
+        self.run_id = run_id
         self.checklist: List[Dict[str, Any]] = []
         self.implementation_log: List[str] = []
         self.retry_counts: Dict[str, int] = {}
         self.MAX_RETRIES = 3
 
+    def _log_progress(self, message: str):
+        self.run_manager.log_event(self.run_id, "AGENT_PROGRESS", {"message": message}, actor="executor")
+        logger.info(f"[{self.run_id}] {message}")
+
     def execute(self, item_id: str, spec_content: str, arch_content: str) -> bool:
         logger.info(f"Executor Agent starting work on {item_id}")
         try:
+            self._log_progress("Starting analysis and planning phase...")
             self._analyze_phase(item_id, spec_content, arch_content)
+            self._log_progress("Planning complete. Starting execution loop...")
             self._execution_loop(item_id)
+            self._log_progress("Execution loop finished. Finalizing...")
             self._finalize_phase(item_id)
             return True
         except Exception as e:
@@ -33,6 +43,7 @@ class ExecutorAgent:
 
     def _analyze_phase(self, item_id: str, spec_content: str, arch_content: str):
         logger.info(f"[{item_id}] Phase: ANALYZING & PLANNING")
+        self._log_progress("Analyzing requirements and generating checklist...")
         self.checklist = self.planner.create_checklist(spec_content, arch_content)
         logger.info(f"[{item_id}] Generated checklist with {len(self.checklist)} tasks.")
 
@@ -43,6 +54,7 @@ class ExecutorAgent:
                 continue
             
             logger.info(f"[{item_id}] Executing task: {task['task']}")
+            self._log_progress(f"Executing task: {task['task']}")
             success = self._perform_task_multi_turn(task, item_id)
             
             if success:
@@ -63,6 +75,7 @@ class ExecutorAgent:
         while attempts < max_attempts_per_task:
             attempts += 1
             logger.info(f"[{item_id}] Task attempt {attempts}/{max_attempts_per_task}")
+            self._log_progress(f"Task attempt {attempts}/{max_attempts_per_task} for: {task['task']}")
 
             workspace_files = get_workspace_files()
             context = f"Current Workspace Files:\n{chr(10).join(workspace_files)}\n\n{task_context}"
@@ -82,6 +95,7 @@ class ExecutorAgent:
                 args = action.get("args", {})
 
                 logger.info(f"[{item_id}] Decided: {tool_name}({args})")
+                self._log_progress(f"Decided to use tool: {tool_name}")
                 
                 # Use the extracted tool execution logic
                 is_done, result_text = execute_tool(tool_name, args, item_id)
@@ -110,6 +124,7 @@ class ExecutorAgent:
 
     def _finalize_phase(self, item_id: str):
         logger.info(f"[{item_id}] Phase: FINALIZING")
+        self._log_progress("Finalizing implementation and generating report...")
         report_path = os.path.join(os.getcwd(), "automation-ideas", "requirements", item_id, "execution_report.md")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         with open(report_path, "w") as f:
@@ -120,18 +135,19 @@ class ExecutorAgent:
 
     def _report_failure(self, item_id: str, error_message: str):
         logger.error(f"[{item_id}] Reporting FAILURE: {error_message}")
+        self._log_progress(f"FAILURE: {error_message}")
         report_path = os.path.join(os.getcwd(), "automation-ideas", "requirements", item_id, "execution_report.md")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         with open(report_path, "w") as f:
             f.write(f"# Execution Report for {item_id}\n\n## STATUS: FAILURE\n\n### Error Details\n{error_message}\n")
 
-def executor_idea(item_id: str) -> int:
+def executor_idea(item_id: str, run_manager: RunManager, run_id: str) -> int:
     import yaml
     config_path = os.path.join(os.getcwd(), "config.yaml")
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
     
-    executor = ExecutorAgent(config_path=config_path)
+    executor = ExecutorAgent(config_path=config_path, run_manager=run_manager, run_id=run_id)
     req_dir = os.path.join(os.getcwd(), "automation-ideas", "requirements", item_id)
     spec_path = os.path.join(req_dir, "spec.md")
     arch_path = os.path.join(req_dir, "architecture.md")
@@ -143,6 +159,6 @@ def executor_idea(item_id: str) -> int:
         spec_content = f.read()
     with open(arch_path, "r") as f:
         arch_content = f.read()
-    
+
     success = executor.execute(item_id, spec_content, arch_content)
     return 100 if success else 0

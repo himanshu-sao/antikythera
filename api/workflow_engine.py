@@ -123,7 +123,7 @@ class WorkflowEngine:
                         # ACTUALLY MOVE THE ITEM ON THE BOARD
                         if item_id:
                             from api.state_manager import StateManager
-                            main_state_mgr = StateManager("./automation-ideas/pipeline-state.json")
+                            main_state_mgr = StateManager(self.state_mgr.base_dir)
                             main_state_mgr.update_item(item_id, {"stage": step["board_mapping"]["stage"]})
 
                     

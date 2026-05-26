@@ -20,7 +20,7 @@ class KanbanStateManager(BaseJSONManager):
             except Exception:
                 return {"items": {}}
 
-    def create_item(self, item_id: str, title: str, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
+    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
         with self.lock:
             state = self.load_state()
             normalized_id = item_id.upper()
@@ -28,6 +28,8 @@ class KanbanStateManager(BaseJSONManager):
                 return False
             state["items"][normalized_id] = {
                 "title": title,
+                "goal": goal,
+                "description": description,
                 "stage": "INTAKE",
                 "priority": "medium",
                 "source_type": source_type,

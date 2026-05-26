@@ -6,6 +6,7 @@ from api.constants import VALID_STAGES, VALID_PRIORITIES
 class CreateItemRequest(BaseModel):
     item_id: str = Field(..., min_length=1, max_length=50, pattern=r'^[A-Za-z0-9_-]+$')
     title: str = Field(..., min_length=1, max_length=200)
+    goal: Optional[str] = Field(default=None, max_length=2000)
     description: Optional[str] = Field(default=None, max_length=2000)
     priority: Optional[str] = Field(default="medium")
     source_type: Optional[str] = Field(default=None)
@@ -71,6 +72,7 @@ class UpdateItemRequest(BaseModel):
     source_type: Optional[str] = Field(default=None)
     source_value: Optional[str] = Field(default=None)
     due_date: Optional[str] = Field(default=None)
+    blocked_reason: Optional[str] = Field(default=None)
     
     @field_validator('due_date')
     @classmethod

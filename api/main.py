@@ -7,8 +7,9 @@ from api.integration_hub import IntegrationHub
 from api.secret_vault import SecretVault
 from api.workflow_router import router as workflow_router
 from api.brain_api import router as brain_router
-# Assuming other routers exist, if not I'll add placeholders or just the ones I've built
+from api.board_router import router as board_router
 
+# Assuming other routers exist, if not I'll add placeholders or just the ones I've built
 app = FastAPI(title="Hermes Brain API")
 
 # Enable CORS for frontend development
@@ -21,7 +22,7 @@ app.add_middleware(
 )
 
 # Setup Directories and Services
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "automation-ideas"))
 vault = SecretVault(BASE_DIR)
 hub = IntegrationHub(BASE_DIR, vault)
 state_manager = WorkflowStateManager(BASE_DIR)
@@ -34,6 +35,7 @@ app.state.vault = vault
 # Register Routers
 app.include_router(workflow_router)
 app.include_router(brain_router)
+app.include_router(board_router)
 
 @app.get("/")
 async def root():

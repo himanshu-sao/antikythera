@@ -13,6 +13,7 @@ class WorkflowStateManager:
     Maintains backward compatibility with existing imports.
     """
     def __init__(self, base_dir: str):
+        self.base_dir = base_dir
         self.templates = TemplateManager(base_dir)
         self.runs = RunManager(base_dir)
         self.bindings = BindingManager(base_dir)
@@ -38,8 +39,8 @@ class WorkflowStateManager:
     def load_state(self) -> Dict[str, Any]:
         return self.kanban.load_state()
 
-    def create_item(self, item_id: str, title: str, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
-        success = self.kanban.create_item(item_id, title, source_type, source_value, due_date)
+    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
+        success = self.kanban.create_item(item_id, title, goal, description, source_type, source_value, due_date)
         if success:
             self.notify_observer("KANBAN_TRANSITION", {"item_id": item_id, "body": f"Created item: {title}"})
         return success

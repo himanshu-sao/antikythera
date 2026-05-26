@@ -32,13 +32,14 @@ class StateManager:
                 json.dump(state, f, indent=2)
             os.replace(tmp_path, self.state_path)
 
-    def create_item(self, item_id: str, title: str, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None, description: Optional[str] = None) -> bool:
+    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
         state = self.load_state()
         normalized_id = item_id.upper()
         if normalized_id in state["items"]:
             return False
         state["items"][normalized_id] = {
             "title": title,
+            "goal": goal,
             "description": description,
             "stage": "INTAKE",
             "priority": "medium",

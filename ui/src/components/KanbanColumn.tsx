@@ -9,6 +9,8 @@ interface KanbanCardProps extends KanbanCardData {
   onEditClick: (id: string) => void;
   onDeleteClick: (id: string) => void;
   isDragOverlay?: boolean;
+  latestStatus?: string;
+  blocked_reason?: string;
 }
 
 export function KanbanCardContent({
@@ -23,9 +25,10 @@ export function KanbanCardContent({
   onEditClick,
   onDeleteClick,
   isDragOverlay = false,
+  latestStatus,
+  blocked_reason,
 }: KanbanCardProps) {
   
-  // Map priority/status to colors based on mockup
   const getStatusColor = (val: string) => {
     const v = val?.toLowerCase();
     if (v === 'high' || v === 'needs approval' || v === 'tests failed') return 'bg-[#f8ead8] text-[#a45a12]';
@@ -34,14 +37,17 @@ export function KanbanCardContent({
     return 'bg-gray-100 text-gray-600';
   };
 
+  const isError = !!blocked_reason;
+
   return (
     <div
       onClick={() => onCardClick(id)}
-      className={`group relative bg-white p-4 rounded-xl shadow-sm cursor-grab hover:shadow-md transition-all border border-[#d8d3ca] mb-3 touch-none ${
+      className={`group relative bg-white p-4 rounded-xl shadow-sm cursor-grab hover:shadow-md transition-all border ${
+        isError ? 'border-red-200 bg-red-50/30' : 'border-[#d8d3ca]'
+      } mb-3 touch-none ${
         isDragOverlay ? 'shadow-xl ring-2 ring-[#0b6b72] cursor-grabbing' : ''
       }`}
     >
-      {/* Action Buttons - hidden by default, show on hover for clean 'Product' look */}
       <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button
           onClick={(e) => {
@@ -71,25 +77,49 @@ export function KanbanCardContent({
         </button>
       </div>
 
-      {/* Top Tags */}
+      {isError && (
+        <div className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 animate-pulse mb-2 w-fit max-w-[calc(100%-2.5rem)]">
+          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span className="truncate">ERROR: {blocked_reason}</span>
+        </div>
+      )}
+
+      {stage.startsWith('REVIEW_') && !isError && (
+        <div className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 animate-pulse mb-2 w-fit max-w-[calc(100%-2.5rem)]">
+          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
+          <span className="truncate">ACTION REQUIRED</span>
+        </div>
+      )}
+
+      {stage === 'EXECUTING' && !isError && (
+        <div className="flex items-center gap-1 text-[9px] font-bold px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-700 border border-cyan-200 animate-pulse mb-2 w-fit max-w-[calc(100%-2.5rem)]">
+          <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+          </svg>
+          <span className="truncate">{latestStatus || 'AGENT WORKING...'}</span>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-1.5 mb-3">
-        {/* Workflow Tag - Always Teal */}
         <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#d5e7e6] text-[#0b6b72] uppercase tracking-tight">
-          {id.split('-')[0]} {/* Simplified workflow name from ID */}
+          {id.split('-')[0]}
         </span>
-        {/* Status/Priority Tag */}
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-tight ${getStatusColor(priority)}`}>
           {priority}
         </span>
       </div>
 
-      {/* Content */}
       <h3 className="font-bold text-[#231f19] text-sm mb-1 leading-snug">{title}</h3>
       <p className="text-xs text-[#6f6a63] leading-relaxed">
         {source_value || "No description provided."}
       </p>
 
-      {/* Subtle Footer */}
       <div className="mt-3 pt-2 border-t border-gray-50 flex justify-between items-center text-[10px] text-gray-400">
         <div className="flex items-center gap-1">
           <span>{id}</span>
@@ -158,9 +188,44 @@ interface KanbanColumnProps {
   onCardClick: (id: string) => void;
   onEditClick: (id: string) => void;
   onDeleteClick: (id: string) => void;
+  onFetchLatestStatus?: (id: string) => Promise<string | undefined>;
 }
 
-export function KanbanColumn({ id, items, onCardClick, onEditClick, onDeleteClick }: KanbanColumnProps) {
+function KanbanCardWithStatus({
+  item,
+  onCardClick,
+  onEditClick,
+  onDeleteClick,
+  onFetchLatestStatus
+}: {
+  item: KanbanCardData;
+  onCardClick: (id: string) => void;
+  onEditClick: (id: string) => void;
+  onDeleteClick: (id: string) => void;
+  onFetchLatestStatus?: (id: string) => Promise<string | undefined>;
+}) {
+  const [status, setStatus] = React.useState<string | undefined>();
+
+  React.useEffect(() => {
+    if (onFetchLatestStatus && item.stage === 'EXECUTING') {
+      onFetchLatestStatus(item.id).then(setStatus);
+    } else {
+      setStatus(undefined);
+    }
+  }, [item.id, item.stage, onFetchLatestStatus]);
+
+  return (
+    <SortableCard
+      {...item}
+      onCardClick={onCardClick}
+      onEditClick={onEditClick}
+      onDeleteClick={onDeleteClick}
+      latestStatus={status}
+    />
+  );
+}
+
+export function KanbanColumn({ id, items, onCardClick, onEditClick, onDeleteClick, onFetchLatestStatus }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id });
 
   const stageTitles: Record<string, string> = {
@@ -202,12 +267,13 @@ export function KanbanColumn({ id, items, onCardClick, onEditClick, onDeleteClic
             {items
               .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
               .map((item) => (
-                <SortableCard
+                <KanbanCardWithStatus
                   key={item.id}
-                  {...item}
+                  item={item}
                   onCardClick={onCardClick}
                   onEditClick={onEditClick}
                   onDeleteClick={onDeleteClick}
+                  onFetchLatestStatus={onFetchLatestStatus}
                 />
               ))}
           </SortableContext>

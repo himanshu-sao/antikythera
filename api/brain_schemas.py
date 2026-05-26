@@ -5,7 +5,7 @@ import uuid
 
 class ObserverEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    event_type: Literal["KANBAN_TRANSITION", "USER_INTERVENTION", "TOOL_ERROR", "TASK_SUCCESS", "ARTIFACT_COMMENT"] = Field(...)
+    event_type: Literal["RUN_STARTED", "STEP_START", "STEP_END", "RUN_COMPLETED", "KANBAN_TRANSITION", "USER_INTERVENTION", "TOOL_ERROR", "TASK_SUCCESS", "ARTIFACT_COMMENT", "ERROR"] = Field(...)
     event_data: Dict[str, Any] = Field(..., description="Detailed data related to the event (e.g., task_id, user_comment, error_msg)")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
