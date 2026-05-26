@@ -3,9 +3,9 @@
 This document defines the REST API contract between the Antikythera Kanban UI and the Backend.
 
 ## 🌐 Base Configuration
-- **Base URL**: `http://localhost:8000` (or as defined by `VITE_API_URL`)
-- **Content Type**: `application/json`
-- **ID Normalization**: All `item_id` parameters are coerced to uppercase by the backend.
+|- **Base URL**: `http://localhost:8006` (or as defined by `VITE_API_URL`)
+|- **Content Type**: `application/json`
+|- **ID Normalization**: All `item_id` parameters are coerced to uppercase by the backend.
 
 ---
 
@@ -39,43 +39,44 @@ This document defines the REST API contract between the Antikythera Kanban UI an
 
 ### Create Item
 `POST /api/items`
-- **Description**: Initializes a new automation idea in the `INTAKE` stage.
-- **Request Body**: `CreateItemRequest`
+|- **Description**: Initializes a new automation idea in the `INTAKE` stage.
+|- **Request Body**: `CreateItemRequest`
   ```json
   {
     "item_id": "string (required, 1-50 chars, alphanumeric)",
     "title": "string (required, 1-200 chars)",
-    "source_type": "url | directory | null",
+    "source_type": "url | directory | text | null",
     "source_value": "string | null",
     "due_date": "YYYY-MM-DD | null"
   }
   ```
-- **Success Response**: `200 OK`
+|- **Success Response**: `200 OK`
   ```json
   { "status": "success", "message": "Item ID-XXX created" }
   ```
-- **Error Response**: `400 Bad Request` if `item_id` already exists or validation fails.
+|- **Error Response**: `400 Bad Request` if `item_id` already exists or validation fails.
 
 ### Update Item
 `PATCH /api/item/{item_id}`
-- **Description**: Updates metadata for a specific item.
-- **Request Body**: `UpdateItemRequest` (all fields optional)
+|- **Description**: Updates metadata for a specific item.
+|- **Request Body**: `UpdateItemRequest` (all fields optional)
   ```json
   {
     "title": "string",
     "description": "string",
     "priority": "low | medium | high | critical",
     "confidence_score": "number (0-100)",
-    "source_type": "url | directory",
+    "source_type": "url | directory | text",
     "source_value": "string",
-    "due_date": "YYYY-MM-DD"
+    "due_date": "YYYY-MM-DD",
+    "blocked_reason": "string"
   }
   ```
-- **Success Response**: `200 OK`
+|- **Success Response**: `200 OK`
   ```json
   { "status": "success", "message": "Item ID-XXX updated" }
   ```
-- **Error Response**: `404 Not Found` if item does not exist.
+|- **Error Response**: `404 Not Found` if item does not exist.
 
 ### Delete Item
 `DELETE /api/item/{item_id}`
