@@ -8,6 +8,7 @@ from api.secret_vault import SecretVault
 from api.workflow_router import router as workflow_router
 from api.brain_api import router as brain_router
 from api.board_router import router as board_router
+from api.integrations_router import router as integrations_router
 
 # Assuming other routers exist, if not I'll add placeholders or just the ones I've built
 app = FastAPI(title="Hermes Brain API")
@@ -36,6 +37,7 @@ app.state.vault = vault
 app.include_router(workflow_router)
 app.include_router(brain_router)
 app.include_router(board_router)
+app.include_router(integrations_router)
 
 @app.get("/")
 async def root():
