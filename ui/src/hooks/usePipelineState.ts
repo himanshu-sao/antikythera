@@ -49,7 +49,18 @@ export function usePipelineState() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error('Failed to update item');
+      if (!res.ok) {
+        let errorMessage = 'Failed to update item';
+        try {
+          const errorData = await res.json();
+          if (Array.isArray(errorData.detail)) {
+            errorMessage = errorData.detail.map((d: any) => d.msg).join(', ');
+          } else if (errorData.detail) {
+            errorMessage = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
+          }
+        } catch (e) {}
+        throw new Error(errorMessage);
+      }
       await fetchState();
     } catch (e: any) { 
       toast.error(e.message); 
@@ -59,7 +70,18 @@ export function usePipelineState() {
   const handleDeleteItem = async (itemId: string) => {
     try {
       const res = await fetch(`${apiUrl}/api/item/${itemId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete item');
+      if (!res.ok) {
+        let errorMessage = 'Failed to delete item';
+        try {
+          const errorData = await res.json();
+          if (Array.isArray(errorData.detail)) {
+            errorMessage = errorData.detail.map((d: any) => d.msg).join(', ');
+          } else if (errorData.detail) {
+            errorMessage = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
+          }
+        } catch (e) {}
+        throw new Error(errorMessage);
+      }
       await fetchState();
       toast.success("Item deleted");
     } catch (e: any) { 
@@ -68,17 +90,35 @@ export function usePipelineState() {
   };
 
   const handleCreateItem = async (itemData: any) => {
-    const itemId = itemData.id.toUpperCase();
     try {
       const res = await fetch(`${apiUrl}/api/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          item_id: itemId,
-          ...itemData
+          item_id: itemData.id.toUpperCase(),
+          title: itemData.title,
+          goal: itemData.goal,
+          description: itemData.description,
+          priority: itemData.priority,
+          source_type: itemData.source_type,
+          source_value: itemData.source_value,
+          due_date: itemData.due_date
         }),
       });
-      if (!res.ok) throw new Error('Failed to create item');
+
+      if (!res.ok) {
+        let errorMessage = 'Failed to create item';
+        try {
+          const errorData = await res.json();
+          if (Array.isArray(errorData.detail)) {
+            errorMessage = errorData.detail.map((d: any) => d.msg).join(', ');
+          } else if (errorData.detail) {
+            errorMessage = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
+          }
+        } catch (e) {}
+        throw new Error(errorMessage);
+      }
+
       await fetchState();
       toast.success("New idea created");
       return true;
@@ -95,11 +135,23 @@ export function usePipelineState() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item_id: itemId, new_stage: targetStage, order: targetOrder }),
       });
+      if (!res.ok) {
+        let errorMessage = 'Failed to move item';
+        try {
+          const errorData = await res.json();
+          if (Array.isArray(errorData.detail)) {
+            errorMessage = errorData.detail.map((d: any) => d.msg).join(', ');
+          } else if (errorData.detail) {
+            errorMessage = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
+          }
+        } catch (e) {}
+        throw new Error(errorMessage);
+      }
       if (res.ok) {
         await fetchState();
       }
-    } catch (e) { 
-      console.error("Failed to move item", e); 
+    } catch (e: any) { 
+      toast.error(e.message);
     }
   };
 

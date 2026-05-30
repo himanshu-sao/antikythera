@@ -70,8 +70,17 @@ export function IntegrationsManager() {
       const res = await fetch(`${apiUrl}/api/integrations/${name}/tools`);
       if (!res.ok) throw new Error('Failed to fetch tools');
       const data = await res.json();
-      const tools = data.data?.result?.tools || [];
+      
+      const tools = 
+        data.data?.result?.result?.tools || 
+        data.data?.result?.tools || 
+        data.data?.tools || 
+        [];
+        
       setAvailableTools(tools);
+      if (tools.length === 0) {
+        toast.error("No tools found for this integration.");
+      }
     } catch (e: any) {
       toast.error(e.message);
     } finally {
