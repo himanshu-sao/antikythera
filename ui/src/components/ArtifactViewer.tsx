@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Clock, CheckCircle2, AlertCircle, Info, FileText, CheckSquare } from 'lucide-react';
@@ -29,6 +29,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [itemDetails, setItemDetails] = useState<any>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const [activeTab, setActiveTab] = useState<'technical' | 'review'>('technical');
 
   useEffect(() => {
     setIsEditing(false);
@@ -77,76 +78,78 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
     fetchItemDetails();
   }, [itemId]);
 
-  useEffect(() => {
-    const fetchArtifacts = async () => {
-      try {
-        if (itemDetails?.execution_policy?.mode === 'INLINE') {
-          setArtifacts([{ name: 'Result', content: itemDetails.inline_output || '', type: 'review' }]);
-          setLoading(false);
-          return;
-        }
+  const getRelevantArtifacts = (stage: string) => {
+    const isReviewStage = stage.startsWith('REVIEW_') || 
+                          ['ARCHITECTURE', 'DESIGN', 'TESTING'].includes(stage);
+    const base = isReviewStage ? ['review.md'] : [];
+    if (stage === 'REVIEW_SPEC') return ['spec.md', ...base];
+    if (stage === 'ARCHITECTURE') return ['spec.md', 'architecture.md', ...base];
+    if (stage === 'DESIGN') return ['architecture.md', 'design.md', ...base];
+    if (stage === 'TESTING') return ['architecture.md', 'tests.md', ...base];
+    if (isReviewStage) return base;
+    if (stage === 'DONE') return ['execution_report.md', 'deliverables.md'];
+    return ['spec.md', 'architecture.md', 'tests.md'];
+  };
 
-        const getRelevantArtifacts = (stage: string) => {
-          const isReviewStage = stage.startsWith('REVIEW_') || 
-                                ['ARCHITECTURE', 'DESIGN', 'TESTING'].includes(stage);
-          const base = isReviewStage ? ['review.md'] : [];
-          if (stage === 'REVIEW_SPEC') return ['spec.md', ...base];
-          if (stage === 'ARCHITECTURE') return ['spec.md', 'architecture.md', ...base];
-          if (stage === 'DESIGN') return ['architecture.md', 'design.md', ...base];
-          if (stage === 'TESTING') return ['architecture.md', 'tests.md', ...base];
-          if (isReviewStage) return base;
-          if (stage === 'DONE') return ['execution_report.md', 'deliverables.md'];
-          return ['spec.md', 'architecture.md', 'tests.md'];
-        };
-
-        const artifactNames = getRelevantArtifacts(itemDetails?.stage || 'DEFAULT');
-        const fetchedArtifacts: Artifact[] = [];
-        let hasError = false;
-
-        for (const name of artifactNames) {
-          try {
-            const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}`);
-            if (res.ok) {
-              const content = await res.text();
-              let type: any = name.replace('.md', '');
-              if (name === 'execution_report.md') type = 'report';
-              if (name === 'deliverables.md') type = 'deliverable';
-              fetchedArtifacts.push({ name, content, type });
-            }
-          } catch (e: any) {
-            console.error(`Failed to fetch artifact ${name}`, e);
-            hasError = true;
-          }
-        }
-        
-        if (hasError && fetchedArtifacts.length === 0) {
-          throw new Error('No artifacts found');
-        }
-
-        setArtifacts(fetchedArtifacts);
+  const fetchArtifacts = useCallback(async () => {
+    try {
+      if (itemDetails?.execution_policy?.mode === 'INLINE') {
+        const inlineArtifact = [{ name: 'Result', content: itemDetails.inline_output || '', type: 'review' }];
+        setArtifacts(inlineArtifact);
         setLoading(false);
-
-        // --- NEW: Auto-select review.md if in a review stage ---
-        const stage = itemDetails?.stage || '';
-        const isReviewStage = stage.startsWith('REVIEW_') || 
-                             ['ARCHITECTURE', 'DESIGN', 'TESTING'].includes(stage);
-        
-        if (isReviewStage) {
-          const reviewArtifact = fetchedArtifacts.find(a => a.name === 'review.md');
-          if (reviewArtifact) {
-            setSelectedArtifact(reviewArtifact);
-          }
-        }
-        // ------------------------------------------------------
-
-      } catch (e: any) {
-        console.error('Failed to fetch artifacts', e);
-        setError(e.message);
-        setLoading(false);
+        return inlineArtifact;
       }
-    };
-    fetchArtifacts();
+
+      const artifactNames = getRelevantArtifacts(itemDetails?.stage || 'DEFAULT');
+      const fetchedArtifacts: Artifact[] = [];
+      let hasError = false;
+
+      for (const name of artifactNames) {
+        try {
+          const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}`);
+          if (res.ok) {
+            const content = await res.text();
+            let type: any = name.replace('.md', '');
+            if (name === 'execution_report.md') type = 'report';
+            if (name === 'deliverables.md') type = 'deliverable';
+            fetchedArtifacts.push({ name, content, type });
+          }
+        } catch (e: any) {
+          console.error(`Failed to fetch artifact ${name}`, e);
+          hasError = true;
+        }
+      }
+      
+      if (hasError && fetchedArtifacts.length === 0) {
+        throw new Error('No artifacts found');
+      }
+
+      setArtifacts(fetchedArtifacts);
+      setLoading(false);
+
+      const stage = itemDetails?.stage || '';
+      const isReviewStage = stage.startsWith('REVIEW_') || 
+                           ['ARCHITECTURE', 'DESIGN', 'TESTING'].includes(stage);
+      
+      if (isReviewStage) {
+        const reviewArtifact = fetchedArtifacts.find(a => a.name === 'review.md');
+        if (reviewArtifact) {
+          setSelectedArtifact(reviewArtifact);
+        }
+      }
+
+      return fetchedArtifacts;
+    } catch (e: any) {
+      console.error('Failed to fetch artifacts', e);
+      setError(e.message);
+      setLoading(false);
+      return [];
+    }
   }, [itemDetails, itemId]);
+
+  useEffect(() => {
+    fetchArtifacts();
+  }, [fetchArtifacts]);
 
   const saveContent = async (name: string, content: string) => {
     setIsSaving(true);
@@ -208,7 +211,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
   if (error) {
     return (
       <div className="flex items-center justify-center h-full">
-      <div className="text-red-500">Error: {error}</div>
+        <div className="text-red-500">Error: {error}</div>
       </div>
     );
   }
@@ -252,29 +255,97 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
             </div>
           )}
           <h3 className="font-semibold text-gray-700 mb-3">Artifacts</h3>
+          
+          <div className="flex p-1 bg-gray-200 rounded-lg mb-4">
+            <button
+              onClick={() => setActiveTab('technical')}
+              className={`flex-1 py-1 text-xs font-medium rounded-md transition-all ${
+                activeTab === 'technical' 
+                  ? 'bg-white text-gray-900 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Technical
+            </button>
+            <button
+              onClick={() => setActiveTab('review')}
+              className={`flex-1 py-1 text-xs font-medium rounded-md transition-all ${
+                activeTab === 'review' 
+                  ? 'bg-white text-gray-900 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Review
+            </button>
+          </div>
+
           <div className="space-y-2">
-            {artifacts.map((artifact) => (
-              <button
-                key={artifact.name}
-                onClick={() => setSelectedArtifact(artifact)}
-                className={`w-full text-left p-3 rounded-lg transition-colors ${
-                selectedArtifact?.name === artifact.name
-                  ? 'bg-blue-100 text-blue-900'
-                  : 'hover:bg-gray-100 text-gray-700'
-                }`}
-              >
-                <div className="font-medium text-sm">{artifact.name}</div>
-                <div className="text-xs text-gray-500 capitalize">{artifact.type}</div>
-              </button>
-            ))}
+            {activeTab === 'technical' ? (
+              <>
+                {artifacts
+                  .filter(a => a.name !== 'review.md')
+                  .map((artifact) => (
+                    <button
+                      key={artifact.name}
+                      onClick={() => setSelectedArtifact(artifact)}
+                      className={`w-full text-left p-3 rounded-lg transition-colors ${
+                        selectedArtifact?.name === artifact.name
+                          ? 'bg-blue-100 text-blue-900'
+                          : 'hover:bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      <div className="font-medium text-sm">{artifact.name}</div>
+                      <div className="text-xs text-gray-500 capitalize">{artifact.type}</div>
+                    </button>
+                  ))}
+                {needsReview && (
+                  <button
+                    onClick={() => {
+                      const reviewArtifact = artifacts.find(a => a.name === 'review.md');
+                      if (reviewArtifact) {
+                        setSelectedArtifact(reviewArtifact);
+                      } else {
+                        setSelectedArtifact({ name: 'review.md', content: '', type: 'review' });
+                      }
+                    }}
+                    className="w-full text-left p-3 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors mt-4"
+                  >
+                    <div className="font-bold text-sm flex items-center gap-2">
+                      <span>✍️</span> Add Your Review
+                    </div>
+                    <div className="text-[10px] opacity-80 italic">
+                      Open review.md to approve or provide feedback
+                    </div>
+                  </button>
+                )}
+              </>
+            ) : (
+              artifacts
+                .filter(a => a.name === 'review.md')
+                .map((artifact) => (
+                  <button
+                    key={artifact.name}
+                    onClick={() => setSelectedArtifact(artifact)}
+                    className={`w-full text-left p-3 rounded-lg transition-colors ${
+                      selectedArtifact?.name === artifact.name
+                        ? 'bg-indigo-100 text-indigo-900'
+                        : 'hover:bg-indigo-50 text-indigo-700'
+                    }`}
+                  >
+                    <div className="font-bold text-sm flex items-center gap-2">
+                      <span>✍️</span> {artifact.name}
+                    </div>
+                    <div className="text-xs text-indigo-500 capitalize">{artifact.type}</div>
+                  </button>
+                ))
+            )}
           </div>
         </div>
         <Timeline itemId={itemId} />
       </div>
-
-      <div className="flex-1 overflow-y-auto p-6 bg-white">
-        {selectedArtifact ? (
-          <div>
+      {selectedArtifact ? (
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-gray-900">{selectedArtifact.name}</h2>
               <div className="flex items-center gap-3">
@@ -283,17 +354,17 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                     if (window.confirm(`Promote ${selectedArtifact.name} to a reusable pattern? This will train the system.`)) {
                       try {
                         const res = await fetch(`${apiUrl}/api/item/${itemId}/promote-pattern?artifact_name=${selectedArtifact.name}`, {
-                        method: 'POST'
-                      });
-                      if (!res.ok) throw new Error('Promotion failed');
-                      alert('Pattern promoted successfully!');
-                    } catch (err) {
-                      console.error(err);
-                      alert('Error promoting pattern.');
+                          method: 'POST'
+                        });
+                        if (!res.ok) throw new Error('Promotion failed');
+                        alert('Pattern promoted successfully!');
+                      } catch (err) {
+                        console.error(err);
+                        alert('Error promoting pattern.');
+                      }
                     }
-                  }
-                }}
-                className="px-3 py-1 text-xs font-medium text-white bg-purple-600 rounded hover:bg-purple-700 transition-colors"
+                  }}
+                  className="px-3 py-1 text-xs font-medium text-white bg-purple-600 rounded hover:bg-purple-700 transition-colors"
                 >
                   Promote to Pattern
                 </button>
@@ -367,12 +438,12 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
               </div>
             )}
           </div>
-        ) : (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-gray-500">Curently no artifact selected. Please select one from the left sidebar.</div>
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center h-full">
+          <div className="text-gray-500">Currently no artifact selected. Please select one from the left sidebar.</div>
+        </div>
+      )}
     </div>
   );
 }
