@@ -4,8 +4,9 @@ export const ReviewForm = ({ reviewStatus, setReviewStatus, reviewComments, setR
     <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-4">
       <h3 className="font-bold text-gray-900">Submit Review</h3>
       <div>
-        <label className="block text-sm font-medium text-gray-700">Status</label>
+        <label htmlFor="review-status" className="block text-sm font-medium text-gray-700">Status</label>
         <select 
+          id="review-status"
           className="mt-1 block w-full border border-gray-300 rounded-md p-2"
           value={reviewStatus}
           onChange={(e: any) => setReviewStatus(e.target.value)}
@@ -15,8 +16,9 @@ export const ReviewForm = ({ reviewStatus, setReviewStatus, reviewComments, setR
         </select>
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700">Comments</label>
+        <label htmlFor="review-comments" className="block text-sm font-medium text-gray-700">Comments</label>
         <textarea 
+          id="review-comments"
           className="mt-1 block w-full border border-gray-300 rounded-md p-2 h-32"
           value={reviewComments}
           onChange={(e: any) => setReviewComments(e.target.value)}
