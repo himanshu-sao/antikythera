@@ -43,7 +43,7 @@ describe('App Real-time Polling', () => {
     // Flush initial useEffect and its async fetch
     await vi.advanceTimersByTimeAsync(0);
 
-    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8000/api/state');
+    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8006/api/state');
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     // Advance time by 10 seconds and resolve async callbacks

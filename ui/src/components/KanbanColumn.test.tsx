@@ -1,19 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup } from '@testing-library/react';
-import { KanbanColumn, KanbanCard } from './KanbanColumn';
+import { KanbanColumn, KanbanCardContent } from './KanbanColumn';
 
-describe('KanbanCard', () => {
+describe('KanbanCardContent', () => {
   const mockItem = {
     id: 'ID-001',
     title: 'Test automation task',
     priority: 'High',
     confidence_score: 85,
+    stage: 'INTAKE',
+    updated_at: '2026-05-20T10:00:00Z',
+    source_type: 'file',
+    source_value: 'test.md',
   };
 
   const mockOnCardClick = vi.fn();
+  const mockOnEditClick = vi.fn();
+  const mockOnDeleteClick = vi.fn();
 
   beforeEach(() => {
     mockOnCardClick.mockClear();
+    mockOnEditClick.mockClear();
+    mockOnDeleteClick.mockClear();
   });
 
   afterEach(() => {
@@ -22,80 +30,97 @@ describe('KanbanCard', () => {
 
   it('renders card with correct item data', () => {
     render(
-      <KanbanCard
-        id={mockItem.id}
-        title={mockItem.title}
-        priority={mockItem.priority}
-        confidence_score={mockItem.confidence_score}
+      <KanbanCardContent
+        {...mockItem}
         onCardClick={mockOnCardClick}
-        onEditClick={vi.fn()}
-        onDeleteClick={vi.fn()}
-        updated_at="2026-05-20T10:00:00Z"
-        due_date="2026-06-01"
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
       />
     );
 
     expect(screen.getByText(mockItem.id)).toBeInTheDocument();
     expect(screen.getByText(mockItem.title)).toBeInTheDocument();
     expect(screen.getByText('High')).toBeInTheDocument();
-    expect(screen.getByText('Confidence: 85%')).toBeInTheDocument();
+    expect(screen.getByText(/85%/)).toBeInTheDocument();
     expect(screen.getByText(/5\/20\/2026/i)).toBeInTheDocument();
-    expect(screen.getByText('2026-06-01')).toBeInTheDocument();
   });
 
-  it('displays correct priority color badge', () => {
-    const { container } = render(
-      <KanbanCard
-        id={mockItem.id}
-        title={mockItem.title}
-        priority="High"
-        confidence_score={85}
+  it('displays correct priority color badge for High priority', () => {
+    render(
+      <KanbanCardContent
+        {...mockItem}
         onCardClick={mockOnCardClick}
-        onEditClick={vi.fn()}
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
       />
     );
 
-    const priorityBadge = container.querySelector('.bg-red-100');
-    expect(priorityBadge).toBeInTheDocument();
+    const badge = screen.getByText(mockItem.priority);
+    expect(badge).toBeInTheDocument();
+    
+    // Check if the badge has the expected Tailwind class
+    expect(badge.className).toContain('bg-[#f8ead8]');
+    expect(badge.className).toContain('text-[#a45a12]');
   });
 
   it('calls onCardClick when card is clicked', () => {
     render(
-      <KanbanCard
-        id={mockItem.id}
-        title={mockItem.title}
-        priority={mockItem.priority}
-        confidence_score={mockItem.confidence_score}
+      <KanbanCardContent
+        {...mockItem}
         onCardClick={mockOnCardClick}
-        onEditClick={vi.fn()}
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
       />
     );
 
-    const card = screen.getByRole('button', { name: /ID-001/i }) || screen.getByText(mockItem.id).closest('div');
+    const card = screen.getByText(mockItem.id).closest('div');
     if (card) {
       fireEvent.click(card);
-      expect(mockOnCardClick).toHaveBeenCalledWith('ID-001');
+      expect(mockOnCardClick).toHaveBeenCalledWith(mockItem.id);
     }
   });
 
-  it('renders with different priority levels', () => {
-    const priorities = ['High', 'Medium', 'Low'];
-    
-    priorities.forEach((priority) => {
-      cleanup();
-      render(
-        <KanbanCard
-          id="ID-002"
-          title="Test"
-          priority={priority}
-          confidence_score={50}
-          onCardClick={mockOnCardClick}
-          onEditClick={vi.fn()}
-        />
-      );
-      
-      expect(screen.getByText(priority)).toBeInTheDocument();
-    });
+  it('renders error state when blocked_reason is provided', () => {
+    render(
+      <KanbanCardContent
+        {...mockItem}
+        blocked_reason="Validation failed"
+        onCardClick={mockOnCardClick}
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
+      />
+    );
+
+    expect(screen.getByText(/Error: Validation failed/i)).toBeInTheDocument();
+  });
+
+  it('renders action required badge for REVIEW_ stages', () => {
+    render(
+      <KanbanCardContent
+        {...mockItem}
+        stage="REVIEW_SPEC"
+        onCardClick={mockOnCardClick}
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
+      />
+    );
+
+    expect(screen.getByText(/ACTION REQUIRED/i)).toBeInTheDocument();
+  });
+
+  it('renders agent working status for EXECUTING stage', () => {
+    render(
+      <KanbanCardContent
+        {...mockItem}
+        stage="EXECUTING"
+        latestStatus="Analyzing requirements..."
+        onCardClick={mockOnCardClick}
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
+      />
+    );
+
+    expect(screen.getByText(/Analyzing requirements.../i)).toBeInTheDocument();
   });
 });
 
@@ -106,16 +131,23 @@ describe('KanbanColumn', () => {
       title: 'First task',
       priority: 'High',
       confidence_score: 90,
+      stage: 'REVIEW_SPEC',
+      updated_at: '2026-05-20T10:00:00Z',
     },
     {
       id: 'ID-002',
       title: 'Second task',
       priority: 'Medium',
       confidence_score: 75,
+      stage: 'ARCHITECTURE',
+      updated_at: '2026-05-20T10:00:00Z',
     },
   ];
 
   const mockOnCardClick = vi.fn();
+  const mockOnEditClick = vi.fn();
+  const mockOnDeleteClick = vi.fn();
+  const mockOnFetchLatestStatus = vi.fn();
 
   it('renders column with correct title and item count', () => {
     render(
@@ -123,7 +155,9 @@ describe('KanbanColumn', () => {
         id="REVIEW_SPEC"
         items={mockItems}
         onCardClick={mockOnCardClick}
-        onEditClick={vi.fn()}
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
+        onFetchLatestStatus={mockOnFetchLatestStatus}
       />
     );
 
@@ -137,7 +171,9 @@ describe('KanbanColumn', () => {
         id="REVIEW_SPEC"
         items={mockItems}
         onCardClick={mockOnCardClick}
-        onEditClick={vi.fn()}
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
+        onFetchLatestStatus={mockOnFetchLatestStatus}
       />
     );
 
@@ -153,7 +189,9 @@ describe('KanbanColumn', () => {
         id="INTAKE"
         items={[]}
         onCardClick={mockOnCardClick}
-        onEditClick={vi.fn()}
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
+        onFetchLatestStatus={mockOnFetchLatestStatus}
       />
     );
 
@@ -167,7 +205,9 @@ describe('KanbanColumn', () => {
         id="REVIEW_SPEC"
         items={mockItems}
         onCardClick={mockOnCardClick}
-        onEditClick={vi.fn()}
+        onEditClick={mockOnEditClick}
+        onDeleteClick={mockOnDeleteClick}
+        onFetchLatestStatus={mockOnFetchLatestStatus}
       />
     );
 

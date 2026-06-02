@@ -64,12 +64,27 @@ Regardless of the phase, all implementation work must meet these baseline standa
 62|- [ ] **Task Management**: CLI/Skill allows for full CRUD on registered automations.
 
 ### Phase 9: Artifact-Driven Regression Loop
-63|- [ ] **Change Detection**: The system detects modifications to `spec.md`, `architecture.md`, and `tests.md`.
-64|- [ ] **Stage Regression**: Modifying a foundation file (e.g., `spec.md`) correctly regresses the task to the appropriate stage (e.g., `REFINEMENT`).
-65|- [ ] **UI Synchronization**: The Kanban UI allows direct editing of all technical artifacts with auto-save.
-
+|- [ ] **Change Detection**: The system detects modifications to `spec.md`, `architecture.md`, and `tests.md`.
+|- [ ] **Stage Regression**: Modifying a foundation file (e.g., `spec.md`) correctly regresses the task to the appropriate stage (e.g., `REFINEMENT`).
+|- [ ] **UI Synchronization**: The Kanban UI allows direct editing of all technical artifacts with auto-save.
+ 
+### Phase 10: Pattern Promotion
+|- [ ] **Extraction**: Memory Agent identifies recurring success patterns and proposes updates to `patterns.md`.
+|- [ ] **Approval**: Update to global brain only occurs after human `APPROVED` status.
+ 
+### Phase 11: Hybrid Execution Engine
+|- [ ] **Run Loop**: `start_run` successfully triggers step sequence and logs `RUN_STARTED` $\rightarrow$ `RUN_COMPLETED`.
+|- [ ] **Context Resolution**: Placeholders like `{{input_val}}` are correctly replaced with runtime data.
+|- [ ] **The Hybrid Bridge**: Critical failure in `ExecutionEngine` $\rightarrow$ `EscalationManager` $\rightarrow$ `OrchestratorTask` created in INTAKE.
+|- [ ] **Resume Flow**: Marking recovery task as `DONE` in `HANDOVER` phase $\rightarrow$ `RESUME_RUN` signal fired.
+|- [ ] **Template Validation**: `save_template` rejects `ORCHESTRATOR_TASK` steps that lack a `target_lifecycle_phase`.
+ 
+### UX Artifacts & Documentation
+|- [ ] **SVG Rendering**: Images in `.md` are served via `/docs` mount and render in the UI.
+|- [ ] **Zoom Modal**: Clicking a diagram/image opens a full-screen overlay with `Esc` close support.
+ 
 ### Kanban-Fix & UX Enhancements
-...
+...[truncated]
 
 ---
 

@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { WorkflowManager } from '../WorkflowManager';
 import { IntegrationsManager } from '../IntegrationsManager';
-import { WorkflowBuilder } from '../WorkflowBuilder';
+import { WorkflowArchitect, LifecyclePhase } from '../WorkflowArchitect';
 
 interface ModalWrapperProps {
   isOpen: boolean;
@@ -39,8 +39,12 @@ export const IntegrationsModal = ({ isOpen, onClose }: { isOpen: boolean, onClos
   </ModalWrapper>
 );
 
-export const BuilderModal = ({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) => (
-  <ModalWrapper isOpen={isOpen} onClose={onClose} title="Workflow Architect">
-    <WorkflowBuilder />
-  </ModalWrapper>
-);
+export const BuilderModal = ({ isOpen, onClose, itemId }: { isOpen: boolean, onClose: () => void, itemId?: string }) => {
+  const [phase, setPhase] = useState<LifecyclePhase>('DISCOVERY');
+  
+  return (
+    <ModalWrapper isOpen={isOpen} onClose={onClose} title="Workflow Architect">
+      <WorkflowArchitect itemId={itemId || 'default'} onPhaseChange={setPhase} />
+    </ModalWrapper>
+  );
+};

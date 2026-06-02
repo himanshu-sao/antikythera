@@ -36,8 +36,8 @@ export const Timeline = ({ itemId }: { itemId: string }) => {
 
   const getLevelColor = (level: string) => {
     switch (level) {
-      case 'ERROR': return 'text-red-600 bg-red-50 border-red-100';
-      case 'WARN': return 'text-amber-600 bg-amber-50 border-amber-100';
+      case 'ERROR': return 'text-red-700 bg-red-50 border-red-200 shadow-sm';
+      case 'WARN': return 'text-amber-700 bg-amber-50 border-amber-200';
       default: return 'text-blue-600 bg-blue-50 border-blue-100';
     }
   };

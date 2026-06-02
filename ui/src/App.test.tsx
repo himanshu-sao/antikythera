@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import App from './App';
 import type { PipelineState, KanbanCardData } from './types';
 
 // Mock @dnd-kit/core and @dnd-kit/sortable
 vi.mock('@dnd-kit/core', () => ({
-  DndContext: ({ children, onDragEnd }: { children: React.ReactNode; onDragEnd: (event: { active: { id: string }; over: { id: string } | null }) => void }) => {
+  DndContext: ({ children, onDragEnd }: { children: React.ReactNode; onDragEnd: (event: any) => void }) => {
     // Expose onDragEnd for testing
-    (window as Record<string, unknown>).__dndOnDragEnd = onDragEnd;
+    (window as any).__dndOnDragEnd = onDragEnd;
     return <div data-testid="dnd-context">{children}</div>;
   },
   closestCorners: vi.fn(),
@@ -16,6 +16,7 @@ vi.mock('@dnd-kit/core', () => ({
   useSensor: vi.fn(() => ({})),
   useSensors: vi.fn(() => [{}]),
   DragEndEvent: vi.fn(),
+  DragOverlay: ({ children }: { children: React.ReactNode }) => <div data-testid="drag-overlay">{children}</div>,
 }));
 
 vi.mock('@dnd-kit/sortable', () => ({
@@ -80,17 +81,17 @@ describe('App drag-and-drop handleDragEnd', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    (window as Record<string, unknown>).__dndOnDragEnd = undefined;
+    (window as any).__dndOnDragEnd = undefined;
 
-    // Use a dynamic mock implementation that handles state requests and move requests robustly
     mockFetch = vi.fn().mockImplementation((url) => {
-      if (url.includes('/api/state')) {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('/api/state')) {
         return Promise.resolve({
           ok: true,
           json: async () => mockState,
         } as Response);
       }
-      if (url.includes('/api/move')) {
+      if (urlStr.includes('/api/move')) {
         return Promise.resolve({
           ok: true,
         } as Response);
@@ -127,30 +128,32 @@ describe('App drag-and-drop handleDragEnd', () => {
     });
 
     // Simulate drag end: drop ID-001 onto REVIEW_SPEC column
-    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
+    const handleDragEnd = (window as any).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd!({
-      active: { id: 'ID-001' },
-      over: { id: 'REVIEW_SPEC' },
+    await act(async () => {
+      await handleDragEnd!({
+        active: { id: 'ID-001' },
+        over: { id: 'REVIEW_SPEC' },
+      });
     });
 
     // Should call move API with new stage and order 2 (there are already 2 items in REVIEW_SPEC column)
     const moveCall = mockFetch.mock.calls.find(
-      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: any[]) => call[0].toString().includes('/api/move')
     );
     expect(moveCall).toBeDefined();
-    expect((moveCall as unknown[])[1]).toMatchObject({
+    expect(moveCall[1]).toMatchObject({
       method: 'POST',
     });
-    expect(JSON.parse((moveCall as unknown[])[1].body as string)).toEqual({
+    expect(JSON.parse((moveCall[1] as any).body as string)).toEqual({
       item_id: 'ID-001',
       new_stage: 'REVIEW_SPEC',
       order: 2,
     });
   });
 
-  it('handleDragEnd moves item to another item\'s stage when dropped on a card', async () => {
+  it("handleDragEnd moves item to another item's stage when dropped on a card", async () => {
     render(<App />);
 
     await waitFor(() => {
@@ -158,23 +161,25 @@ describe('App drag-and-drop handleDragEnd', () => {
     });
 
     // Simulate drag end: drop ID-001 (INTAKE) onto ID-002 (REVIEW_SPEC)
-    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
+    const handleDragEnd = (window as any).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd!({
-      active: { id: 'ID-001' },
-      over: { id: 'ID-002' },
+    await act(async () => {
+      await handleDragEnd!({
+        active: { id: 'ID-001' },
+        over: { id: 'ID-002' },
+      });
     });
 
     // Should call move API with REVIEW_SPEC (ID-002's stage) and order 0
     const moveCall = mockFetch.mock.calls.find(
-      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: any[]) => call[0].toString().includes('/api/move')
     );
     expect(moveCall).toBeDefined();
-    expect((moveCall as unknown[])[1]).toMatchObject({
+    expect(moveCall[1]).toMatchObject({
       method: 'POST',
     });
-    expect(JSON.parse((moveCall as unknown[])[1].body as string)).toEqual({
+    expect(JSON.parse((moveCall[1] as any).body as string)).toEqual({
       item_id: 'ID-001',
       new_stage: 'REVIEW_SPEC',
       order: 0,
@@ -189,17 +194,19 @@ describe('App drag-and-drop handleDragEnd', () => {
     });
 
     // Simulate drag end: drop ID-001 onto INTAKE column (same stage)
-    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
+    const handleDragEnd = (window as any).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd!({
-      active: { id: 'ID-001' },
-      over: { id: 'INTAKE' },
+    await act(async () => {
+      await handleDragEnd!({
+        active: { id: 'ID-001' },
+        over: { id: 'INTAKE' },
+      });
     });
 
     // Should NOT call move API (same stage)
     const moveCalls = mockFetch.mock.calls.filter(
-      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: any[]) => call[0].toString().includes('/api/move')
     );
     expect(moveCalls.length).toBe(0);
   });
@@ -211,16 +218,18 @@ describe('App drag-and-drop handleDragEnd', () => {
       expect(screen.getByTestId('column-INTAKE')).toBeInTheDocument();
     });
 
-    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
+    const handleDragEnd = (window as any).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd!({
-      active: { id: 'ID-001' },
-      over: null,
+    await act(async () => {
+      await handleDragEnd!({
+        active: { id: 'ID-001' },
+        over: null,
+      });
     });
 
     const moveCalls = mockFetch.mock.calls.filter(
-      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: any[]) => call[0].toString().includes('/api/move')
     );
     expect(moveCalls.length).toBe(0);
   });
@@ -232,16 +241,18 @@ describe('App drag-and-drop handleDragEnd', () => {
       expect(screen.getByTestId('column-INTAKE')).toBeInTheDocument();
     });
 
-    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
+    const handleDragEnd = (window as any).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    await handleDragEnd!({
-      active: { id: 'ID-NONEXISTENT' },
-      over: { id: 'REVIEW_SPEC' },
+    await act(async () => {
+      await handleDragEnd!({
+        active: { id: 'ID-NONEXISTENT' },
+        over: { id: 'REVIEW_SPEC' },
+      });
     });
 
     const moveCalls = mockFetch.mock.calls.filter(
-      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: any[]) => call[0].toString().includes('/api/move')
     );
     expect(moveCalls.length).toBe(0);
   });
@@ -253,21 +264,25 @@ describe('App drag-and-drop handleDragEnd', () => {
       expect(screen.getByTestId('column-INTAKE')).toBeInTheDocument();
     });
 
-    const handleDragEnd = (window as Record<string, unknown>).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
+    const handleDragEnd = (window as any).__dndOnDragEnd as ((event: { active: { id: string }; over: { id: string } | null }) => void) | undefined;
     expect(handleDragEnd).toBeDefined();
 
-    // Drop ID-001 (INTAKE) onto ID-003 (REVIEW_SPEC)
-    await handleDragEnd!({
-      active: { id: 'ID-001' },
-      over: { id: 'ID-003' },
+    await act(async () => {
+      await handleDragEnd!({
+        active: { id: 'ID-001' },
+        over: { id: 'ID-003' },
+      });
     });
 
     // Verify the move API was called with REVIEW_SPEC (ID-003's stage) and order 1
     const moveCall = mockFetch.mock.calls.find(
-      (call: unknown[]) => call[0] === 'http://localhost:8000/api/move'
+      (call: any[]) => call[0].toString().includes('/api/move')
     );
     expect(moveCall).toBeDefined();
-    expect(JSON.parse((moveCall as unknown[])[1].body as string)).toEqual({
+    expect(moveCall[1]).toMatchObject({
+      method: 'POST',
+    });
+    expect(JSON.parse((moveCall[1] as any).body as string)).toEqual({
       item_id: 'ID-001',
       new_stage: 'REVIEW_SPEC',
       order: 1,

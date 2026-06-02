@@ -1,14 +1,29 @@
 # 🚀 Antikythera Product Specification
 
 ## 1. Vision & Purpose
-Antikythera is a perpetual, human-in-the-loop, asynchronous multi-agent automation pipeline. It converts simple idea descriptions into structured specifications, architecture, and verified tests, allowing a human operator to review and approve progress via a Kanban UI.
+Antikythera is a perpetual, hybrid, human-in-the-loop multi-agent automation pipeline. It transforms simple ideas into verified technical implementations through a dual-track engine:
+1. **The Execution Engine**: High-velocity automated runs using workflow templates and integration adapters.
+2. **The Lifecycle Orchestrator**: A rigorous, 7-stage human-agent collaboration loop (Discovery $\rightarrow$ Handover) for high-stakes architectural decisions and error recovery.
+
+The system operates on an **Atomic Transaction Model**: every significant change is Proposed $\rightarrow$ Approved $\rightarrow$ Executed.
 
 ## 2. System Architecture
-
-### 2.1 Pipeline Workflow
-Ideas move through a linear sequence of stages:
-`INTAKE` → `REFINEMENT` → `REVIEW_SPEC` → `ARCHITECTURE` → `REVIEW_ARCH` → `TESTING` → `REVIEW_TEST` → `APPROVED` → `EXECUTING` → `DONE`
-
+ 
+### 2.1 Dual-Track Workflow
+Antikythera employs two distinct operational modes:
+ 
+1. **The Automation Track (Execution Engine)**:
+   - **Trigger**: Manual or Event-driven.
+   - **Process**: Template-based step execution using integration adapters.
+   - **Failure Path**: Critical errors trigger the `EscalationManager` to spawn a recovery task in the Orchestration track.
+ 
+2. **The Collaboration Track (Lifecycle Orchestrator)**:
+   - **Trigger**: New Ideas or Automated Escalations.
+   - **Process**: 7-stage phase-gated pipeline: `Discovery` $\rightarrow$ `Blueprint` $\rightarrow$ `Implementation` $\rightarrow$ `Unit Verify` $\rightarrow$ `Integration` $\rightarrow$ `System Val` $\rightarrow$ `Handover`.
+   - **Completion**: Marking a task as `DONE` in the `Handover` phase can trigger a `RESUME_RUN` signal to the Automation track.
+ 
+### 2.2 Agent Roster
+...[truncated]
 ### 2.2 Agent Roster
 - **Orchestrator**: Manages pipeline state and dispatches work.
 - **Refiner Agent**: Creates `spec.md`.

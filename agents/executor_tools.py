@@ -1,8 +1,10 @@
 import os
 import json
 import logging
+import subprocess
 from typing import List, Dict, Any, Tuple
-from hermes_tools import terminal, write_file, patch, read_file
+
+logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -36,36 +38,64 @@ Example response:
 
 def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bool, str]:
     """
-    Executes a specific tool and returns a tuple of (success, result_text).
+    Executes a specific tool using native Python system calls.
     """
     try:
         if tool_name == "terminal":
-            result = terminal(command=args["command"])
-            output = result.get('output', 'No output')
-            # If the command was a verification command (e.g. 'pytest'), we might be done
-            if result.get("exit_code") == 0 and ("test" in args["command"] or "verify" in args["command"]):
-                return True, f"Verification successful: {output}"
+            cmd = args.get("command", "ls")
+            # Use shell=True to allow pipes and redirects, matching the behavior of terminal tools
+            process = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
+            output = process.stdout if process.stdout else ""
+            error = process.stderr if process.stderr else ""
             
-            if result.get("exit_code") != 0:
-                return False, f"ERROR: {output}"
-            return False, f"TOOL RESULT (terminal): {output}"
+            if process.returncode != 0:
+                return False, f"ERROR: {error or output}"
+            
+            # If the command was a verification command, we mark as successful
+            if "test" in cmd or "verify" in cmd:
+                return True, f"Verification successful:\n{output}"
+            
+            return False, f"TOOL RESULT (terminal):\n{output}"
         
         elif tool_name == "write_file":
-            write_file(path=args["path"], content=args["content"])
-            return False, f"SUCCESS: Wrote to {args['path']}"
+            path = args.get("path")
+            content = args.get("content", "")
+            if not path: return False, "ERROR: No path provided"
+            
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            return False, f"SUCCESS: Wrote to {path}"
         
         elif tool_name == "patch":
-            patch(path=args["path"], old_string=args["old_string"], new_string=args["new_string"])
-            return False, f"SUCCESS: Patched {args['path']}"
+            path = args.get("path")
+            old_string = args.get("old_string")
+            new_string = args.get("new_string")
+            if not path or old_string is None: return False, "ERROR: Path or old_string missing"
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                text = f.read()
+            
+            if old_string not in text:
+                return False, f"ERROR: old_string not found in {path}"
+            
+            updated_text = text.replace(old_string, new_string)
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(updated_text)
+            return False, f"SUCCESS: Patched {path}"
         
         elif tool_name == "read_file":
-            content = read_file(path=args["path"])
-            return False, f"FILE CONTENT ({args['path']}):\n{content}"
+            path = args.get("path")
+            if not path: return False, "ERROR: No path provided"
+            
+            with open(path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            return False, f"FILE CONTENT ({path}):\n{content}"
         
         else:
             logger.error(f"[{item_id}] Unknown tool: {tool_name}")
             return False, f"Unknown tool: {tool_name}"
-
+        
     except Exception as e:
         logger.error(f"[{item_id}] Tool execution error: {str(e)}")
         return False, f"ERROR: {str(e)}"

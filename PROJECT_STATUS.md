@@ -17,8 +17,9 @@ The Antikythera system follows a phased build approach. Phases 0–10 are the co
 | **Phase 6** | Kanban UI (Phase 2: inline review, real-time updates) | ✅ Completed | Primary operational surface ||
 | **Phase 7** | File watcher / event-driven triggers | ✅ Completed | Real-time responsiveness ||
 | **Phase 8** | Automation Registry (Timer/Event/Manual) | ✅ Completed | Set-it-and-forget-it mode ||
-| **Phase 9** | Artifact-Driven Regression Loop | ✅ Completed | HITL technical steering ||
-| **Phase 10** | Pattern Promotion (Continuous Learning) | 🚀 Implementing | Turn successful specs into reusable patterns ||
+|| **Phase 9** | Artifact-Driven Regression Loop | ✅ Completed | HITL technical steering ||
+|| **Phase 10** | Pattern Promotion (Continuous Learning) | ✅ Completed | Turn successful specs into reusable patterns ||
+|| **Phase 11** | Execution Engine & Hybrid Orchestration | ✅ Completed | Automated runs with HITL escalation bridge ||
 
 ### Execution Strategy
 ...
@@ -39,26 +40,31 @@ The Antikythera system follows a phased build approach. Phases 0–10 are the co
 - **State**: JSON-based `pipeline-state.json` with thread-safe locking.
 
 ### Key Architectural Decisions
-- **Sandboxing**: Tester Agent uses Docker Compose for isolated provisioning.
-- **Communication**: Telegram for notifications/commands; Local UI for deep review/editing.
-- **ID Management**: Auto-incremented IDs (`ID-XXX`) with uppercase normalization.
-- **State Persistence**: Thread-safe `StateManager` with atomic writes (`os.replace`).
-- **UI Hosting**: Local hosting only.
-- **Repo Strategy**: Monorepo for agents, orchestrator, UI, and brain tools.
+|- **Hybrid Orchestration**: Unified 7-stage pipeline (Discovery $\rightarrow$ Handover) for Human-Agent collaboration.
+|- **Atomic Transactions**: All significant changes follow Proposal $\rightarrow$ Approval $\rightarrow$ Execution.
+|- **The Hybrid Bridge**: Automated `ExecutionEngine` $\rightarrow$ `EscalationManager` $\rightarrow$ `LifecycleOrchestrator` $\rightarrow$ `ResumeRun` loop.
+|- **Sandboxing**: Tester Agent uses Docker Compose for isolated provisioning.
+|- **Communication**: Telegram for notifications/commands; Local UI for deep review/editing.
+|- **ID Management**: Auto-incremented IDs (`ID-XXX`) with uppercase normalization.
+|- **State Persistence**: Thread-safe `StateManager` with atomic writes (`os.replace`).
+|- **UI Hosting**: Local hosting only.
+|- **Repo Strategy**: Monorepo for agents, orchestrator, UI, and brain tools.
 
 ### Technical Integration (API & Data)
 The following mapping defines the contract between the UI and the Backend.
 
 **API Endpoints Mapping**
-| UI Action | HTTP Method | Endpoint | Backend Handler |
-|-----------|-------------|----------|-----------------|
-| Load board | GET | `/api/state` | `get_state()` |
-| Move item | POST | `/api/move` | `move_item()` |
-| Update item | PATCH | `/api/item/{id}` | `update_item()` |
-| Create item | POST | `/api/items` | `create_item()` |
-| Add comment | POST | `/api/item/{id}/comment` | `add_comment()` |
-| Health check | GET | `/health` | `health_check()` |
-| Delete item | DELETE | `/api/item/{id}` | `delete_item()` |
+|| UI Action | HTTP Method | Endpoint | Backend Handler |
+||-----------|-------------|----------|-----------------|
+|| Load board | GET | `/api/state` | `get_state()` |
+|| Move item | POST | `/api/move` | `move_item()` |
+|| Update item | PATCH | `/api/item/{id}` | `update_item()` |
+|| Create item | POST | `/api/items` | `create_item()` |
+|| Add comment | POST | `/api/item/{id}/comment` | `add_comment()` |
+|| Health check | GET | `/health` | `health_check()` |
+|| Delete item | DELETE | `/api/item/{id}` | `delete_item()` |
+|| Start run | POST | `/api/engine/start` | `ExecutionEngine.start_run()` |
+|| Transition phase | POST | `/api/orchestrator/transition` | `orchestrator_router.transition_phase()` |
 
 **Data Model Consistency**
 | Field | Frontend Type | Backend Type | Notes |

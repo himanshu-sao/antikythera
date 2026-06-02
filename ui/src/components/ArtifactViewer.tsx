@@ -1,18 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Clock, CheckCircle2, AlertCircle, Info, FileText, CheckSquare } from 'lucide-react';
-import { apiUrl } from '../config';
+import { AlertCircle } from 'lucide-react';
 import { Mermaid } from './artifacts/Mermaid';
 import { Timeline } from './artifacts/Timeline';
 import { ReviewForm } from './artifacts/ReviewForm';
-import { debounce } from 'lodash';
+import { ZoomableArtifact } from './artifacts/ZoomableArtifact';
+import { useArtifacts } from '../hooks/useArtifacts';
 
-interface Artifact {
-  name: string;
-  content: string;
-  type: 'spec' | 'architecture' | 'tests' | 'review' | 'report' | 'deliverable';
-}
+const apiUrl = 'http://localhost:8006';
 
 interface ArtifactViewerProps {
   itemId: string;
@@ -20,185 +16,25 @@ interface ArtifactViewerProps {
 }
 
 export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [reviewStatus, setReviewStatus] = useState('APPROVED');
-  const [reviewComments, setReviewComments] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [itemDetails, setItemDetails] = useState<any>(null);
-  const [isEditing, setIsEditing] = useState(false);
+  const {
+    artifacts,
+    loading,
+    selectedArtifact,
+    setSelectedArtifact,
+    error,
+    reviewStatus,
+    setReviewStatus,
+    reviewComments,
+    setReviewComments,
+    isSaving,
+    itemDetails,
+    handleContentChange,
+    submitReview,
+    needsReview
+  } = useArtifacts({ itemId, onClose });
+
   const [activeTab, setActiveTab] = useState<'technical' | 'review'>('technical');
-
-  useEffect(() => {
-    setIsEditing(false);
-  }, [selectedArtifact?.name]);
-
-  const submitReview = async () => {
-    const content = `review_status: ${reviewStatus}\n\n## Comments\n${reviewComments}`;
-    await saveContent('review.md', content);
-
-    if (reviewStatus === 'APPROVED') {
-      const nextStageMap: Record<string, string> = {
-        'REVIEW_SPEC': 'ARCHITECTURE',
-        'REVIEW_ARCH': 'TESTING',
-        'REVIEW_TEST': 'APPROVED'
-      };
-      const nextStage = nextStageMap[itemDetails?.stage];
-
-      if (nextStage) {
-        await fetch(`${apiUrl}/api/move`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_id: itemId, new_stage: nextStage })
-        });
-        alert('Review Approved! Transitioning to ' + nextStage);
-        onClose();
-      } else {
-        alert('Review Approved!');
-      }
-    } else {
-      alert('Feedback submitted. Task remains in ' + itemDetails?.stage);
-    }
-  };
-
-  useEffect(() => {
-    const fetchItemDetails = async () => {
-      try {
-        const res = await fetch(`${apiUrl}/api/item/${itemId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setItemDetails(data);
-        }
-      } catch (e) {
-        console.error('Failed to fetch item details', e);
-      }
-    };
-    fetchItemDetails();
-  }, [itemId]);
-
-  const getRelevantArtifacts = (stage: string) => {
-    const isReviewStage = stage.startsWith('REVIEW_') || 
-                          ['ARCHITECTURE', 'DESIGN', 'TESTING'].includes(stage);
-    const base = isReviewStage ? ['review.md'] : [];
-    if (stage === 'REVIEW_SPEC') return ['spec.md', ...base];
-    if (stage === 'ARCHITECTURE') return ['spec.md', 'architecture.md', ...base];
-    if (stage === 'DESIGN') return ['architecture.md', 'design.md', ...base];
-    if (stage === 'TESTING') return ['architecture.md', 'tests.md', ...base];
-    if (isReviewStage) return base;
-    if (stage === 'DONE') return ['execution_report.md', 'deliverables.md'];
-    return ['spec.md', 'architecture.md', 'tests.md'];
-  };
-
-  const fetchArtifacts = useCallback(async () => {
-    try {
-      if (itemDetails?.execution_policy?.mode === 'INLINE') {
-        const inlineArtifact = [{ name: 'Result', content: itemDetails.inline_output || '', type: 'review' }];
-        setArtifacts(inlineArtifact);
-        setLoading(false);
-        return inlineArtifact;
-      }
-
-      const artifactNames = getRelevantArtifacts(itemDetails?.stage || 'DEFAULT');
-      const fetchedArtifacts: Artifact[] = [];
-      let hasError = false;
-
-      for (const name of artifactNames) {
-        try {
-          const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}`);
-          if (res.ok) {
-            const content = await res.text();
-            let type: any = name.replace('.md', '');
-            if (name === 'execution_report.md') type = 'report';
-            if (name === 'deliverables.md') type = 'deliverable';
-            fetchedArtifacts.push({ name, content, type });
-          }
-        } catch (e: any) {
-          console.error(`Failed to fetch artifact ${name}`, e);
-          hasError = true;
-        }
-      }
-      
-      if (hasError && fetchedArtifacts.length === 0) {
-        throw new Error('No artifacts found');
-      }
-
-      setArtifacts(fetchedArtifacts);
-      setLoading(false);
-
-      const stage = itemDetails?.stage || '';
-      const isReviewStage = stage.startsWith('REVIEW_') || 
-                           ['ARCHITECTURE', 'DESIGN', 'TESTING'].includes(stage);
-      
-      if (isReviewStage) {
-        const reviewArtifact = fetchedArtifacts.find(a => a.name === 'review.md');
-        if (reviewArtifact) {
-          setSelectedArtifact(reviewArtifact);
-        }
-      }
-
-      return fetchedArtifacts;
-    } catch (e: any) {
-      console.error('Failed to fetch artifacts', e);
-      setError(e.message);
-      setLoading(false);
-      return [];
-    }
-  }, [itemDetails, itemId]);
-
-  useEffect(() => {
-    fetchArtifacts();
-  }, [fetchArtifacts]);
-
-  const saveContent = async (name: string, content: string) => {
-    setIsSaving(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}/content`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      });
-      if (!res.ok) {
-        throw new Error('Failed to save content');
-      }
-    } catch (e) {
-      console.error('Save error:', e);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const debouncedSave = React.useMemo(
-    () => debounce((name: string, content: string) => saveContent(name, content), 1000),
-    [itemId]
-  );
-
-  useEffect(() => {
-    return () => {
-      debouncedSave.cancel();
-    };
-  }, [debouncedSave]);
-
-  const handleContentChange = (newContent: string) => {
-    if (!selectedArtifact) return;
-    setSelectedArtifact({ ...selectedArtifact, content: newContent });
-    debouncedSave(selectedArtifact.name, newContent);
-  };
-
-  const getInstructions = (stage: string) => {
-    switch (stage) {
-      case 'REVIEW_SPEC':
-        return { title: 'Review Specification', steps: ['Read spec.md', 'Note technical concerns', 'Set review_status in review.md'] };
-      case 'ARCHITECTURE':
-        return { title: 'Architecture Review', steps: ['Read architecture.md', 'Check scalability', 'Verify integration'] };
-      default:
-        return null;
-    }
-  };
-
-  const needsReview = itemDetails?.stage?.startsWith('REVIEW_') && !artifacts.some(a => a.name === 'review.md');
-  const instructions = getInstructions(itemDetails?.stage);
+  const [isEditing, setIsEditing] = useState(false);
 
   if (loading) {
     return (
@@ -226,34 +62,52 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
 
   return (
     <div className="flex h-full overflow-hidden">
+      {/* Sidebar */}
       <div className="w-64 border-r border-gray-200 bg-gray-50 overflow-y-auto flex flex-col justify-between shrink-0">
         <div className="p-4">
           {itemDetails && (
-            <div className="mb-6 pb-4 border-b border-gray-200 text-sm text-gray-600">
-              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Item Details</h4>
-              <div className="space-y-2">
-                <div>
-                  <span className="font-semibold">Priority:</span>{' '}
-                  <span className="capitalize">{itemDetails.priority}</span>
-                </div>
-                <div>
-                  <span className="font-semibold">Confidence:</span>{' '}
-                  <span>{itemDetails.confidence_score ?? 0}%</span>
-                </div>
-                {itemDetails.source_type && (
+            <>
+              <div className="mb-6 pb-4 border-b border-gray-200 text-sm text-gray-600">
+                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Item Details</h4>
+                <div className="space-y-2">
                   <div>
-                    <span className="font-semibold">Source:</span>{' '}
-                    <div className="text-xs bg-white p-1.5 rounded mt-1 border border-gray-200 overflow-hidden text-ellipsis flex items-center gap-1">
-                      <span>{itemDetails.source_type === 'url' ? '🌐' : '📁'}</span>
-                      <span className="truncate text-gray-700" title={itemDetails.source_value}>
-                        {itemDetails.source_value}
-                      </span>
+                    <span className="font-semibold">Priority:</span>{' '}
+                    <span className="capitalize">{itemDetails.priority}</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Confidence:</span>{' '}
+                    <span>{itemDetails.confidence_score ?? 0}%</span>
+                  </div>
+                  {itemDetails.source_type && (
+                    <div>
+                      <span className="font-semibold">Source:</span>{' '}
+                      <div className="text-xs bg-white p-1.5 rounded mt-1 border border-gray-200 overflow-hidden text-ellipsis flex items-center gap-1">
+                        <span>{itemDetails.source_type === 'url' ? '🌐' : '📁'}</span>
+                        <span className="truncate text-gray-700" title={itemDetails.source_value}>
+                          {itemDetails.source_value}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {itemDetails.blocked_reason && (
+                <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg shadow-sm animate-in fade-in slide-in-from-top-1 duration-300">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-red-800 uppercase tracking-tight">Blocking Error</h4>
+                      <p className="text-sm text-red-700 mt-1 leading-relaxed">
+                        {itemDetails.blocked_reason}
+                      </p>
                     </div>
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
+              )}
+            </>
           )}
+
           <h3 className="font-semibold text-gray-700 mb-3">Artifacts</h3>
           
           <div className="flex p-1 bg-gray-200 rounded-lg mb-4">
@@ -287,7 +141,10 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                   .map((artifact) => (
                     <button
                       key={artifact.name}
-                      onClick={() => setSelectedArtifact(artifact)}
+                      onClick={() => {
+                        setSelectedArtifact(artifact);
+                        setIsEditing(false);
+                      }}
                       className={`w-full text-left p-3 rounded-lg transition-colors ${
                         selectedArtifact?.name === artifact.name
                           ? 'bg-blue-100 text-blue-900'
@@ -307,6 +164,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                       } else {
                         setSelectedArtifact({ name: 'review.md', content: '', type: 'review' });
                       }
+                      setIsEditing(false);
                     }}
                     className="w-full text-left p-3 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors mt-4"
                   >
@@ -320,29 +178,36 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                 )}
               </>
             ) : (
-              artifacts
-                .filter(a => a.name === 'review.md')
-                .map((artifact) => (
-                  <button
-                    key={artifact.name}
-                    onClick={() => setSelectedArtifact(artifact)}
-                    className={`w-full text-left p-3 rounded-lg transition-colors ${
-                      selectedArtifact?.name === artifact.name
-                        ? 'bg-indigo-100 text-indigo-900'
-                        : 'hover:bg-indigo-50 text-indigo-700'
-                    }`}
-                  >
-                    <div className="font-bold text-sm flex items-center gap-2">
-                      <span>✍️</span> {artifact.name}
-                    </div>
-                    <div className="text-xs text-indigo-500 capitalize">{artifact.type}</div>
-                  </button>
-                ))
+              <>
+                {artifacts
+                  .filter(a => a.name === 'review.md')
+                  .map((artifact) => (
+                    <button
+                      key={artifact.name}
+                      onClick={() => {
+                        setSelectedArtifact(artifact);
+                        setIsEditing(false);
+                      }}
+                      className={`w-full text-left p-3 rounded-lg transition-colors ${
+                        selectedArtifact?.name === artifact.name
+                          ? 'bg-indigo-100 text-indigo-900'
+                          : 'hover:bg-indigo-50 text-indigo-700'
+                      }`}
+                    >
+                      <div className="font-bold text-sm flex items-center gap-2">
+                        <span>✍️</span> {artifact.name}
+                      </div>
+                      <div className="text-xs text-indigo-500 capitalize">{artifact.type}</div>
+                    </button>
+                  ))}
+              </>
             )}
           </div>
         </div>
         <Timeline itemId={itemId} />
       </div>
+
+      {/* Main Content Area */}
       {selectedArtifact ? (
         <div className="flex-1 overflow-y-auto">
           <div className="p-4">
@@ -378,6 +243,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                 <span className="text-sm text-gray-500 capitalize">{selectedArtifact.type}</span>
               </div>
             </div>
+
             {selectedArtifact.name === 'review.md' ? (
               <ReviewForm 
                 reviewStatus={reviewStatus}
@@ -410,10 +276,17 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                       <ReactMarkdown 
                         remarkPlugins={[remarkGfm]}
                         components={{
+                          img: ({node, ...props}: any) => (
+                            <ZoomableArtifact altText={props.alt}>
+                              <img {...props} className="max-w-full h-auto rounded-lg shadow-sm" />
+                            </ZoomableArtifact>
+                          ),
                           code: ({node, className, children, ...props}: any) => {
                             const match = /language-mermaid/i.test(className || '');
                             return !className?.includes('language-mermaid') && match ? (
-                              <Mermaid chart={String(children).replace(/\n/g, ' ')} isCodeBlock={true} />
+                              <ZoomableArtifact>
+                                <Mermaid chart={String(children).replace(/\\n/g, ' ')} isCodeBlock={true} />
+                              </ZoomableArtifact>
                             ) : (
                               <code className="bg-gray-100 px-1 rounded text-sm font-mono" {...props}>
                               {children}

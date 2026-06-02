@@ -74,7 +74,38 @@ export interface KanbanCardData {
 }
 
 /** Drag end event handler type */
-export type DragEndHandler = (event: {
-  active: { id: string };
-  over: { id: string } | null;
-}) => void | Promise<void>;
+
+/** Lifecycle Orchestration Types */
+export type LifecyclePhase = 
+  | 'DISCOVERY' 
+  | 'BLUEPRINT' 
+  | 'IMPLEMENTATION' 
+  | 'UNIT_VERIFY' 
+  | 'INTEGRATION' 
+  | 'SYSTEM_VAL' 
+  | 'HANDOVER';
+
+export interface PhaseGoal {
+  phase: LifecyclePhase;
+  goal: string;
+  verification: string;
+}
+
+export interface TransactionProposal {
+  id: string;
+  phase: LifecyclePhase;
+  context: string[]; // List of active files
+  plan: string;
+  verification: string;
+  status: 'PROPOSED' | 'EXECUTING' | 'COMPLETED' | 'FAILED';
+}
+
+export const LIFECYCLE_PIPELINE: PhaseGoal[] = [
+  { phase: 'DISCOVERY', goal: 'Complete map of affected files and a clear problem statement.', verification: 'Context Audit' },
+  { phase: 'BLUEPRINT', goal: 'Signed-off interface, spec, or component tree.', verification: 'Spec Review' },
+  { phase: 'IMPLEMENTATION', goal: 'Single, modular, and functional code unit.', verification: 'Code Inspection' },
+  { phase: 'UNIT_VERIFY', goal: '100% pass rate for tests specific to this module.', verification: 'Unit Test Run' },
+  { phase: 'INTEGRATION', goal: 'Module interacts correctly with its neighbors.', verification: 'Integration Test' },
+  { phase: 'SYSTEM_VAL', goal: 'Zero regressions in the entire project.', verification: 'Full System Suite' },
+  { phase: 'HANDOVER', goal: 'Updated TODO.md, README.md, and clear task status.', verification: 'TODO Sync' },
+];

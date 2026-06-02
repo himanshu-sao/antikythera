@@ -8,6 +8,15 @@ class TemplateManager(BaseJSONManager):
 
     def save_template(self, template_id: str, template_data: Dict[str, Any]) -> bool:
         try:
+            # --- VALIDATION LAYER ---
+            # Ensure all ORCHESTRATOR_TASK steps are correctly configured
+            if "steps" in template_data:
+                for step in template_data["steps"]:
+                    if step.get("type") == "ORCHESTRATOR_TASK":
+                        if "target_phase" not in step:
+                            print(f"Validation Error: ORCHESTRATOR_TASK in {template_id} missing 'target_phase'")
+                            return False
+            
             templates = self._load()
             template_data["updated_at"] = datetime.utcnow().isoformat() + "Z"
             if "created_at" not in template_data:

@@ -130,7 +130,7 @@ export default function App() {
       <div className="min-h-screen bg-gray-50 p-6">
         <div className="flex items-center gap-3 mb-6">
           <div className="flex flex-col">
-            <h1 className="text-3xl font-bold text-[#231f19]">Antikythera Pipeline</h1>
+            <h1 className="text-3xl font-bold text-[#231f19]">Antikythera Pipeline <span className="text-xs text-gray-400 font-mono ml-2">v1.0.0</span></h1>
             <p className="text-sm text-[#6f6a63]">Generic pipeline + workflow templates</p>
           </div>
           <div className="ml-auto flex gap-2">
@@ -216,7 +216,11 @@ export default function App() {
         />
         <WorkflowModal isOpen={showWorkflow} onClose={() => setShowWorkflow(false)} />
         <IntegrationsModal isOpen={showIntegrations} onClose={() => setShowIntegrations(false)} />
-        <BuilderModal isOpen={showBuilder} onClose={() => setShowBuilder(false)} />
+        <BuilderModal 
+          isOpen={showBuilder} 
+          onClose={() => setShowBuilder(false)} 
+          itemId={selectedId} 
+        />
 
         {selectedId && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">

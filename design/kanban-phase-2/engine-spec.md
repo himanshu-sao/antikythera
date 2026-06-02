@@ -81,10 +81,29 @@ The engine implements the policy defined in the `WorkflowTemplate`:
 ---
 
 ## 5. Credential Management
+## 5. Credential Management
+... (existing content) ...
+Rotation: Changing a secret in the connection table immediately affects all subsequent runs without needing to edit the templates.
 
-Secrets are never stored in the `WorkflowTemplate`.
+---
 
-### 5.1 Connection Boundary
-- **Stored in**: `integration_connections` table (encrypted).
-- **Resolved at Runtime**: The engine looks up the `connection_id` mapped to the adapter and injects the token/key into the adapter's execution context just-in-time.
-- **Rotation**: Changing a secret in the connection table immediately affects all subsequent runs without needing to edit the templates.
+## 6. Orchestrator Integration (Human-in-the-Loop)
+
+To prevent automation from becoming a "black box" that fails silently, the engine integrates with the **Lifecycle Orchestrator**.
+
+### 6.1 The Orchestrator Bridge
+The engine can transition a `WorkflowRun` into an `OrchestratorTask` in two ways:
+
+1. **Planned HITL Step**: A template step with `type: ORCHESTRATOR_TASK`.
+   - **Action**: The engine pauses the run and creates a new item in the Kanban board with a `LifecyclePhase` set to `DISCOVERY`.
+   - **Requirement**: The run enters a `WAITING_FOR_HUMAN` state.
+
+2. **Escalated Failure**: A `CRITICAL` or `FATAL` error occurs that the retry policy cannot resolve.
+   - **Action**: Instead of marking the run as `FAILED`, the engine spawns an Orchestrator task titled `Recovery: [Step Name] - [Error Message]`.
+   - **Goal**: The agent must resolve the blocker (e.g., fix a broken API key) and mark the task as `DONE`.
+
+### 6.2 The Resume Mechanism
+Once the associated `OrchestratorTask` reaches the **Handover** phase and is marked as `DONE`:
+1. **Signal**: The Orchestrator sends a `RESUME_RUN` event to the Execution Engine.
+2. **Re-Validation**: The engine re-runs the `validate_config` check for the failed step.
+3. **Execution**: If valid, the engine resumes execution from the last successful step.

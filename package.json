@@ -1,7 +1,8 @@
 {
   "dependencies": {
     "@atlaskit/pragmatic-drag-and-drop": "^1.8.1",
-    "@atlaskit/pragmatic-drag-and-drop-hitbox": "^1.1.0"
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "^1.1.0",
+    "jsdom": "^29.1.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0"
