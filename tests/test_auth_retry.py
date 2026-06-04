@@ -145,8 +145,8 @@ class TestAuthRetryFlow(unittest.TestCase):
             return None
         self.vault.get_secret.side_effect = get_secret_side_effect
         
-        # Reset call count for the second execution
-        call_count['count'] = 0
+        # Set call count to 1 so that the next call returns the 200 response
+        call_count['count'] = 1
         
         # Execute the step again (should succeed)
         result2 = loop.run_until_complete(

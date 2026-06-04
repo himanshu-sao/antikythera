@@ -10,7 +10,7 @@ interface ModalWrapperProps {
   title: string;
 }
 
-const ModalWrapper = ({ isOpen, onClose, children, title }: ModalWrapperProps) => {
+export const ModalWrapper = ({ isOpen, onClose, children, title }: ModalWrapperProps) => {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
