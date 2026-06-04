@@ -425,10 +425,86 @@ const AIEngineSettings: React.FC = () => {
                     <div className="mb-3 text-xs text-amber-700 flex gap-2"><span>Set env:</span><button onClick={() => { const envName = prompt('Env var name:'); if (envName) handleUpdateModel(model.model_id, { api_key_env: envName }); }} className="text-blue-600 underline font-medium">+ Set</button></div>
                   )}
                   <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-200">
-                    <button onClick={() => testConnection(model.model_id)} disabled={testResult?.testing} className={`px-3 py-1.5 rounded text-sm ${testResult?.testing ? 'bg-gray-200 text-gray-500' : testResult?.success ? 'bg-green-100 text-green-700' : testResult ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{testResult?.testing ? 'Testing...' : testResult?.success ? 'Connected' : testResult ? 'Failed' : 'Test'}</button>
-                    {!model.api_key_set && model.provider !== 'ollama' && <button onClick={() => setShowApiKeyModal(model.model_id)} className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded text-sm">Set Key</button>}
-                    {!model.is_default && <button onClick={() => setDefaultModel(model.model_id)} className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-sm">Set Default</button>}
+                    {/* Test Connection Button - Always visible, cycles through states */}
+                    <button
+                      onClick={() => testConnection(model.model_id)}
+                      disabled={testResult?.testing}
+                      className={`px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1.5 transition ${
+                        testResult?.testing 
+                          ? 'bg-gray-200 text-gray-500 cursor-wait' 
+                          : testResult?.success 
+                          ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                          : testResult && !testResult.success
+                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      }`}
+                    >
+                      {testResult?.testing ? (
+                        <>
+                          <Loader className="w-3.5 h-3.5 animate-spin" />
+                          Testing...
+                        </>
+                      ) : testResult?.success ? (
+                        <>
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          Connected (Test Again)
+                        </>
+                      ) : testResult && !testResult.success ? (
+                        <>
+                          <XCircle className="w-3.5 h-3.5" />
+                          Failed (Retry)
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          Test Connection
+                        </>
+                      )}
+                    </button>
+                    
+                    {!model.api_key_set && model.provider !== 'ollama' && (
+                      <button
+                        onClick={() => setShowApiKeyModal(model.model_id)}
+                        className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-amber-200 transition"
+                      >
+                        <Key className="w-3.5 h-3.5" />
+                        Set Key
+                      </button>
+                    )}
+                    
+                    {!model.is_default && (
+                      <button
+                        onClick={() => setDefaultModel(model.model_id)}
+                        className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-blue-200 transition"
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        Set Default
+                      </button>
+                    )}
                   </div>
+                  
+                  {/* Test Result Message - Always show after test */}
+                  {testResult && !testResult.testing && (
+                    <div className={`mt-3 p-3 rounded-lg text-sm border ${
+                      testResult.success 
+                        ? 'bg-green-50 border-green-200 text-green-800' 
+                        : 'bg-red-50 border-red-200 text-red-800'
+                    }`}>
+                      <div className="flex items-start gap-2">
+                        {testResult.success ? (
+                          <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        ) : (
+                          <XCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                        )}
+                        <div>
+                          <div className="font-semibold mb-0.5">
+                            {testResult.success ? '✓ Connection Successful' : '✗ Connection Failed'}
+                          </div>
+                          <div className="text-xs opacity-90">{testResult.message}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
