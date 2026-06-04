@@ -8,4 +8,14 @@ export default defineConfig({
     globals: true,
     setupFiles: './src/test/setup.tsx',
   },
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8006',
+        changeOrigin: true,
+        secure: false,
+        ws: true
+      }
+    }
+  }
 });

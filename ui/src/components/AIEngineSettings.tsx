@@ -372,142 +372,68 @@ const AIEngineSettings: React.FC = () => {
         </div>
       )}
 
-      {/* Models Tab */}
       {activeTab === 'models' && (
-        <div className="space-y-4">
-          {config.models.map((model) => {
-            const providerInfo = getProviderInfo(model.provider);
-            const testResult = testResults[model.model_id];
-            
-            return (
-              <div
-                key={model.model_id}
-                className={`border rounded-lg p-4 transition-all ${
-                  model.is_default 
-                    ? 'border-blue-400 bg-blue-50 shadow-md' 
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className={`p-2 rounded-lg ${providerInfo.color}`}>
-                        {providerInfo.icon}
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-lg">{model.name}</h4>
-                        {model.is_default && (
-                          <span className="inline-block bg-blue-500 text-white text-xs px-2 py-0.5 rounded mt-1">
-                            DEFAULT
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-600 mt-3">
-                      <div><strong>Provider:</strong> {providerInfo.name}</div>
-                      <div><strong>Context:</strong> {model.context_window} tokens</div>
-                      <div><strong>Temperature:</strong> {model.temperature}</div>
-                      <div><strong>Max Tokens:</strong> {model.max_tokens}</div>
-                      {model.endpoint && (
-                        <div className="col-span-2 truncate">
-                          <strong>Endpoint:</strong> {model.endpoint}
-                        </div>
-                      )}
-                    </div>
+        <div>
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
+              <div><div className="text-sm text-gray-500">Total Models</div><div className="text-2xl font-bold text-gray-800">{config.models.length}</div></div>
+              <div className="p-2 bg-blue-100 rounded"><Cpu className="w-5 h-5 text-blue-600" /></div>
+            </div>
+            <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
+              <div><div className="text-sm text-gray-500">Configured Keys</div><div className="text-2xl font-bold text-green-600">{config.models.filter(m => m.api_key_set || m.provider === 'ollama').length}</div></div>
+              <div className="p-2 bg-green-100 rounded"><Key className="w-5 h-5 text-green-600" /></div>
+            </div>
+            <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
+              <div><div className="text-sm text-gray-500">Default Provider</div><div className="text-lg font-bold text-gray-800 capitalize">{config.default_provider.replace('_', ' ')}</div></div>
+              <div className="p-2 bg-purple-100 rounded"><Zap className="w-5 h-5 text-purple-600" /></div>
+            </div>
+            <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
+              <div><div className="text-sm text-gray-500">Default Model</div><div className="text-lg font-bold text-blue-600">{config.default_model_id}</div></div>
+              <div className="p-2 bg-yellow-100 rounded"><Server className="w-5 h-5 text-yellow-600" /></div>
+            </div>
+          </div>
 
-                    {!model.api_key_set && model.provider !== 'ollama' && (
-                      <div className="mt-3 flex items-center gap-2 text-amber-600 text-sm">
-                        <Key className="w-4 h-4" />
-                        <span>API key not configured</span>
-                      </div>
-                    )}
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {config.models.map((model) => {
+              const providerInfo = getProviderInfo(model.provider);
+              const testResult = testResults[model.model_id];
+              return (
+                <div key={model.model_id} className={`border rounded-xl p-5 transition-all hover:shadow-lg ${model.is_default ? 'border-blue-400 bg-blue-50 shadow-md ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:border-blue-300'}`}>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className={`p-2.5 rounded-lg ${providerInfo.color} shadow-sm`}><div className="text-white">{providerInfo.icon}</div></div>
+                    <div>
+                      <h4 className="font-bold text-gray-800">{model.name}</h4>
+                      <div className="text-xs text-gray-500">{providerInfo.name}</div>
+                      {model.is_default && <span className="inline-block bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full mt-1">DEFAULT</span>}
+                    </div>
                   </div>
-
-                  <div className="flex flex-col gap-2">
-                    <button
-                      onClick={() => testConnection(model.model_id)}
-                      disabled={testResult?.testing}
-                      className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 transition ${
-                        testResult?.testing
-                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
-                          : testResult?.success
-                          ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                          : testResult
-                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                      }`}
-                    >
-                      {testResult?.testing ? (
-                        <>
-                          <Loader className="w-3 h-3 animate-spin" />
-                          Testing...
-                        </>
-                      ) : testResult?.success ? (
-                        <>
-                          <CheckCircle className="w-3 h-3" />
-                          Connected
-                        </>
-                      ) : testResult ? (
-                        <>
-                          <XCircle className="w-3 h-3" />
-                          Failed
-                        </>
-                      ) : (
-                        <>
-                          <RefreshCw className="w-3 h-3" />
-                          Test
-                        </>
-                      )}
-                    </button>
-
-                    {!model.api_key_set && model.provider !== 'ollama' && (
-                      <button
-                        onClick={() => setShowApiKeyModal(model.model_id)}
-                        className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded text-sm hover:bg-amber-200 transition flex items-center gap-1"
-                      >
-                        <Key className="w-3 h-3" />
-                        Set Key
-                      </button>
-                    )}
-
-                    {!model.is_default && (
-                      <button
-                        onClick={() => setDefaultModel(model.model_id)}
-                        className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-sm hover:bg-blue-200 transition flex items-center gap-1"
-                      >
-                        <Settings className="w-3 h-3" />
-                        Set Default
-                      </button>
-                    )}
+                  <div className="grid grid-cols-2 gap-3 mb-4 text-xs">
+                    <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Context</div><div className="font-semibold">{model.context_window}</div></div>
+                    <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Max Tokens</div><div className="font-semibold">{model.max_tokens}</div></div>
+                    <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Temperature</div><div className="font-semibold">{model.temperature}</div></div>
+                    <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Status</div><div className={`font-semibold ${testResult?.success ? 'text-green-600' : testResult ? 'text-red-600' : model.api_key_set || model.provider === 'ollama' ? 'text-blue-600' : 'text-amber-600'}`}>{testResult?.success ? 'Active' : testResult ? 'Failed' : model.api_key_set || model.provider === 'ollama' ? 'Ready' : 'Needs Key'}</div></div>
+                  </div>
+                  {model.config_note && <div className="mb-3 p-2 bg-blue-50 border border-blue-100 rounded text-[11px] text-blue-800"><strong>ℹ️ {model.config_note}</strong></div>}
+                  {model.api_key_env && model.provider !== 'ollama' && (
+                    <div className="mb-3 text-xs flex items-center gap-2">
+                      <span className="font-medium text-gray-600">API Key:</span>
+                      <code className="bg-gray-100 px-1.5 py-0.5 rounded font-mono text-[11px]">{model.api_key_env}</code>
+                      <button onClick={() => { const newName = prompt('Enter new env var:', model.api_key_env || ''); if (newName && newName !== model.api_key_env) handleUpdateModel(model.model_id, { api_key_env: newName || null }); }} className="text-blue-600 hover:text-blue-800" title="Customize">✏️</button>
+                    </div>
+                  )}
+                  {!model.api_key_env && model.provider !== 'ollama' && (
+                    <div className="mb-3 text-xs text-amber-700 flex gap-2"><span>Set env:</span><button onClick={() => { const envName = prompt('Env var name:'); if (envName) handleUpdateModel(model.model_id, { api_key_env: envName }); }} className="text-blue-600 underline font-medium">+ Set</button></div>
+                  )}
+                  <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-200">
+                    <button onClick={() => testConnection(model.model_id)} disabled={testResult?.testing} className={`px-3 py-1.5 rounded text-sm ${testResult?.testing ? 'bg-gray-200 text-gray-500' : testResult?.success ? 'bg-green-100 text-green-700' : testResult ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'}`}>{testResult?.testing ? 'Testing...' : testResult?.success ? 'Connected' : testResult ? 'Failed' : 'Test'}</button>
+                    {!model.api_key_set && model.provider !== 'ollama' && <button onClick={() => setShowApiKeyModal(model.model_id)} className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded text-sm">Set Key</button>}
+                    {!model.is_default && <button onClick={() => setDefaultModel(model.model_id)} className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-sm">Set Default</button>}
                   </div>
                 </div>
-
-                {/* Test Result Message */}
-                {testResult && !testResult.testing && (
-                  <div className={`mt-3 p-2 rounded text-sm ${
-                    testResult.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                  }`}>
-                    {testResult.message}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {config.models.length === 0 && (
-            <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed">
-              <Cpu className="w-12 h-12 mx-auto text-gray-400 mb-3" />
-              <h3 className="text-lg font-semibold text-gray-700">No models configured</h3>
-              <p className="text-gray-500 mt-1">Add a model to get started with AI operations</p>
-              <button
-                onClick={() => setIsAddingModel(true)}
-                className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
-              >
-                Add Your First Model
-              </button>
-            </div>
-          )}
+              );
+            })}
+          </div>
+          {config.models.length === 0 && <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed"><Cpu className="w-12 h-12 mx-auto text-gray-400 mb-3" /><h3 className="text-lg font-semibold text-gray-700">No models configured</h3><button onClick={() => setIsAddingModel(true)} className="mt-4 px-4 py-2 bg-blue-500 text-white rounded">Add Model</button></div>}
         </div>
       )}
 

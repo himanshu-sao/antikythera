@@ -134,8 +134,28 @@ class AIEngineConfigService:
         model_config = self.get_model_config(model_id)
         if not model_config:
             return None
+        if not model_config.api_key_env:
+            return None
         
         return os.environ.get(model_config.api_key_env)
+    
+    def update_model(self, model_id: str, updates: Dict[str, Any]) -> ModelConfig:
+        """Update model configuration with provided fields"""
+        if model_id not in self.config.models:
+            raise AIEngineConfigError(f"Model '{model_id}' not found")
+        
+        existing = self.config.models[model_id]
+        
+        # Update only provided fields
+        update_data = {k: v for k, v in updates.items() if v is not None}
+        updated = existing.model_copy(update=update_data)
+        
+        self.config.models[model_id] = updated
+        self.config.updated_at = datetime.utcnow()
+        self.save_config()
+        
+        logger.info(f"Updated model: {model_id}")
+        return updated
     
     def test_connection(self, model_id: str) -> Dict[str, Any]:
         """
@@ -152,9 +172,10 @@ class AIEngineConfigService:
             }
         
         try:
-            # Check if API key is set
+            # Check if API key is set (only if api_key_env is defined)
             api_key = self.get_api_key(model_id)
-            if model_config.provider in [AIProvider.IBM_BOB, AIProvider.GOOGLE_GEMMA, AIProvider.NVIDIA_NIM] and not api_key:
+            needs_api_key = model_config.provider in [AIProvider.IBM_BOB, AIProvider.GOOGLE_GEMMA, AIProvider.NVIDIA_NIM]
+            if needs_api_key and model_config.api_key_env and not api_key:
                 return {
                     "success": False,
                     "message": f"API key not set. Set environment variable: {model_config.api_key_env}"
@@ -186,7 +207,15 @@ class AIEngineConfigService:
         import httpx
         
         try:
-            url = f"{model_config.provider_config.get('base_url', 'http://localhost:11434')}/api/tags"
+            # Use base URL without /api/generate suffix
+            base_url = model_config.endpoint_url or "http://localhost:11434"
+            # Remove trailing /api/generate if present
+            if "/api/generate" in base_url:
+                base_url = base_url.replace("/api/generate", "")
+            if base_url.endswith("/"):
+                base_url = base_url.rstrip("/")
+            
+            url = f"{base_url}/api/tags"
             
             with httpx.Client(timeout=5) as client:
                 response = client.get(url)
@@ -195,7 +224,7 @@ class AIEngineConfigService:
                 return {
                     "success": True,
                     "message": "Ollama connection successful",
-                    "details": {"endpoint": model_config.endpoint_url}
+                    "details": {"endpoint": base_url}
                 }
             else:
                 return {
@@ -223,11 +252,18 @@ class AIEngineConfigService:
         if not api_key:
             return {
                 "success": False,
-                "message": f"NVIDIA API key not set. Set {model_config.api_key_env}"
+                "message": f"NVIDIA API key not set. Set environment variable: {model_config.api_key_env or 'NVIDIA_API_KEY'}"
             }
         
         try:
-            url = f"{model_config.provider_config.get('base_url', 'https://integrate.api.nvidia.com/v1')}/v1/models"
+            base_url = model_config.provider_config.get('base_url', 'https://integrate.api.nvidia.com/v1')
+            # Remove trailing /v1 if present to avoid duplication
+            if base_url.endswith("/v1"):
+                base_url = base_url[:-3]
+            if base_url.endswith("/"):
+                base_url = base_url.rstrip("/")
+            
+            url = f"{base_url}/v1/models"
             
             with httpx.Client(timeout=10) as client:
                 response = client.get(
@@ -239,12 +275,17 @@ class AIEngineConfigService:
                 return {
                     "success": True,
                     "message": "NVIDIA NIM connection successful",
-                    "details": {"endpoint": model_config.endpoint_url}
+                    "details": {"endpoint": base_url, "api_key_env": model_config.api_key_env}
+                }
+            elif response.status_code == 401:
+                return {
+                    "success": False,
+                    "message": f"Invalid API key. Check {model_config.api_key_env or 'NVIDIA_API_KEY'}"
                 }
             else:
                 return {
                     "success": False,
-                    "message": f"NVIDIA NIM returned status {response.status_code}: {response.text[:100]}"
+                    "message": f"NVIDIA NIM returned status {response.status_code}: {response.text[:200]}"
                 }
         
         except Exception as e:
@@ -266,23 +307,27 @@ class AIEngineConfigService:
             }
         
         try:
-            url = f"{model_config.provider_config.get('base_url', 'https://generativelanguage.googleapis.com')}/v1beta/models"
+            base_url = model_config.provider_config.get('base_url', 'https://generativelanguage.googleapis.com')
+            # Remove trailing slash if present
+            if base_url.endswith("/"):
+                base_url = base_url.rstrip("/")
             
-            auth_header = f"?key={api_key}"
+            # Google API uses query parameter for API key
+            url = f"{base_url}/v1beta/models?key={api_key}"
             
             with httpx.Client(timeout=10) as client:
-                response = client.get(url + auth_header)
+                response = client.get(url)
             
             if response.status_code == 200:
                 return {
                     "success": True,
                     "message": "Google Gemma connection successful",
-                    "details": {"endpoint": model_config.endpoint_url}
+                    "details": {"endpoint": base_url}
                 }
             else:
                 return {
                     "success": False,
-                    "message": f"Google Gemma returned status {response.status_code}"
+                    "message": f"Google Gemma returned status {response.status_code}: {response.text[:100]}"
                 }
         
         except Exception as e:
@@ -337,17 +382,28 @@ class AIEngineConfigService:
         
         for model_id, config in self.config.models.items():
             is_default = model_id == self.config.default_model_id
-            api_key_set = bool(self.get_api_key(model_id)) if config.provider != AIProvider.OLLAMA else True
+            # Check if model requires API key and if it's set
+            needs_key = config.provider in [AIProvider.IBM_BOB, AIProvider.GOOGLE_GEMMA, AIProvider.NVIDIA_NIM]
+            api_key_set = False
+            if config.api_key_env:
+                api_key_set = bool(self.get_api_key(model_id))
+            elif not needs_key:
+                # Ollama doesn't need API key
+                api_key_set = True
             
-            models.append({
+            model_info = {
                 "model_id": model_id,
                 "name": config.name,
                 "provider": config.provider.value,
                 "is_default": is_default,
                 "api_key_set": api_key_set,
                 "endpoint": config.endpoint_url,
-                "context_window": config.context_window
-            })
+                "context_window": config.context_window,
+                "api_key_env": config.api_key_env,  # Include for UI to show/env var name
+                "config_note": config.config_note  # Include configuration notes
+            }
+            
+            models.append(model_info)
         
         return models
     

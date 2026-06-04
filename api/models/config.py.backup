@@ -17,7 +17,7 @@ class ModelConfig(BaseModel):
     provider: AIProvider
     name: str
     endpoint_url: Optional[str] = None  # Custom endpoint if needed
-    api_key_env: Optional[str] = None  # Environment variable name for API key (optional, user-customizable)
+    api_key_env: str  # Environment variable name for API key
     context_window: int = 4096
     temperature: float = 0.7
     max_tokens: int = 2048
@@ -25,9 +25,6 @@ class ModelConfig(BaseModel):
     
     # Provider-specific settings
     provider_config: Dict[str, Any] = Field(default_factory=dict)
-    
-    # Documentation
-    config_note: Optional[str] = None  # User notes about this model's configuration
 
 class AIEngineConfig(BaseModel):
     """Global AI engine configuration"""
@@ -71,30 +68,27 @@ PRECONFIGURED_MODELS = {
         provider=AIProvider.OLLAMA,
         name="Llama 3.1 (Ollama)",
         endpoint_url="http://localhost:11434",
-        api_key_env=None,  # Ollama doesn't require API key by default
+        api_key_env="OLLAMA_API_KEY",
         context_window=8192,
-        provider_config={"base_url": "http://localhost:11434/api/generate"},
-        config_note="Ollama runs locally. No API key needed by default. Set OLLAMA_API_KEY if your instance requires auth."
+        provider_config={"base_url": "http://localhost:11434/api/generate"}
     ),
     "codellama": ModelConfig(
         model_id="codellama",
         provider=AIProvider.OLLAMA,
         name="CodeLlama (Ollama)",
         endpoint_url="http://localhost:11434",
-        api_key_env=None,
+        api_key_env="OLLAMA_API_KEY",
         context_window=4096,
-        provider_config={"base_url": "http://localhost:11434/api/generate"},
-        config_note="Ollama local model. No API key required."
+        provider_config={"base_url": "http://localhost:11434/api/generate"}
     ),
     "mistral": ModelConfig(
         model_id="mistral",
         provider=AIProvider.OLLAMA,
         name="Mistral (Ollama)",
         endpoint_url="http://localhost:11434",
-        api_key_env=None,
+        api_key_env="OLLAMA_API_KEY",
         context_window=8192,
-        provider_config={"base_url": "http://localhost:11434/api/generate"},
-        config_note="Ollama local model. No API key required."
+        provider_config={"base_url": "http://localhost:11434/api/generate"}
     ),
     
     # NVIDIA NIM models
@@ -105,8 +99,7 @@ PRECONFIGURED_MODELS = {
         endpoint_url="https://integrate.api.nvidia.com/v1",
         api_key_env="NVIDIA_API_KEY",
         context_window=128000,
-        provider_config={"base_url": "https://integrate.api.nvidia.com/v1"},
-        config_note="Set NVIDIA_API_KEY in your shell or .env file. Default: ~/.antikythera/vault"
+        provider_config={"base_url": "https://integrate.api.nvidia.com/v1"}
     ),
     "nvidia-llama3": ModelConfig(
         model_id="meta/llama3-70b-instruct",
@@ -115,8 +108,7 @@ PRECONFIGURED_MODELS = {
         endpoint_url="https://integrate.api.nvidia.com/v1",
         api_key_env="NVIDIA_API_KEY",
         context_window=8192,
-        provider_config={"base_url": "https://integrate.api.nvidia.com/v1"},
-        config_note="Set NVIDIA_API_KEY in your shell or .env file. Default: ~/.antikythera/vault"
+        provider_config={"base_url": "https://integrate.api.nvidia.com/v1"}
     ),
     
     # IBM Bob models
@@ -127,8 +119,7 @@ PRECONFIGURED_MODELS = {
         endpoint_url="https://bob-api.cloud.ibm.com",
         api_key_env="IBM_BOB_API_KEY",
         context_window=8192,
-        provider_config={"base_url": "https://bob-api.cloud.ibm.com/v1"},
-        config_note="Set IBM_BOB_API_KEY. You can customize this env var name in model settings."
+        provider_config={"base_url": "https://bob-api.cloud.ibm.com/v1"}
     ),
     
     # Google Gemma models
@@ -139,8 +130,7 @@ PRECONFIGURED_MODELS = {
         endpoint_url="https://generativelanguage.googleapis.com",
         api_key_env="GOOGLE_API_KEY",
         context_window=8192,
-        provider_config={"base_url": "https://generativelanguage.googleapis.com/v1beta"},
-        config_note="Set GOOGLE_API_KEY. You can customize this env var name in model settings."
+        provider_config={"base_url": "https://generativelanguage.googleapis.com/v1beta"}
     ),
     "google-gemma-2b": ModelConfig(
         model_id="google/gemma-2b-it",
@@ -149,8 +139,7 @@ PRECONFIGURED_MODELS = {
         endpoint_url="https://generativelanguage.googleapis.com",
         api_key_env="GOOGLE_API_KEY",
         context_window=2048,
-        provider_config={"base_url": "https://generativelanguage.googleapis.com/v1beta"},
-        config_note="Set GOOGLE_API_KEY. You can customize this env var name in model settings."
+        provider_config={"base_url": "https://generativelanguage.googleapis.com/v1beta"}
     )
 }
 

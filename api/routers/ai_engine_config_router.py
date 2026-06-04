@@ -13,10 +13,10 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any
 
-from ..services.ai_engine_config import get_ai_engine_config, AIEngineConfigService
+from ..services.ai_engine_config import get_ai_engine_config, AIEngineConfigService, AIEngineConfigError
 from ..models.config import ModelConfig, AIProvider
 
-router = APIRouter(prefix="/ai-engine", tags=["AI Engine Configuration"])
+router = APIRouter(tags=["AI Engine Configuration"])
 
 # Request/Response models
 class ModelConfigRequest(BaseModel):
@@ -24,10 +24,24 @@ class ModelConfigRequest(BaseModel):
     name: str = Field(..., description="Human-readable model name")
     provider: str = Field(..., description="AI provider (ollama, ibm_bob, google_gemma, nvidia_nim)")
     endpoint_url: Optional[str] = None
+    api_key_env: Optional[str] = Field(None, description="Environment variable name for API key (optional)")
     context_window: int = 4096
     temperature: float = 0.7
     max_tokens: int = 2048
     provider_config: Dict[str, Any] = Field(default_factory=dict)
+    config_note: Optional[str] = Field(None, description="Configuration notes for user reference")
+
+class UpdateModelRequest(BaseModel):
+    """Request model for updating an existing model's configuration"""
+    model_id: str = Field(..., description="Model ID to update")
+    name: Optional[str] = None
+    endpoint_url: Optional[str] = None
+    api_key_env: Optional[str] = Field(None, description="Custom environment variable name (optional)")
+    context_window: Optional[int] = None
+    temperature: Optional[float] = None
+    max_tokens: Optional[int] = None
+    provider_config: Optional[Dict[str, Any]] = None
+    config_note: Optional[str] = None
 
 class TestConnectionRequest(BaseModel):
     model_id: str = Field(..., description="Model ID to test")
@@ -131,28 +145,72 @@ async def add_model(
     Add a new AI model configuration.
     
     Supports custom models from any provider (Ollama, IBM Bob, Google Gemma, NVIDIA NIM).
+    You can customize the environment variable name for API keys.
     """
     try:
         # Map string provider to enum
         provider = AIProvider(request.provider)
+        
+        # Use custom api_key_env or generate default
+        api_key_env = request.api_key_env
+        if not api_key_env and provider != AIProvider.OLLAMA:
+            api_key_env = f"{provider.value.upper()}_API_KEY"
         
         model_config = ModelConfig(
             model_id=request.model_id,
             name=request.name,
             provider=provider,
             endpoint_url=request.endpoint_url,
-            api_key_env=f"{provider.value.upper()}_API_KEY",
+            api_key_env=api_key_env,
             context_window=request.context_window,
             temperature=request.temperature,
             max_tokens=request.max_tokens,
-            provider_config=request.provider_config
+            provider_config=request.provider_config,
+            config_note=request.config_note
         )
         
         config.add_model(model_config)
-        return {"success": True, "message": f"Model added: {request.model_id}"}
+        return {"success": True, "message": f"Model added: {request.model_id}", "api_key_env": api_key_env}
     
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"Invalid provider: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# PUT /api/ai-engine/update-model
+@router.put("/update-model")
+async def update_model(
+    request: UpdateModelRequest,
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    Update an existing AI model configuration.
+    
+    Allows you to change the environment variable name, endpoint, and other settings.
+    """
+    try:
+        updates = {
+            "name": request.name,
+            "endpoint_url": request.endpoint_url,
+            "api_key_env": request.api_key_env,
+            "context_window": request.context_window,
+            "temperature": request.temperature,
+            "max_tokens": request.max_tokens,
+            "provider_config": request.provider_config,
+            "config_note": request.config_note
+        }
+        
+        updated_model = config.update_model(request.model_id, updates)
+        
+        return {
+            "success": True, 
+            "message": f"Model updated: {request.model_id}",
+            "api_key_env": updated_model.api_key_env,
+            "config_note": updated_model.config_note
+        }
+    
+    except AIEngineConfigError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
