@@ -8,7 +8,9 @@ from api.integration_hub import IntegrationHub
 from api.secret_vault import SecretVault
 from api.escalation_manager import EscalationManager
 from api.execution_engine import ExecutionEngine
-from api.workflow_router import router as workflow_router
+from api.automation_router import router as automation_router
+from api.skill_router import router as skill_router
+from api.pipeline_router import router as pipeline_router
 from api.brain_api import router as brain_router
 from api.board_router import router as board_router
 from api.integrations_router import router as integrations_router
@@ -43,7 +45,9 @@ app.state.escalator = escalator
 app.state.engine = engine
 
 # Register Routers
-app.include_router(workflow_router)
+app.include_router(automation_router, prefix="/api/automation", tags=["Automation Compiler"])
+app.include_router(skill_router, prefix="/api/skills", tags=["Skill Brainstormer"])
+app.include_router(pipeline_router, prefix="/api/pipelines", tags=["Pipeline Management"])
 app.include_router(brain_router)
 app.include_router(board_router)
 app.include_router(integrations_router)

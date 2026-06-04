@@ -108,7 +108,23 @@ export const WorkflowArchitect = ({ itemId, onPhaseChange }: WorkflowArchitectPr
     <div className="w-full max-w-4xl mx-auto p-4">
       <div className="text-center mb-10">
         <h2 className="text-2xl font-bold text-[#231f19] mb-1">Lifecycle Orchestrator</h2>
-        <p className="text-sm text-gray-500">Atomic Task Management & Verification</p>
+        <p className="text-sm text-gray-500 mb-4">Atomic Task Management & Verification</p>
+        
+        <div className="max-w-2xl mx-auto bg-teal-50 border border-teal-100 rounded-xl p-4 text-left">
+          <div className="flex items-start gap-3">
+            <div className="p-1.5 bg-teal-100 rounded-lg text-[#0b6b72]">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            </div>
+            <div>
+              <h4 className="text-xs font-bold text-teal-900 uppercase tracking-wider mb-1">The Collaboration Track</h4>
+              <p className="text-xs text-teal-800 leading-relaxed">
+                Use this for high-stakes architectural decisions and error recovery. Move tasks through the 7-stage pipeline 
+                <span className="font-bold"> (Discovery &rarr; Handover)</span> to ensure technical alignment. 
+                Review and approve agent proposals in the Transaction Panel to advance the task safely.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <PhaseTimeline currentPhase={currentPhase} onPhaseChange={handleTransition} />

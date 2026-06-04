@@ -1,20 +1,45 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
+class AuthError(Exception):
+    """Raised when authentication is required (HTTP 401)"""
 
 class BaseAdapter(ABC):
-    """Base class for all external integration adapters."""
+    """
+    Abstract Base Class for all external platform adapters.
+    Ensures a consistent interface for the Operator Registry to call.
+    """
+
+    def __init__(self, vault):
+        """
+        Initialize with a vault instance for secure credential access.
+        """
+        self.vault = vault
 
     @abstractmethod
-    def validate_config(self, config: Dict[str, Any]) -> bool:
-        """Ensures the adapter has all required parameters in its config."""
+    async def fetch(self, resource_id: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """
+        Fetch a resource from the external platform.
+        """
         pass
 
     @abstractmethod
-    def execute(self, run_id: str, config: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        """Performs the actual API call and returns a standardized result."""
+    async def update(self, resource_id: str, payload: Dict[str, Any]) -> Any:
+        """
+        Update a resource on the external platform.
+        """
         pass
 
     @abstractmethod
-    def check_status(self, run_id: str, config: Dict[str, Any]) -> str:
-        """Returns the status of an async action: 'PENDING', 'COMPLETED', or 'FAILED'."""
+    async def create(self, payload: Dict[str, Any]) -> Any:
+        """
+        Create a new resource on the external platform.
+        """
+        pass
+
+    @abstractmethod
+    async def delete(self, resource_id: str) -> Any:
+        """
+        Delete a resource from the external platform.
+        """
         pass

@@ -144,12 +144,32 @@ export function WorkflowManager() {
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-8 bg-[#f6f4ef]">
         {!selectedTemplate ? (
-          <div className="h-full flex flex-col items-center justify-center text-[#6f6a63] text-center">
+          <div className="h-full flex flex-col items-center justify-center text-[#6f6a63] text-center max-w-md mx-auto">
             <div className="w-16 h-16 bg-[#ebe7df] rounded-full flex items-center justify-center mb-4">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#6f6a63]"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 1 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
             </div>
-            <p className="text-lg font-medium text-[#231f19]">No Template Selected</p>
-            <p className="text-sm opacity-70">Select a workflow from the sidebar to view and trigger its blueprint</p>
+            <p className="text-lg font-medium text-[#231f19] mb-2">No Template Selected</p>
+            
+            <div className="bg-white border border-[#d8d3ca] rounded-2xl p-6 shadow-sm text-left">
+              <h4 className="text-xs font-bold text-[#231f19] uppercase tracking-wider mb-3 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+                Execution Engine Guide
+              </h4>
+              <p className="text-xs text-[#6f6a63] leading-relaxed mb-4">
+                This is where you create <span className="font-bold text-[#231f19]">Automation Recipes</span>—sequences of Fetch, Evaluate, and Action steps. 
+                Perfect for recurring, low-risk tasks like GitHub PR monitoring or Jira updates.
+              </p>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-[11px] text-[#6f6a63]">
+                  <div className="w-1 h-1 bg-[#0b6b72] rounded-full" />
+                  <span><strong>Create:</strong> Use the <span className="text-[#0b6b72] font-bold">+ New</span> button to author a blueprint.</span>
+                </div>
+                <div className="flex items-center gap-2 text-[11px] text-[#6f6a63]">
+                  <div className="w-1 h-1 bg-[#0b6b72] rounded-full" />
+                  <span><strong>Run:</strong> Select a template and click <span className="text-[#0b6b72] font-bold">Trigger Workflow</span> to execute.</span>
+                </div>
+              </div>
+            </div>
           </div>
         ) : (
           <div className="max-w-4xl mx-auto space-y-8">

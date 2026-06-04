@@ -1,0 +1,11 @@
+"""pytest.ini for async support"""
+# Place this in conftest.py to enable asyncio mode
+import pytest
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an event loop for async tests."""
+    import asyncio
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
