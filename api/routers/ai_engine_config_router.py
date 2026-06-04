@@ -1,0 +1,260 @@
+"""
+AI Engine Configuration Router
+
+API endpoints for managing AI model configurations:
+- List available models
+- Test model connectivity
+- Set default model
+- Configure API keys
+- Update model settings
+"""
+
+from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+
+from ..services.ai_engine_config import get_ai_engine_config, AIEngineConfigService
+from ..models.config import ModelConfig, AIProvider
+
+router = APIRouter(prefix="/ai-engine", tags=["AI Engine Configuration"])
+
+# Request/Response models
+class ModelConfigRequest(BaseModel):
+    model_id: str = Field(..., description="Unique model identifier")
+    name: str = Field(..., description="Human-readable model name")
+    provider: str = Field(..., description="AI provider (ollama, ibm_bob, google_gemma, nvidia_nim)")
+    endpoint_url: Optional[str] = None
+    context_window: int = 4096
+    temperature: float = 0.7
+    max_tokens: int = 2048
+    provider_config: Dict[str, Any] = Field(default_factory=dict)
+
+class TestConnectionRequest(BaseModel):
+    model_id: str = Field(..., description="Model ID to test")
+
+class SetDefaultModelRequest(BaseModel):
+    model_id: str = Field(..., description="Model ID to set as default")
+
+class SetApiKeyRequest(BaseModel):
+    model_id: str = Field(..., description="Model ID")
+    api_key: str = Field(..., description="API key to set")
+
+class UpdateConfigRequest(BaseModel):
+    timeout_seconds: Optional[int] = None
+    max_retries: Optional[int] = None
+    enable_fallback: Optional[bool] = None
+    enable_caching: Optional[bool] = None
+
+# GET /api/ai-engine/config
+@router.get("/config", response_model=Dict[str, Any])
+async def get_ai_config(
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    Get current AI engine configuration.
+    
+    Returns default provider, default model, and list of all available models with their status.
+    """
+    return config.get_config_for_ui()
+
+# GET /api/ai-engine/models
+@router.get("/models", response_model=List[Dict[str, Any]])
+async def list_models(
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    List all configured AI models.
+    
+    Includes provider, name, default status, and API key status for each model.
+    """
+    return config.list_available_models()
+
+# POST /api/ai-engine/test-connection
+@router.post("/test-connection")
+async def test_model_connection(
+    request: TestConnectionRequest,
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    Test connection to a specific AI model.
+    
+    Returns success status and message with connection details.
+    """
+    result = config.test_connection(request.model_id)
+    
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result)
+    
+    return result
+
+# POST /api/ai-engine/set-default
+async def set_default_model(
+    request: SetDefaultModelRequest,
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    Set the default AI model for the engine.
+    
+    This model will be used for all AI operations unless explicitly overridden.
+    """
+    try:
+        config.set_default_model(request.model_id)
+        return {"success": True, "message": f"Default model set to {request.model_id}"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# POST /api/ai-engine/set-api-key
+@router.post("/set-api-key")
+async def set_api_key(
+    request: SetApiKeyRequest,
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    Set API key for a specific model.
+    
+    The key is stored in the environment variable associated with the model.
+    For production, use a secure secrets manager.
+    """
+    try:
+        config.set_api_key(request.model_id, request.api_key)
+        return {"success": True, "message": f"API key set for {request.model_id}"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# POST /api/ai-engine/add-model
+@router.post("/add-model")
+async def add_model(
+    request: ModelConfigRequest,
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    Add a new AI model configuration.
+    
+    Supports custom models from any provider (Ollama, IBM Bob, Google Gemma, NVIDIA NIM).
+    """
+    try:
+        # Map string provider to enum
+        provider = AIProvider(request.provider)
+        
+        model_config = ModelConfig(
+            model_id=request.model_id,
+            name=request.name,
+            provider=provider,
+            endpoint_url=request.endpoint_url,
+            api_key_env=f"{provider.value.upper()}_API_KEY",
+            context_window=request.context_window,
+            temperature=request.temperature,
+            max_tokens=request.max_tokens,
+            provider_config=request.provider_config
+        )
+        
+        config.add_model(model_config)
+        return {"success": True, "message": f"Model added: {request.model_id}"}
+    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid provider: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# DELETE /api/ai-engine/remove-model/{model_id}
+@router.delete("/remove-model/{model_id}")
+async def remove_model(
+    model_id: str,
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    Remove a model configuration.
+    
+    Note: Cannot remove the default model. Change default first.
+    """
+    try:
+        if model_id == config.config.default_model_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot remove default model. Set a different default first."
+            )
+        
+        config.remove_model(model_id)
+        return {"success": True, "message": f"Model removed: {model_id}"}
+    
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# POST /api/ai-engine/update-settings
+@router.post("/update-settings")
+async def update_engine_settings(
+    request: UpdateConfigRequest,
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    Update AI engine global settings.
+    
+    Configure timeout, retries, fallback behavior, and caching.
+    """
+    if request.timeout_seconds is not None:
+        config.config.timeout_seconds = request.timeout_seconds
+    if request.max_retries is not None:
+        config.config.max_retries = request.max_retries
+    if request.enable_fallback is not None:
+        config.config.enable_fallback = request.enable_fallback
+    if request.enable_caching is not None:
+        config.config.enable_caching = request.enable_caching
+    
+    config.save_config()
+    
+    return {"success": True, "message": "Settings updated"}
+
+# GET /api/ai-engine/providers
+@router.get("/providers")
+async def list_providers():
+    """
+    List all supported AI providers.
+    
+    Returns provider names and their supported features.
+    """
+    providers = [
+        {
+            "id": "ollama",
+            "name": "Ollama",
+            "description": "Local LLM server",
+            "requires_api_key": False,
+            "features": ["text", "completion", "local"]
+        },
+        {
+            "id": "nvidia_nim",
+            "name": "NVIDIA NIM",
+            "description": "NVIDIA Inference Microservices",
+            "requires_api_key": True,
+            "features": ["text", "completion", "chat"]
+        },
+        {
+            "id": "google_gemma",
+            "name": "Google Gemma",
+            "description": "Google Gemma models via Generative Language API",
+            "requires_api_key": True,
+            "features": ["text", "completion", "chat"]
+        },
+        {
+            "id": "ibm_bob",
+            "name": "IBM Bob",
+            "description": "IBM Bob AI platform",
+            "requires_api_key": True,
+            "features": ["text", "completion"]
+        },
+        {
+            "id": "openai",
+            "name": "OpenAI",
+            "description": "OpenAI GPT models",
+            "requires_api_key": True,
+            "features": ["text", "completion", "chat", "vision"]
+        },
+        {
+            "id": "anthropic",
+            "name": "Anthropic",
+            "description": "Anthropic Claude models",
+            "requires_api_key": True,
+            "features": ["text", "completion", "chat"]
+        }
+    ]
+    
+    return {"providers": providers}
