@@ -1,4 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import { 
+  Settings, 
+  Cpu, 
+  CheckCircle, 
+  XCircle, 
+  Loader, 
+  Plus, 
+  Trash2, 
+  RefreshCw,
+  Key,
+  Zap,
+  Server,
+  Globe,
+  Database
+} from 'lucide-react';
 
 interface ModelConfig {
   model_id: string;
@@ -8,6 +23,8 @@ interface ModelConfig {
   api_key_set: boolean;
   endpoint: string | null;
   context_window: number;
+  temperature: number;
+  max_tokens: number;
 }
 
 interface AIConfig {
@@ -22,32 +39,90 @@ interface AIConfig {
   };
 }
 
+interface ProviderInfo {
+  id: string;
+  name: string;
+  description: string;
+  requires_api_key: boolean;
+  features: string[];
+  icon: React.ReactNode;
+  color: string;
+}
+
 const AIEngineSettings: React.FC = () => {
   const [config, setConfig] = useState<AIConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'models' | 'providers' | 'settings'>('models');
+  const [activeTab, setActiveTab] = useState<'overview' | 'models' | 'providers' | 'settings'>('overview');
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [newApiKey, setNewApiKey] = useState<string>('');
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string; testing: boolean }>>({});
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [showApiKeyModal, setShowApiKeyModal] = useState<string | null>(null);
+  const [isAddingModel, setIsAddingModel] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  // Provider metadata
+  const providers: ProviderInfo[] = [
+    {
+      id: 'ollama',
+      name: 'Ollama',
+      description: 'Local LLM server - No API key required',
+      requires_api_key: false,
+      features: ['local', 'text', 'completion', 'cost-free'],
+      icon: <Server className="w-5 h-5" />,
+      color: 'bg-green-500'
+    },
+    {
+      id: 'nvidia_nim',
+      name: 'NVIDIA NIM',
+      description: 'High-performance inference microservices',
+      requires_api_key: true,
+      features: ['cloud', 'text', 'completion', 'chat', 'fast'],
+      icon: <Zap className="w-5 h-5" />,
+      color: 'bg-yellow-500'
+    },
+    {
+      id: 'google_gemma',
+      name: 'Google Gemma',
+      description: 'Google\'s lightweight open models',
+      requires_api_key: true,
+      features: ['cloud', 'text', 'completion', 'chat'],
+      icon: <Globe className="w-5 h-5" />,
+      color: 'bg-blue-500'
+    },
+    {
+      id: 'ibm_bob',
+      name: 'IBM Bob',
+      description: 'IBM\'s enterprise AI platform',
+      requires_api_key: true,
+      features: ['cloud', 'text', 'completion', 'enterprise'],
+      icon: <Database className="w-5 h-5" />,
+      color: 'bg-purple-500'
+    }
+  ];
 
   // Fetch config
   useEffect(() => {
-    fetch('/api/ai-engine/config')
-      .then((res) => res.json())
-      .then((data) => {
-        setConfig(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
+    fetchConfig();
   }, []);
 
+  const fetchConfig = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/ai-engine/config');
+      const data = await res.json();
+      setConfig(data);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const testConnection = async (modelId: string) => {
-    setTestResult(null);
+    setTestResults(prev => ({ ...prev, [modelId]: { ...prev[modelId], testing: true } }));
+    
     try {
       const res = await fetch('/api/ai-engine/test-connection', {
         method: 'POST',
@@ -55,13 +130,24 @@ const AIEngineSettings: React.FC = () => {
         body: JSON.stringify({ model_id: modelId })
       });
       const data = await res.json();
-      if (res.ok) {
-        setTestResult({ success: true, message: data.message });
-      } else {
-        setTestResult({ success: false, message: data.detail.message || 'Connection failed' });
-      }
+      
+      setTestResults(prev => ({
+        ...prev,
+        [modelId]: {
+          success: res.ok,
+          message: res.ok ? data.message : data.detail?.message || 'Connection failed',
+          testing: false
+        }
+      }));
     } catch (err: any) {
-      setTestResult({ success: false, message: err.message });
+      setTestResults(prev => ({
+        ...prev,
+        [modelId]: {
+          success: false,
+          message: err.message,
+          testing: false
+        }
+      }));
     }
   };
 
@@ -72,11 +158,14 @@ const AIEngineSettings: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model_id: modelId })
       });
+      
       if (res.ok) {
-        // Refresh config
-        const configRes = await fetch('/api/ai-engine/config');
-        const data = await configRes.json();
-        setConfig(data);
+        await fetchConfig();
+        // Show success
+        alert(`Default model set to ${modelId}`);
+      } else {
+        const data = await res.json();
+        alert(`Failed: ${data.detail}`);
       }
     } catch (err: any) {
       alert('Failed to set default model: ' + err.message);
@@ -84,239 +173,502 @@ const AIEngineSettings: React.FC = () => {
   };
 
   const saveApiKey = async (modelId: string) => {
+    const apiKey = apiKeys[modelId];
+    if (!apiKey) {
+      alert('Please enter an API key');
+      return;
+    }
+
     try {
       const res = await fetch('/api/ai-engine/set-api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_id: modelId, api_key: newApiKey })
+        body: JSON.stringify({ model_id: modelId, api_key: apiKey })
       });
+
       if (res.ok) {
-        setShowApiKeyInput(false);
-        setNewApiKey('');
-        // Refresh config
-        const configRes = await fetch('/api/ai-engine/config');
-        const data = await configRes.json();
-        setConfig(data);
+        setShowApiKeyModal(null);
+        setApiKeys(prev => {
+          const newKeys = { ...prev };
+          delete newKeys[modelId];
+          return newKeys;
+        });
+        await fetchConfig();
+        alert('API key saved successfully');
+      } else {
+        const data = await res.json();
+        alert(`Failed: ${data.detail}`);
       }
     } catch (err: any) {
       alert('Failed to save API key: ' + err.message);
     }
   };
 
-  if (loading) return <div className="p-4">Loading AI Engine configuration...</div>;
-  if (error) return <div className="p-4 text-red-600">Error: {error}</div>;
-  if (!config) return <div className="p-4">No configuration found</div>;
+  const getProviderInfo = (providerId: string) => {
+    return providers.find(p => p.id === providerId) || providers[0];
+  };
 
-  return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <h2 className="text-2xl font-bold mb-6">AI Engine Settings</h2>
-      
-      {/* Tabs */}
-      <div className="flex border-b mb-6">
-        <button
-          className={`px-4 py-2 ${activeTab === 'models' ? 'border-b-2 border-blue-500 font-bold' : ''}`}
-          onClick={() => setActiveTab('models')}
+  // Loading state
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader className="w-8 h-8 animate-spin text-blue-500" />
+        <span className="ml-3 text-gray-600">Loading AI Engine configuration...</span>
+      </div>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div className="flex items-center text-red-700">
+          <XCircle className="w-5 h-5 mr-2" />
+          <span>Error loading configuration: {error}</span>
+        </div>
+        <button 
+          onClick={fetchConfig}
+          className="mt-3 px-4 py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 transition"
         >
-          Models ({config.models.length})
-        </button>
-        <button
-          className={`px-4 py-2 ${activeTab === 'providers' ? 'border-b-2 border-blue-500 font-bold' : ''}`}
-          onClick={() => setActiveTab('providers')}
-        >
-          Providers
-        </button>
-        <button
-          className={`px-4 py-2 ${activeTab === 'settings' ? 'border-b-2 border-blue-500 font-bold' : ''}`}
-          onClick={() => setActiveTab('settings')}
-        >
-          Connection Settings
+          Retry
         </button>
       </div>
+    );
+  }
+
+  if (!config) {
+    return <div className="p-4 text-gray-600">No configuration found</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">AI Engine Configuration</h2>
+          <p className="text-gray-600 mt-1">Manage AI models, providers, and connection settings</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={fetchConfig}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+          <button
+            onClick={() => setIsAddingModel(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+          >
+            <Plus className="w-4 h-4" />
+            Add Model
+          </button>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200">
+        {(['overview', 'models', 'providers', 'settings'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`px-6 py-3 font-medium transition-colors border-b-2 ${
+              activeTab === tab
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
+            }`}
+          >
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Overview Tab */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-white border rounded-lg p-4">
+              <div className="text-gray-600 text-sm">Total Models</div>
+              <div className="text-2xl font-bold mt-1">{config.models.length}</div>
+            </div>
+            <div className="bg-white border rounded-lg p-4">
+              <div className="text-gray-600 text-sm">Default Model</div>
+              <div className="text-xl font-bold mt-1 text-blue-600 truncate">
+                {config.default_model_id}
+              </div>
+            </div>
+            <div className="bg-white border rounded-lg p-4">
+              <div className="text-gray-600 text-sm">Configured Providers</div>
+              <div className="text-2xl font-bold mt-1">
+                {new Set(config.models.map(m => m.provider)).size}
+              </div>
+            </div>
+            <div className="bg-white border rounded-lg p-4">
+              <div className="text-gray-600 text-sm">API Keys Set</div>
+              <div className="text-2xl font-bold mt-1 text-green-600">
+                {config.models.filter(m => m.api_key_set || m.provider === 'ollama').length}/{config.models.length}
+              </div>
+            </div>
+          </div>
+
+          {/* Default Model */}
+          {config.models.find(m => m.is_default) && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm text-blue-700 font-medium">Current Default Model</div>
+                  <div className="text-lg font-bold text-blue-900 mt-1">
+                    {config.models.find(m => m.is_default)?.name}
+                  </div>
+                  <div className="text-sm text-blue-700 mt-1">
+                    {config.models.find(m => m.is_default)?.provider.toUpperCase()} • 
+                    Context: {config.models.find(m => m.is_default)?.context_window} tokens
+                  </div>
+                </div>
+                <Settings className="w-8 h-8 text-blue-300" />
+              </div>
+            </div>
+          )}
+
+          {/* Quick Actions */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white border rounded-lg p-4">
+              <h3 className="font-semibold mb-2">Quick Start</h3>
+              <ul className="text-sm space-y-2 text-gray-600">
+                <li className="flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  <span>Ollama: No API key required - Just install and run</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Key className="w-4 h-4 text-blue-500" />
+                  <span>Cloud providers: Set API keys to enable</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-yellow-500" />
+                  <span>Test connections before using in pipelines</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="bg-white border rounded-lg p-4">
+              <h3 className="font-semibold mb-2">Connection Status</h3>
+              <div className="space-y-2">
+                {Array.from(new Set(config.models.map(m => m.provider))).map(provider => {
+                  const providerInfo = getProviderInfo(provider);
+                  return (
+                    <div key={provider} className="flex items-center gap-2 text-sm">
+                      <div className={`w-2 h-2 rounded-full ${providerInfo.color}`} />
+                      <span className="capitalize">{provider.replace('_', ' ')}</span>
+                      <span className="text-gray-500">
+                        ({config.models.filter(m => m.provider === provider).length} models)
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Models Tab */}
       {activeTab === 'models' && (
-        <div>
-          <h3 className="text-lg font-semibold mb-4">Configured Models</h3>
-          <div className="grid gap-4">
-            {config.models.map((model) => (
+        <div className="space-y-4">
+          {config.models.map((model) => {
+            const providerInfo = getProviderInfo(model.provider);
+            const testResult = testResults[model.model_id];
+            
+            return (
               <div
                 key={model.model_id}
-                className={`border rounded-lg p-4 ${model.is_default ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}`}
+                className={`border rounded-lg p-4 transition-all ${
+                  model.is_default 
+                    ? 'border-blue-400 bg-blue-50 shadow-md' 
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
               >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-bold text-lg">{model.name}</h4>
-                      {model.is_default && (
-                        <span className="bg-blue-500 text-white text-xs px-2 py-1 rounded">DEFAULT</span>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className={`p-2 rounded-lg ${providerInfo.color}`}>
+                        {providerInfo.icon}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-lg">{model.name}</h4>
+                        {model.is_default && (
+                          <span className="inline-block bg-blue-500 text-white text-xs px-2 py-0.5 rounded mt-1">
+                            DEFAULT
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm text-gray-600 mt-3">
+                      <div><strong>Provider:</strong> {providerInfo.name}</div>
+                      <div><strong>Context:</strong> {model.context_window} tokens</div>
+                      <div><strong>Temperature:</strong> {model.temperature}</div>
+                      <div><strong>Max Tokens:</strong> {model.max_tokens}</div>
+                      {model.endpoint && (
+                        <div className="col-span-2 truncate">
+                          <strong>Endpoint:</strong> {model.endpoint}
+                        </div>
                       )}
                     </div>
-                    <p className="text-sm text-gray-600 mt-1">
-                      Provider: {model.provider.toUpperCase()}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      Context: {model.context_window} tokens
-                    </p>
-                    {model.endpoint && (
-                      <p className="text-sm text-gray-500 truncate mt-1">
-                        {model.endpoint}
-                      </p>
+
+                    {!model.api_key_set && model.provider !== 'ollama' && (
+                      <div className="mt-3 flex items-center gap-2 text-amber-600 text-sm">
+                        <Key className="w-4 h-4" />
+                        <span>API key not configured</span>
+                      </div>
                     )}
                   </div>
-                  
-                  <div className="flex gap-2">
+
+                  <div className="flex flex-col gap-2">
+                    <button
+                      onClick={() => testConnection(model.model_id)}
+                      disabled={testResult?.testing}
+                      className={`px-3 py-1.5 rounded text-sm flex items-center gap-1 transition ${
+                        testResult?.testing
+                          ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                          : testResult?.success
+                          ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                          : testResult
+                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
+                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                      }`}
+                    >
+                      {testResult?.testing ? (
+                        <>
+                          <Loader className="w-3 h-3 animate-spin" />
+                          Testing...
+                        </>
+                      ) : testResult?.success ? (
+                        <>
+                          <CheckCircle className="w-3 h-3" />
+                          Connected
+                        </>
+                      ) : testResult ? (
+                        <>
+                          <XCircle className="w-3 h-3" />
+                          Failed
+                        </>
+                      ) : (
+                        <>
+                          <RefreshCw className="w-3 h-3" />
+                          Test
+                        </>
+                      )}
+                    </button>
+
                     {!model.api_key_set && model.provider !== 'ollama' && (
                       <button
-                        className="bg-yellow-500 text-white px-3 py-1 rounded text-sm"
-                        onClick={() => {
-                          setSelectedModel(model.model_id);
-                          setShowApiKeyInput(true);
-                        }}
+                        onClick={() => setShowApiKeyModal(model.model_id)}
+                        className="px-3 py-1.5 bg-amber-100 text-amber-700 rounded text-sm hover:bg-amber-200 transition flex items-center gap-1"
                       >
-                        Set API Key
+                        <Key className="w-3 h-3" />
+                        Set Key
                       </button>
                     )}
-                    <button
-                      className="bg-green-500 text-white px-3 py-1 rounded text-sm"
-                      onClick={() => testConnection(model.model_id)}
-                    >
-                      Test Connection
-                    </button>
+
                     {!model.is_default && (
                       <button
-                        className="bg-blue-500 text-white px-3 py-1 rounded text-sm"
                         onClick={() => setDefaultModel(model.model_id)}
+                        className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-sm hover:bg-blue-200 transition flex items-center gap-1"
                       >
+                        <Settings className="w-3 h-3" />
                         Set Default
                       </button>
                     )}
                   </div>
                 </div>
-                
-                {/* API Key Input */}
-                {showApiKeyInput && selectedModel === model.model_id && (
-                  <div className="mt-3">
-                    <input
-                      type="password"
-                      placeholder="Enter API key"
-                      className="border rounded px-3 py-2 mr-2"
-                      value={newApiKey}
-                      onChange={(e) => setNewApiKey(e.target.value)}
-                    />
-                    <button
-                      className="bg-green-500 text-white px-3 py-2 rounded"
-                      onClick={() => saveApiKey(model.model_id)}
-                    >
-                      Save
-                    </button>
-                    <button
-                      className="ml-2 text-gray-600"
-                      onClick={() => {
-                        setShowApiKeyInput(false);
-                        setNewApiKey('');
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                )}
-                
-                {/* Test Result */}
-                {testResult && (
-                  <div className={`mt-3 p-2 rounded ${testResult.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+
+                {/* Test Result Message */}
+                {testResult && !testResult.testing && (
+                  <div className={`mt-3 p-2 rounded text-sm ${
+                    testResult.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}>
                     {testResult.message}
                   </div>
                 )}
               </div>
-            ))}
-          </div>
-          
-          <div className="mt-6">
-            <h4 className="font-semibold mb-2">Quick Start</h4>
-            <div className="bg-gray-100 p-4 rounded text-sm">
-              <p className="mb-2"><strong>Ollama (Local):</strong> No API key required. Ensure Ollama is running on localhost:11434</p>
-              <p className="mb-2"><strong>NVIDIA NIM:</strong> Set NVIDIA_API_KEY environment variable</p>
-              <p className="mb-2"><strong>Google Gemma:</strong> Set GOOGLE_API_KEY environment variable</p>
-              <p><strong>IBM Bob:</strong> Set IBM_BOB_API_KEY environment variable</p>
+            );
+          })}
+
+          {config.models.length === 0 && (
+            <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed">
+              <Cpu className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+              <h3 className="text-lg font-semibold text-gray-700">No models configured</h3>
+              <p className="text-gray-500 mt-1">Add a model to get started with AI operations</p>
+              <button
+                onClick={() => setIsAddingModel(true)}
+                className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+              >
+                Add Your First Model
+              </button>
             </div>
-          </div>
+          )}
         </div>
       )}
 
       {/* Providers Tab */}
       {activeTab === 'providers' && (
-        <div>
-          <h3 className="text-lg font-semibold mb-4">Supported AI Providers</h3>
-          <div className="grid gap-4">
-            {[
-              { id: 'ollama', name: 'Ollama', desc: 'Local LLM server', local: true },
-              { id: 'nvidia_nim', name: 'NVIDIA NIM', desc: 'NVIDIA Inference Microservices', cloud: true },
-              { id: 'google_gemma', name: 'Google Gemma', desc: 'Google Gemma models', cloud: true },
-              { id: 'ibm_bob', name: 'IBM Bob', desc: 'IBM Bob AI platform', cloud: true },
-              { id: 'openai', name: 'OpenAI', desc: 'GPT models', cloud: true },
-              { id: 'anthropic', name: 'Anthropic', desc: 'Claude models', cloud: true },
-            ].map((provider) => (
-              <div key={provider.id} className="border rounded-lg p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <h4 className="font-bold">{provider.name}</h4>
-                  {provider.local && (
-                    <span className="bg-green-100 text-green-800 text-xs px-2 py-1 rounded">LOCAL</span>
-                  )}
-                  {provider.cloud && (
-                    <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">CLOUD</span>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {providers.map((provider) => {
+            const modelCount = config.models.filter(m => m.provider === provider.id).length;
+            const hasApiKey = config.models.some(m => m.provider === provider.id && m.api_key_set);
+            
+            return (
+              <div key={provider.id} className="border rounded-lg p-4 hover:shadow-md transition">
+                <div className="flex items-start gap-3 mb-3">
+                  <div className={`p-2 rounded-lg ${provider.color}`}>
+                    {provider.icon}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-bold">{provider.name}</h3>
+                    <p className="text-sm text-gray-600 mt-1">{provider.description}</p>
+                  </div>
+                  {provider.requires_api_key && (
+                    <div className={`px-2 py-1 rounded text-xs ${
+                      hasApiKey ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+                    }`}>
+                      {hasApiKey ? 'Configured' : 'Key Required'}
+                    </div>
                   )}
                 </div>
-                <p className="text-sm text-gray-600">{provider.desc}</p>
+
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {provider.features.map((feature) => (
+                    <span
+                      key={feature}
+                      className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded capitalize"
+                    >
+                      {feature}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="text-sm text-gray-600">
+                  <strong>{modelCount}</strong> {modelCount === 1 ? 'model' : 'models'} configured
+                </div>
               </div>
-            ))}
-          </div>
+            );
+          })}
         </div>
       )}
 
       {/* Settings Tab */}
       {activeTab === 'settings' && (
-        <div>
-          <h3 className="text-lg font-semibold mb-4">Connection Settings</h3>
-          <div className="grid gap-4 max-w-md">
+        <div className="bg-white border rounded-lg p-6 max-w-2xl">
+          <h3 className="text-lg font-bold mb-4">Connection Settings</h3>
+          
+          <div className="space-y-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Timeout (seconds)</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Request Timeout (seconds)
+              </label>
               <input
                 type="number"
-                className="border rounded px-3 py-2 w-full"
                 defaultValue={config.connection_settings.timeout_seconds}
+                min="5"
+                max="300"
+                className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
+
             <div>
-              <label className="block text-sm font-medium mb-1">Max Retries</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Maximum Retries
+              </label>
               <input
                 type="number"
-                className="border rounded px-3 py-2 w-full"
                 defaultValue={config.connection_settings.max_retries}
+                min="0"
+                max="10"
+                className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="flex items-center gap-3">
               <input
                 type="checkbox"
                 id="fallback"
                 defaultChecked={config.connection_settings.enable_fallback}
-                className="h-4 w-4"
+                className="w-4 h-4 text-blue-600"
               />
-              <label htmlFor="fallback">Enable fallback to other providers</label>
+              <label htmlFor="fallback" className="text-sm">
+                Enable fallback to other providers on failure
+              </label>
             </div>
-            <div className="flex items-center gap-2">
+
+            <div className="flex items-center gap-3">
               <input
                 type="checkbox"
                 id="caching"
                 defaultChecked={config.connection_settings.enable_caching}
-                className="h-4 w-4"
+                className="w-4 h-4 text-blue-600"
               />
-              <label htmlFor="caching">Enable response caching</label>
+              <label htmlFor="caching" className="text-sm">
+                Enable response caching (improves performance)
+              </label>
             </div>
           </div>
-          
-          <button className="mt-4 bg-blue-500 text-white px-4 py-2 rounded">
-            Save Settings
-          </button>
+
+          <div className="mt-6 pt-6 border-t">
+            <button className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">
+              Save Settings
+            </button>
+            <p className="text-xs text-gray-500 mt-2">
+              Changes will apply to all future AI operations
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* API Key Modal */}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-bold mb-4">
+              Set API Key for {config?.models.find(m => m.model_id === showApiKeyModal)?.name}
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Enter your API key for {getProviderInfo(config?.models.find(m => m.model_id === showApiKeyModal)?.provider || '').name}
+            </p>
+            
+            <input
+              type="password"
+              placeholder="••••••••••••••••"
+              className="w-full border rounded px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={apiKeys[showApiKeyModal] || ''}
+              onChange={(e) => setApiKeys({ ...apiKeys, [showApiKeyModal]: e.target.value })}
+            />
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowApiKeyModal(null)}
+                className="flex-1 px-4 py-2 border rounded hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => saveApiKey(showApiKeyModal)}
+                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+              >
+                Save Key
+              </button>
+            </div>
+
+            <div className="mt-4 text-xs text-gray-500">
+              <p className="font-medium mb-1">Environment Variable:</p>
+              <code className="bg-gray-100 px-2 py-1 rounded">
+                {showApiKeyModal === 'llama3.1' ? 'OLLAMA_API_KEY' : 
+                 showApiKeyModal.includes('nvidia') ? 'NVIDIA_API_KEY' :
+                 showApiKeyModal.includes('google') ? 'GOOGLE_API_KEY' :
+                 'IBM_BOB_API_KEY'}
+              </code>
+            </div>
+          </div>
         </div>
       )}
     </div>

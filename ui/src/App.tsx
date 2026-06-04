@@ -16,13 +16,14 @@ import { CreateItemModal } from './components/modals/CreateItemModal';
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
 import { AutomationStudio } from './components/AutomationStudio';
 import { WorkflowModal, IntegrationsModal, BuilderModal } from './components/modals/ManagementModals';
+import AIEngineSettings from './components/AIEngineSettings';
 
 const STAGES = [
   "INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE",
   "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"
 ];
 
-type TabType = 'KANBAN' | 'PIPELINE' | 'STUDIO' | 'WORKFLOWS' | 'INTEGRATIONS';
+type TabType = 'KANBAN' | 'PIPELINE' | 'STUDIO' | 'WORKFLOWS' | 'INTEGRATIONS' | 'AI_ENGINE';
 
 interface PipelineTab {
   type: 'PIPELINE';
@@ -46,7 +47,11 @@ interface IntegrationsTab {
   type: 'INTEGRATIONS';
 }
 
-type Tab = KanbanTab | PipelineTab | StudioTab | WorkflowsTab | IntegrationsTab;
+interface AIEngineTab {
+  type: 'AI_ENGINE';
+}
+
+type Tab = KanbanTab | PipelineTab | StudioTab | WorkflowsTab | IntegrationsTab | AIEngineTab;
 
 export default function App() {
   const { 
@@ -189,6 +194,8 @@ export default function App() {
       return <div className="p-8 text-center text-gray-500">Workflows section coming soon</div>;
     } else if (activeTab.type === 'INTEGRATIONS') {
       return <div className="p-8 text-center text-gray-500">Integrations section coming soon</div>;
+    } else if (activeTab.type === 'AI_ENGINE') {
+      return <AIEngineSettings />;
     }
   };
 
@@ -311,6 +318,21 @@ export default function App() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
                 </svg>
                 Integrations
+              </button>
+
+              {/* AI Engine Tab */}
+              <button
+                onClick={() => setActiveTab({ type: 'AI_ENGINE' })}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
+                  activeTab.type === 'AI_ENGINE'
+                    ? 'bg-[#231f19] text-white'
+                    : 'text-[#6f6a63] hover:bg-gray-100'
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                AI Engine
               </button>
 
               {/* Dynamic Pipeline Tabs */}
