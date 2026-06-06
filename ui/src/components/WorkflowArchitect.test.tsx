@@ -6,6 +6,37 @@ import { LifecyclePhase } from '../types';
 describe('WorkflowArchitect', () => {
   const mockOnPhaseChange = vi.fn();
 
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/orchestrator/transition')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success' }),
+        } as Response);
+      }
+      if (url.includes('/api/orchestrator/')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            current_phase: 'DISCOVERY',
+            proposal: {
+              id: 'tx-8821',
+              status: 'PROPOSED',
+              context: ['file1.txt', 'file2.txt'],
+              plan: 'Mock plan details',
+              verification: 'Mock verification details'
+            }
+          }),
+        } as Response);
+      }
+      return Promise.reject(new Error('Unknown URL: ' + url));
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it('renders the correct current phase and goal', () => {
     render(<WorkflowArchitect currentPhase="DISCOVERY" onPhaseChange={mockOnPhaseChange} />);
     

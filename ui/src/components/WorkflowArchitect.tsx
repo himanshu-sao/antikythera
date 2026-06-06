@@ -4,8 +4,10 @@ import { TransactionPanel } from './TransactionPanel';
 import { apiUrl } from '../config';
 
 interface WorkflowArchitectProps {
-  itemId: string;
+  itemId?: string;
   onPhaseChange: (phase: LifecyclePhase) => void;
+  currentPhase?: LifecyclePhase;
+  initialProposal?: TransactionProposal | null;
 }
 
 const PhaseTimeline = ({ currentPhase, onPhaseChange }: { currentPhase: LifecyclePhase, onPhaseChange: (p: LifecyclePhase) => void }) => {
@@ -59,10 +61,27 @@ const GoalDisplay = ({ phase }: { phase: LifecyclePhase }) => {
   );
 };
 
-export const WorkflowArchitect = ({ itemId, onPhaseChange }: WorkflowArchitectProps) => {
-  const [currentPhase, setCurrentPhase] = useState<LifecyclePhase>('DISCOVERY');
-  const [proposal, setProposal] = useState<TransactionProposal | null>(null);
+export const WorkflowArchitect = ({ 
+  itemId = 'default', 
+  onPhaseChange, 
+  currentPhase: propPhase, 
+  initialProposal 
+}: WorkflowArchitectProps) => {
+  const [currentPhase, setCurrentPhase] = useState<LifecyclePhase>(propPhase || 'DISCOVERY');
+  const [proposal, setProposal] = useState<TransactionProposal | null>(initialProposal || null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (propPhase) {
+      setCurrentPhase(propPhase);
+    }
+  }, [propPhase]);
+
+  useEffect(() => {
+    if (initialProposal !== undefined) {
+      setProposal(initialProposal);
+    }
+  }, [initialProposal]);
 
   useEffect(() => {
     fetchOrchestratorState();

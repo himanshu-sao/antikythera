@@ -1,8 +1,38 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BuilderModal } from './ManagementModals';
 
 describe('BuilderModal Integration', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/api/orchestrator/transition')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ status: 'success' }),
+        } as Response);
+      }
+      if (url.includes('/api/orchestrator/')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            current_phase: 'DISCOVERY',
+            proposal: {
+              id: 'tx-8821',
+              status: 'PROPOSED',
+              context: ['file1.txt', 'file2.txt'],
+              plan: 'Mock plan details',
+              verification: 'Mock verification details'
+            }
+          }),
+        } as Response);
+      }
+      return Promise.reject(new Error('Unknown URL: ' + url));
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
   it('updates the WorkflowArchitect goal when the phase is changed via the timeline', () => {
     render(<BuilderModal isOpen={true} onClose={vi.fn()} />);
     

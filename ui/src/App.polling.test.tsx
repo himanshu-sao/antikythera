@@ -33,10 +33,19 @@ describe('App Real-time Polling', () => {
   });
 
   it('polls the state API every 10 seconds', async () => {
-    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockState,
-    } as Response);
+    const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (url) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/pipelines')) {
+        return {
+          ok: true,
+          json: async () => [],
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => mockState,
+      } as Response;
+    });
 
     render(<App />);
 
@@ -58,10 +67,19 @@ describe('App Real-time Polling', () => {
   }, 20000);
 
   it('stops polling when document is hidden', async () => {
-    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockState,
-    } as Response);
+    const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (url) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/pipelines')) {
+        return {
+          ok: true,
+          json: async () => [],
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => mockState,
+      } as Response;
+    });
 
     render(<App />);
 
@@ -80,10 +98,19 @@ describe('App Real-time Polling', () => {
   }, 20000);
 
   it('resumes polling when document becomes visible again', async () => {
-    const fetchMock = vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => mockState,
-    } as Response);
+    const fetchMock = vi.spyOn(global, 'fetch').mockImplementation(async (url) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/api/pipelines')) {
+        return {
+          ok: true,
+          json: async () => [],
+        } as Response;
+      }
+      return {
+        ok: true,
+        json: async () => mockState,
+      } as Response;
+    });
 
     render(<App />);
 

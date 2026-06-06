@@ -47,22 +47,22 @@ describe('ArtifactViewer', () => {
 
   it('renders empty state when no artifacts are found', async () => {
     // Mock successful but empty response
-    50|    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: any) => {
-    51|      const urlStr = typeof url === 'string' ? url : url.toString();
-    52|      if (urlStr.includes('/api/item/TEST-ITEM/artifact/')) {
-    53|        return Promise.resolve({
-    54|          ok: false, // No artifacts found
-    55|          text: async () => '',
-    56|        } as Response);
-    57|      }
-    58|      if (urlStr.includes('/api/item/TEST-ITEM')) {
-    59|        return Promise.resolve({
-    60|          ok: true,
-    61|          json: async () => ({ id: 'TEST-ITEM', stage: 'DEFAULT', priority: 'low' }),
-    62|        } as Response);
-    63|      }
-    64|      return Promise.reject(new Error('Unknown URL'));
-    65|    }));
+    vi.stubGlobal('fetch', vi.fn().mockImplementation((url: any) => {
+      const urlStr = typeof url === 'string' ? url : url.toString();
+      if (urlStr.includes('/api/item/TEST-ITEM/artifact/')) {
+        return Promise.resolve({
+          ok: false, // No artifacts found
+          text: async () => '',
+        } as Response);
+      }
+      if (urlStr.includes('/api/item/TEST-ITEM')) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ id: 'TEST-ITEM', stage: 'DEFAULT', priority: 'low' }),
+        } as Response);
+      }
+      return Promise.reject(new Error('Unknown URL'));
+    }));
 
     render(<ArtifactViewer itemId={itemId} onClose={mockOnClose} />);
     

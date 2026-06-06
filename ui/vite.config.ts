@@ -7,6 +7,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.tsx',
+    exclude: ['**/node_modules/**', '**/dist/**', '**/e2e-tests/**', '**/.{idea,git,cache,output,temp}/**'],
   },
   server: {
     proxy: {
