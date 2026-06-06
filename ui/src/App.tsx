@@ -1,21 +1,44 @@
 import React, { useState, useEffect } from 'react';
-import { DndContext, DragEndEvent, DragStartEvent, PointerSensor, useSensor, useSensors, DragOverlay } from '@dnd-kit/core';
+import { 
+  DndContext, 
+  DragEndEvent, 
+  DragStartEvent, 
+  PointerSensor, 
+  useSensor, 
+  useSensors, 
+  DragOverlay 
+} from '@dnd-kit/core';
+import { 
+  Home, 
+  LayoutGrid, 
+  PenLine, 
+  Workflow, 
+  Globe, 
+  Cpu, 
+  Settings, 
+  Plus, 
+  RefreshCw, 
+  User, 
+  ChevronDown,
+  X
+} from 'lucide-react';
 import { KanbanColumn, KanbanCardContent } from './components/KanbanColumn';
 import { ArtifactViewer } from './components/ArtifactViewer';
-import { WorkflowDiagram } from './components/WorkflowDiagram';
 import { SkeletonBoard } from './components/SkeletonBoard';
 import { CardEditor } from './components/CardEditor';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { VirtualBoard } from './components/VirtualBoard';
 import { Toaster } from 'react-hot-toast';
 import { PipelineDashboard } from './components/PipelineDashboard';
-import type { Pipeline, PipelineItem, PipelineState } from './types';
+import { WorkflowManager } from './components/WorkflowManager';
+import { IntegrationsManager } from './components/IntegrationsManager';
+import type { Pipeline, PipelineState } from './types';
 import { apiUrl } from './config';
 import { usePipelineState } from './hooks/usePipelineState';
 import { CreateItemModal } from './components/modals/CreateItemModal';
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
 import { AutomationStudio } from './components/AutomationStudio';
-import { WorkflowModal, IntegrationsModal, BuilderModal } from './components/modals/ManagementModals';
+import { BuilderModal } from './components/modals/ManagementModals';
 import AIEngineSettings from './components/AIEngineSettings';
 
 const STAGES = [
@@ -23,35 +46,13 @@ const STAGES = [
   "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"
 ];
 
-type TabType = 'KANBAN' | 'PIPELINE' | 'STUDIO' | 'WORKFLOWS' | 'INTEGRATIONS' | 'AI_ENGINE';
+type TabType = 'KANBAN' | 'PIPELINE' | 'STUDIO' | 'WORKFLOWS' | 'INTEGRATIONS' | 'AI_ENGINE' | 'HOME';
 
-interface PipelineTab {
-  type: 'PIPELINE';
-  pipelineId: string;
-  pipelineName: string;
+interface Tab {
+  type: TabType;
+  pipelineId?: string;
+  pipelineName?: string;
 }
-
-interface KanbanTab {
-  type: 'KANBAN';
-}
-
-interface StudioTab {
-  type: 'STUDIO';
-}
-
-interface WorkflowsTab {
-  type: 'WORKFLOWS';
-}
-
-interface IntegrationsTab {
-  type: 'INTEGRATIONS';
-}
-
-interface AIEngineTab {
-  type: 'AI_ENGINE';
-}
-
-type Tab = KanbanTab | PipelineTab | StudioTab | WorkflowsTab | IntegrationsTab | AIEngineTab;
 
 export default function App() {
   const { 
@@ -68,15 +69,14 @@ export default function App() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>({ type: 'KANBAN' });
+  const [activeTab, setActiveTab] = useState<Tab>({ type: 'HOME' });
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [isLoadingPipelines, setIsLoadingPipelines] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
   
   // Modal states
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [showWorkflow, setShowWorkflow] = useState(false);
-  const [showIntegrations, setShowIntegrations] = useState(false);
-  const [showStudio, setShowStudio] = useState(false);
   const [showBuilder, setShowBuilder] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -86,15 +86,30 @@ export default function App() {
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [virtualBoardTemplate, setVirtualBoardTemplate] = useState<string | null>(null);
 
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as 'light' | 'dark';
+    const savedCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+    if (savedTheme) setTheme(savedTheme);
+    if (savedCollapsed !== null) setIsSidebarCollapsed(savedCollapsed);
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem('theme', theme);
+    document.documentElement.setAttribute('data-theme', theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem('sidebarCollapsed', String(isSidebarCollapsed));
+  }, [isSidebarCollapsed]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
     })
   );
 
-  // Load pipelines when app starts or when tab changes to a pipeline tab
   useEffect(() => {
-    if (activeTab.type === 'PIPELINE' || activeTab.type === 'KANBAN') {
+    if (activeTab.type === 'PIPELINE' || activeTab.type === 'KANBAN' || activeTab.type === 'HOME') {
       loadPipelines();
     }
   }, [activeTab]);
@@ -119,17 +134,21 @@ export default function App() {
         setSelectedId(null); 
         setEditMode(false); 
         setShowCreateModal(false); 
-        setShowWorkflow(false); 
         setShowDeleteConfirm(false);
-        // Don't close tabs with escape, require explicit close button
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    const handleOpenWorkflowBuilder = () => setShowBuilder(true);
+    document.addEventListener('open-workflow-builder', handleOpenWorkflowBuilder);
+    return () => document.removeEventListener('open-workflow-builder', handleOpenWorkflowBuilder);
+  }, []);
+
   const handleDragStart = (event: DragStartEvent) => {
-    setActiveId(String(active.id));
+    setActiveId(String(event.active.id));
   };
 
   const handleDragEnd = async (event: DragEndEvent) => {
@@ -182,21 +201,21 @@ export default function App() {
     } catch (e) { console.error("Failed to check workflow binding", e); }
   };
 
-  // Tab rendering logic
   const renderTabContent = () => {
-    if (activeTab.type === 'KANBAN') {
+    if (activeTab.type === 'HOME' || activeTab.type === 'KANBAN') {
       return renderKanbanBoard();
     } else if (activeTab.type === 'PIPELINE') {
-      return renderPipelineTab(activeTab.pipelineId);
+      return renderPipelineTab(activeTab.pipelineId!);
     } else if (activeTab.type === 'STUDIO') {
       return <AutomationStudio />;
     } else if (activeTab.type === 'WORKFLOWS') {
-      return <div className="p-8 text-center text-gray-500">Workflows section coming soon</div>;
+      return <WorkflowManager />;
     } else if (activeTab.type === 'INTEGRATIONS') {
-      return <div className="p-8 text-center text-gray-500">Integrations section coming soon</div>;
+      return <IntegrationsManager />;
     } else if (activeTab.type === 'AI_ENGINE') {
       return <AIEngineSettings />;
     }
+    return null;
   };
 
   const renderKanbanBoard = () => {
@@ -205,7 +224,7 @@ export default function App() {
 
     return (
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="flex gap-4 overflow-x-auto pb-4 snap-x">
+        <div className="flex gap-4 overflow-x-auto pb-4 snap-x h-full custom-scrollbar">
           {STAGES.map(stage => (
             <div key={stage} className="flex-shrink-0 snap-start">
               <KanbanColumn
@@ -220,7 +239,7 @@ export default function App() {
                   })
                   .map(([id, item]) => ({ ...item, id }))
                   .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))}
-                onCardClick={(id) => { setSelectedId(id); setEditMode(false); }}
+                onCardClick={(id) => handleCardClick(id)}
                 onEditClick={(id) => { setSelectedId(id); setEditMode(true); }}
                 onDeleteClick={(id) => { setDeleteTargetId(id); setShowDeleteConfirm(true); }}
               />
@@ -245,230 +264,218 @@ export default function App() {
   };
 
   const renderPipelineTab = (pipelineId: string) => {
-    return (
-      <PipelineDashboard 
-        pipelineId={pipelineId} 
-        onBack={() => setActiveTab({ type: 'KANBAN' })} 
-      />
-    );
+    return <PipelineDashboard pipelineId={pipelineId} onBack={() => setActiveTab({ type: 'HOME' })} />;
   };
+
+  const navItems = [
+    { id: 'HOME', label: 'Home', icon: Home },
+    { id: 'KANBAN', label: 'Orchestrator', icon: LayoutGrid },
+    { id: 'STUDIO', label: 'Studio', icon: PenLine },
+    { id: 'WORKFLOWS', label: 'Workflows', icon: Workflow },
+    { id: 'INTEGRATIONS', label: 'Integrations', icon: Globe },
+    { id: 'AI_ENGINE', label: 'AI Engine', icon: Cpu },
+    { id: 'SETTINGS', label: 'Settings', icon: Settings },
+  ];
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-gray-50 flex flex-col">
-        {/* Tab Navigation Bar */}
-        <div className="bg-white border-b border-[#d8d3ca] shadow-sm">
-          <div className="flex items-center px-6 py-3">
-            <div className="flex items-center gap-1 overflow-x-auto">
-              {/* Kanban Tab */}
+      <div className="min-h-screen bg-[var(--bg)] flex text-[var(--text)]">
+        {/* Left Sidebar */}
+        <aside 
+          className={`bg-white border-r border-[var(--border)] flex flex-col transition-all duration-200 ease-in-out z-30 ${isSidebarCollapsed ? 'w-[var(--sidebar-collapsed-w)]' : 'w-[var(--sidebar-w)]'}`}
+        >
+          <div className="p-4 flex items-center gap-3 mb-6">
+            <div className="w-8 h-8 rounded-full bg-[var(--accent)] flex items-center justify-center text-white font-bold flex-shrink-0">C</div>
+            {!isSidebarCollapsed && <span className="font-semibold text-base truncate">Antikythera</span>}
+          </div>
+
+          <nav className="flex-1 px-3 space-y-1">
+            {navItems.map(item => (
               <button
-                onClick={() => setActiveTab({ type: 'KANBAN' })}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
-                  activeTab.type === 'KANBAN'
-                    ? 'bg-[#231f19] text-white'
-                    : 'text-[#6f6a63] hover:bg-gray-100'
+                key={item.id}
+                onClick={() => setActiveTab({ type: item.id as TabType })}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                  activeTab.type === item.id 
+                    ? 'bg-[var(--accent-light)] text-[var(--accent)]' 
+                    : 'text-[var(--text-muted)] hover:bg-[var(--panel-2)]'
                 }`}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-                </svg>
-                Lifecycle Orchestrator
+                <item.icon className={`w-[18px] h-[18px] ${activeTab.type === item.id ? 'text-[var(--accent)]' : 'text-gray-400'}`} />
+                {!isSidebarCollapsed && <span>{item.label}</span>}
               </button>
+            ))}
+          </nav>
 
-              {/* Studio Tab */}
-              <button
-                onClick={() => setActiveTab({ type: 'STUDIO' })}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
-                  activeTab.type === 'STUDIO'
-                    ? 'bg-[#231f19] text-white'
-                    : 'text-[#6f6a63] hover:bg-gray-100'
-                }`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-                Automation Studio
-              </button>
+          <div className="p-3 border-t border-[var(--border)]">
+            <button className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-[var(--panel-2)] transition-all text-left">
+              <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+                <User className="w-5 h-5 text-gray-500" />
+              </div>
+              {!isSidebarCollapsed && (
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">Acme Corp</div>
+                  <div className="text-xs text-[var(--text-muted)] truncate">Enterprise</div>
+                </div>
+              )}
+              {!isSidebarCollapsed && <ChevronDown className="w-4 h-4 text-gray-400" />}
+            </button>
+          </div>
+        </aside>
 
-              {/* Workflows Tab */}
-              <button
-                onClick={() => setActiveTab({ type: 'WORKFLOWS' })}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
-                  activeTab.type === 'WORKFLOWS'
-                    ? 'bg-[#231f19] text-white'
-                    : 'text-[#6f6a63] hover:bg-gray-100'
-                }`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                </svg>
-                Workflows
-              </button>
-
-              {/* Integrations Tab */}
-              <button
-                onClick={() => setActiveTab({ type: 'INTEGRATIONS' })}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
-                  activeTab.type === 'INTEGRATIONS'
-                    ? 'bg-[#231f19] text-white'
-                    : 'text-[#6f6a63] hover:bg-gray-100'
-                }`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
-                </svg>
-                Integrations
-              </button>
-
-              {/* AI Engine Tab */}
-              <button
-                onClick={() => setActiveTab({ type: 'AI_ENGINE' })}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap ${
-                  activeTab.type === 'AI_ENGINE'
-                    ? 'bg-[#231f19] text-white'
-                    : 'text-[#6f6a63] hover:bg-gray-100'
-                }`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                AI Engine
-              </button>
-
-              {/* Dynamic Pipeline Tabs */}
-              {pipelines.map((pipeline) => (
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Top Navigation Bar */}
+          <header className="h-[52px] bg-white border-b border-[var(--border)] flex items-center px-6 justify-between z-20">
+            <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar">
+              {navItems.filter(n => n.id !== 'HOME' && n.id !== 'SETTINGS').map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab({ type: item.id as TabType })}
+                  className={`px-3 py-1 text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap border-b-2 ${
+                    activeTab.type === item.id 
+                      ? 'text-[var(--accent)] border-[var(--accent)]' 
+                      : 'text-[var(--text-muted)] border-transparent hover:text-[var(--text)]'
+                  }`}
+                >
+                  <item.icon className="w-4 h-4" />
+                  {item.label}
+                </button>
+              ))}
+              {pipelines.map(pipeline => (
                 <button
                   key={pipeline.pipeline_id}
                   onClick={() => setActiveTab({ type: 'PIPELINE', pipelineId: pipeline.pipeline_id, pipelineName: pipeline.name })}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap group relative ${
+                  className={`px-3 py-1 text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap border-b-2 ${
                     activeTab.type === 'PIPELINE' && activeTab.pipelineId === pipeline.pipeline_id
-                      ? 'bg-[#0b6b72] text-white'
-                      : 'text-[#6f6a63] hover:bg-gray-100'
+                      ? 'text-[var(--accent)] border-[var(--accent)]' 
+                      : 'text-[var(--text-muted)] border-transparent hover:text-[var(--text)]'
                   }`}
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                  </svg>
+                  <LayoutGrid className="w-4 h-4" />
                   {pipeline.name}
-                  {pipeline.status === 'ACTIVE' && (
-                    <span className="w-2 h-2 rounded-full bg-green-400" />
-                  )}
+                  {pipeline.status === 'ACTIVE' && <span className="w-2 h-2 rounded-full bg-green-400" />}
                 </button>
               ))}
-
-              {/* Add Pipeline Tab Button */}
-              <button
+              <button 
                 onClick={loadPipelines}
-                className="px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-1 text-[#0b6b72] hover:bg-[#e0f2f1] whitespace-nowrap"
-                title="Refresh pipeline list"
+                className="p-1 text-[var(--text-muted)] hover:text-[var(--text)] transition-colors"
+                title="Refresh pipelines"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
+                <RefreshCw className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Right-side action buttons */}
-            <div className="ml-auto flex gap-2">
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+                className="p-2 rounded-lg hover:bg-[var(--panel-2)] text-[var(--text-muted)] transition-colors"
+              >
+                {theme === 'light' ? '🌙' : '☀️'}
+              </button>
               <button 
                 onClick={() => setShowCreateModal(true)} 
-                className="px-4 py-2 bg-[#0b6b72] text-white rounded-lg text-sm font-medium hover:bg-[#0a5c62] transition-all shadow-sm"
+                className="px-4 py-1.5 bg-[var(--accent)] text-white rounded-lg text-sm font-medium hover:bg-[var(--accent-hover)] transition-all shadow-sm flex items-center gap-2"
               >
-                + New Idea
+                <Plus className="w-4 h-4" /> New Idea
               </button>
-              {activeTab.type === 'KANBAN' && (
-                <button 
-                  onClick={fetchState} 
-                  className="px-4 py-2 bg-white border border-[#d8d3ca] rounded-lg text-sm text-[#6f6a63] hover:bg-gray-50 transition-all"
-                >
-                  Refresh
-                </button>
-              )}
+              <div className="w-8 h-8 rounded-full bg-gray-200 border border-[var(--border)] overflow-hidden">
+                <img src="https://ui-avatars.com/api/?name=Acme+Corp&background=random" alt="Avatar" />
+              </div>
             </div>
-          </div>
-        </div>
+          </header>
 
-        {/* Tab Content */}
-        <div className="flex-1 overflow-auto">
-          {renderTabContent()}
-        </div>
+          {/* Page Content */}
+          <main className="flex-1 overflow-auto p-6 custom-scrollbar relative">
+            {renderTabContent()}
+          </main>
 
-        {/* Modals */}
-        <CreateItemModal 
-          isOpen={showCreateModal} 
-          onClose={() => setShowCreateModal(false)} 
-          onCreate={handleCreateItem} 
-        />
-        <DeleteConfirmModal 
-          isOpen={showDeleteConfirm} 
-          onClose={() => setShowDeleteConfirm(false)} 
-          onConfirm={() => {
-            if (deleteTargetId) {
-              handleDeleteItem(deleteTargetId);
-              setShowDeleteConfirm(false);
-            }
-          }} 
-          targetId={deleteTargetId} 
-        />
-        <WorkflowModal isOpen={showWorkflow} onClose={() => setShowWorkflow(false)} />
-        <IntegrationsModal isOpen={showIntegrations} onClose={() => setShowIntegrations(false)} />
-        <BuilderModal 
-          isOpen={showBuilder} 
-          onClose={() => setShowBuilder(false)} 
-          itemId={selectedId} 
-        />
-
-        {/* Selected Card Modal */}
-        {selectedId && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-lg shadow-xl max-w-4xl max-h-[90vh] overflow-auto p-6 w-full">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-2xl font-bold">{selectedId}</h2>
-                <div className="flex gap-2 items-center">
-                  {!editMode && (
-                    <button onClick={() => setEditMode(true)} className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-md text-xs font-medium hover:bg-indigo-100 transition-colors">
-                      Edit Details
+          {/* Right-side Slide-in Drawer for Card Details */}
+          {selectedId && (
+            <>
+              <div 
+                className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40 transition-opacity" 
+                onClick={() => { setSelectedId(null); setEditMode(false); }} 
+              />
+              <div className="fixed right-0 top-0 h-full w-full max-w-[520px] bg-white shadow-2xl z-50 transition-transform duration-250 ease-in-out transform translate-x-0 flex flex-col">
+                <div className="flex justify-between items-center p-6 border-b border-[var(--border)]">
+                  <h2 className="text-xl font-bold truncate pr-4">{selectedId}</h2>
+                  <div className="flex gap-2 items-center">
+                    {!editMode && (
+                      <button 
+                        onClick={() => setEditMode(true)} 
+                        className="px-3 py-1 bg-[var(--accent-light)] text-[var(--accent)] rounded-md text-xs font-medium hover:opacity-80 transition-all"
+                      >
+                        Edit Details
+                      </button>
+                    )}
+                    <button 
+                      onClick={() => { setSelectedId(null); setEditMode(false); }} 
+                      className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-5 h-5" />
                     </button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto p-6 custom-scrollbar">
+                  {editMode ? (
+                    <CardEditor
+                      itemId={selectedId}
+                      initialData={{
+                        title: state.items[selectedId]?.title || '',
+                        description: (state.items[selectedId] as any)?.description || '',
+                        priority: state.items[selectedId]?.priority || 'medium',
+                        confidence_score: state.items[selectedId]?.confidence_score ?? 0,
+                        source_type: state.items[selectedId]?.source_type || 'directory',
+                        source_value: state.items[selectedId]?.source_value || '',
+                        due_date: state.items[selectedId]?.due_date || '',
+                        blockedReason: (state.items[selectedId] as any)?.blocked_reason || undefined,
+                      }}
+                      onSave={(updates) => handleUpdateItem(selectedId, updates)}
+                      onDelete={() => handleDeleteItem(selectedId)}
+                      onClose={() => setEditMode(false)}
+                    />
+                  ) : (
+                    <ErrorBoundary>
+                      <ArtifactViewer itemId={selectedId} onClose={() => setSelectedId(null)} />
+                    </ErrorBoundary>
                   )}
-                  <button onClick={() => { setSelectedId(null); setEditMode(false); }} className="p-2 hover:bg-gray-100 rounded-full transition-colors">✕</button>
                 </div>
               </div>
-              {editMode ? (
-                <CardEditor
-                  itemId={selectedId}
-                  initialData={{
-                    title: state.items[selectedId]?.title || '',
-                    description: (state.items[selectedId] as any)?.description || '',
-                    priority: state.items[selectedId]?.priority || 'medium',
-                    confidence_score: state.items[selectedId]?.confidence_score ?? 0,
-                    source_type: state.items[selectedId]?.source_type || 'directory',
-                    source_value: state.items[selectedId]?.source_value || '',
-                    due_date: state.items[selectedId]?.due_date || '',
-                    blockedReason: (state.items[selectedId] as any)?.blocked_reason || undefined,
-                  }}
-                  onSave={(updates) => handleUpdateItem(selectedId, updates)}
-                  onDelete={() => handleDeleteItem(selectedId)}
-                  onClose={() => setEditMode(false)}
-                />
-              ) : (
-                <ErrorBoundary>
-                  <ArtifactViewer itemId={selectedId} onClose={() => setSelectedId(null)} />
-                </ErrorBoundary>
-              )}
+            </>
+          )}
+
+          {virtualBoardTemplate && (
+            <div className="fixed inset-0 bg-white z-50 overflow-auto">
+              <VirtualBoard 
+                templateId={virtualBoardTemplate} 
+                onBack={() => setVirtualBoardTemplate(null)} 
+              />
             </div>
-          </div>
-        )}
+          )}
 
-        {virtualBoardTemplate && (
-          <div className="fixed inset-0 bg-white z-50 overflow-auto">
-            <VirtualBoard 
-              templateId={virtualBoardTemplate} 
-              onBack={() => setVirtualBoardTemplate(null)} 
-            />
-          </div>
-        )}
-
-        <Toaster position="top-right" />
+          <CreateItemModal 
+            isOpen={showCreateModal} 
+            onClose={() => setShowCreateModal(false)} 
+            onCreate={handleCreateItem} 
+          />
+          <DeleteConfirmModal 
+            isOpen={showDeleteConfirm} 
+            onClose={() => setShowDeleteConfirm(false)} 
+            onConfirm={() => {
+              if (deleteTargetId) {
+                handleDeleteItem(deleteTargetId);
+                setShowDeleteConfirm(false);
+              }
+            }} 
+            targetId={deleteTargetId} 
+          />
+          <BuilderModal 
+            isOpen={showBuilder} 
+            onClose={() => setShowBuilder(false)} 
+            itemId={selectedId} 
+          />
+          <Toaster position="top-right" />
+        </div>
       </div>
     </ErrorBoundary>
   );
