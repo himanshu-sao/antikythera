@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Antikythera Redesign Mockups</title>
+  <style>
+    :root {
+      --bg: #f4f3ef;
+      --panel: #fcfbf8;
+      --border: rgba(39,37,29,0.12);
+      --text: #27251d;
+      --muted: #68645d;
+      --accent: #0f7b83;
+      --shadow: 0 12px 30px rgba(0,0,0,0.08);
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 32px;
+    }
+    .wrap {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    h1 {
+      font-size: 32px;
+      margin: 0 0 10px;
+    }
+    p {
+      color: var(--muted);
+      margin: 0 0 28px;
+      max-width: 860px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 28px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .meta {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: center;
+    }
+    .meta h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+    .meta span {
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 14px;
+    }
+    img {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #ebe7df;
+    }
+    @media (min-width: 1000px) {
+      .grid { grid-template-columns: 1fr 1fr; }
+      .card.full { grid-column: 1 / -1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Antikythera Redesign Mockups</h1>
+    <p>These mockups reinterpret the current Antikythera product surfaces into a more modern 2026-style design system while keeping the existing information architecture and workflow concepts visible in the reviewed screens.</p>
+
+    <div class="grid">
+      <section class="card full">
+        <div class="meta">
+          <h2>Multi-screen light concept</h2>
+          <span>Lifecycle Orchestrator · Automation Studio · Integrations · AI Engine</span>
+        </div>
+        <img src="https://user-gen-media-assets.s3.amazonaws.com/gpt4o_images/64eb0bdc-4617-431f-907e-76d28abb8e21.png" alt="Antikythera multi-screen redesign concept" />
+      </section>
+
+      <section class="card full">
+        <div class="meta">
+          <h2>Multi-screen dark concept</h2>
+          <span>Operational control-plane direction</span>
+        </div>
+        <img src="https://user-gen-media-assets.s3.amazonaws.com/gpt4o_images/37ca46b4-9843-4da5-8130-21361c38e500.png" alt="Antikythera dark redesign concept" />
+      </section>
+
+      <section class="card">
+        <div class="meta">
+          <h2>Kanban-focused concept</h2>
+          <span>Board-first redesign</span>
+        </div>
+        <img src="https://user-gen-media-assets.s3.amazonaws.com/gpt4o_images/03ddf8f5-f608-493f-81de-99454c70322a.png" alt="Kanban dashboard redesign mockup" />
+      </section>
+
+      <section class="card">
+        <div class="meta">
+          <h2>Dark board concept</h2>
+          <span>Control-plane variant</span>
+        </div>
+        <img src="https://user-gen-media-assets.s3.amazonaws.com/gpt4o_images/1df6db40-4152-4b3e-967d-0781e9240ca6.png" alt="Dark kanban dashboard redesign mockup" />
+      </section>
+    </div>
+  </div>
+</body>
+</html>
