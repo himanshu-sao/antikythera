@@ -91,7 +91,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       requires_api_key: true,
       features: ['cloud', 'text', 'completion', 'chat'],
       icon: <Globe className="w-5 h-5" />,
-      color: 'bg-blue-500'
+      color: 'bg-teal-500'
     },
     {
       id: 'ibm_bob',
@@ -224,7 +224,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader className="w-8 h-8 animate-spin text-blue-500" />
+        <Loader className="w-8 h-8 animate-spin text-teal-500" />
         <span className="ml-3 text-gray-600">Loading AI Engine configuration...</span>
       </div>
     );
@@ -270,7 +270,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
           </button>
           <button
             onClick={() => setIsAddingModel(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+            className="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 transition"
           >
             <Plus className="w-4 h-4" />
             Add Model
@@ -286,7 +286,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
             onClick={() => setActiveTab(tab)}
             className={`px-6 py-3 font-medium transition-colors border-b-2 ${
               activeTab === tab
-                ? 'border-blue-500 text-blue-600'
+                ? 'border-teal-500 text-teal-600'
                 : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
             }`}
           >
@@ -319,13 +319,13 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                         </div>
                                         <div className="bg-white border rounded-lg p-4">
                                           <div className="text-gray-600 text-sm">Active Models</div>
-                                          <div className="text-2xl font-bold mt-1 text-blue-600">
+                                          <div className="text-2xl font-bold mt-1 text-teal-600">
                                             {config.models.filter(m => m.is_default || m.api_key_set || m.provider === 'ollama').length}
                                           </div>
                                         </div>
                                         <div className="bg-white border rounded-lg p-4">
                                           <div className="text-gray-600 text-sm">Default Model</div>
-                                          <div className="flex items-center text-xl font-bold mt-1 text-blue-600 truncate">
+                                          <div className="flex items-center text-xl font-bold mt-1 text-teal-600 truncate">
                                             {config.default_model_id}
                                             <button
                                               onClick={() => {
@@ -350,7 +350,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
           <div className="mb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
               <div><div className="text-sm text-gray-500">Total Models</div><div className="text-2xl font-bold text-gray-800">{config.models.length}</div></div>
-              <div className="p-2 bg-blue-100 rounded"><Cpu className="w-5 h-5 text-blue-600" /></div>
+              <div className="p-2 bg-teal-100 rounded"><Cpu className="w-5 h-5 text-teal-600" /></div>
             </div>
             <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
               <div><div className="text-sm text-gray-500">Configured Keys</div><div className="text-2xl font-bold text-green-600">{config.models.filter(m => m.api_key_set || m.provider === 'ollama').length}</div></div>
@@ -361,7 +361,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
               <div className="p-2 bg-purple-100 rounded"><Zap className="w-5 h-5 text-purple-600" /></div>
             </div>
             <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
-              <div><div className="text-sm text-gray-500">Default Model</div><div className="text-lg font-bold text-blue-600">{config.default_model_id}</div></div>
+              <div><div className="text-sm text-gray-500">Default Model</div><div className="text-lg font-bold text-teal-600">{config.default_model_id}</div></div>
               <div className="p-2 bg-yellow-100 rounded"><Server className="w-5 h-5 text-yellow-600" /></div>
             </div>
           </div>
@@ -371,20 +371,20 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
               const providerInfo = getProviderInfo(model.provider);
               const testResult = testResults[model.model_id];
               return (
-                <div key={model.model_id} className={`border rounded-xl p-5 transition-all hover:shadow-lg ${model.is_default ? 'border-blue-400 bg-blue-50 shadow-md ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:border-blue-300'}`}>
+                <div key={model.model_id} className={`border rounded-xl p-5 transition-all hover:shadow-lg ${model.is_default ? 'border-teal-400 bg-teal-50 shadow-md ring-2 ring-teal-100' : 'border-gray-200 bg-white hover:border-teal-300'}`}>
                   <div className="flex items-center gap-3 mb-4">
                     <div className={`p-2.5 rounded-lg ${providerInfo.color} shadow-sm`}><div className="text-white">{providerInfo.icon}</div></div>
                     <div>
                       <h4 className="font-bold text-gray-800">{model.name}</h4>
                       <div className="text-xs text-gray-500">{providerInfo.name}</div>
-                      {model.is_default && <span className="inline-block bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full mt-1">DEFAULT</span>}
+                      {model.is_default && <span className="inline-block bg-teal-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full mt-1">DEFAULT</span>}
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3 mb-4 text-xs">
                     <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Context</div><div className="font-semibold">{model.context_window}</div></div>
                     <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Max Tokens</div><div className="font-semibold">{model.max_tokens}</div></div>
                     <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Temperature</div><div className="font-semibold">{model.temperature}</div></div>
-                    <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Status</div><div className={`font-semibold ${testResult?.success ? 'text-green-600' : testResult ? 'text-red-600' : model.api_key_set || model.provider === 'ollama' ? 'text-blue-600' : 'text-amber-600'}`}>{testResult?.success ? 'Active' : testResult ? 'Failed' : model.api_key_set || model.provider === 'ollama' ? 'Ready' : 'Needs Key'}</div></div>
+                    <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Status</div><div className={`font-semibold ${testResult?.success ? 'text-green-600' : testResult ? 'text-red-600' : model.api_key_set || model.provider === 'ollama' ? 'text-teal-600' : 'text-amber-600'}`}>{testResult?.success ? 'Active' : testResult ? 'Failed' : model.api_key_set || model.provider === 'ollama' ? 'Ready' : 'Needs Key'}</div></div>
                   </div>
 
 
@@ -400,7 +400,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                           ? 'bg-green-100 text-green-700 hover:bg-green-200' 
                           : testResult && !testResult.success
                           ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                          : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                          : 'bg-teal-100 text-teal-700 hover:bg-teal-200'
                       }`}
                     >
                       {testResult?.testing ? (
@@ -439,7 +439,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                     {!model.is_default && (
                       <button
                         onClick={() => setDefaultModel(model.model_id)}
-                        className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-blue-200 transition"
+                        className="px-3 py-1.5 bg-teal-100 text-teal-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-teal-200 transition"
                       >
                         <Settings className="w-3.5 h-3.5" />
                         Set Default
@@ -473,7 +473,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
               );
             })}
           </div>
-          {config.models.length === 0 && <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed"><Cpu className="w-12 h-12 mx-auto text-gray-400 mb-3" /><h3 className="text-lg font-semibold text-gray-700">No models configured</h3><button onClick={() => setIsAddingModel(true)} className="mt-4 px-4 py-2 bg-blue-500 text-white rounded">Add Model</button></div>}
+          {config.models.length === 0 && <div className="text-center py-12 bg-gray-50 rounded-lg border border-dashed"><Cpu className="w-12 h-12 mx-auto text-gray-400 mb-3" /><h3 className="text-lg font-semibold text-gray-700">No models configured</h3><button onClick={() => setIsAddingModel(true)} className="mt-4 px-4 py-2 bg-teal-500 text-white rounded">Add Model</button></div>}
         </div>
       )}
 
@@ -548,20 +548,20 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                const providerInfo = getProviderInfo(model.provider);
                                const testResult = testResults[model.model_id];
                                return (
-                                 <div key={model.model_id} className={`border rounded-xl p-5 transition-all hover:shadow-lg ${model.is_default ? 'border-blue-400 bg-blue-50 shadow-md ring-2 ring-blue-100' : 'border-gray-200 bg-white hover:border-blue-300'}`}>
+                                 <div key={model.model_id} className={`border rounded-xl p-5 transition-all hover:shadow-lg ${model.is_default ? 'border-teal-400 bg-teal-50 shadow-md ring-2 ring-teal-100' : 'border-gray-200 bg-white hover:border-teal-300'}`}>
                                    <div className="flex items-center gap-3 mb-4">
                                      <div className={`p-2.5 rounded-lg ${providerInfo.color} shadow-sm`}><div className="text-white">{providerInfo.icon}</div></div>
                                      <div>
                                        <h4 className="font-bold text-gray-800">{model.name}</h4>
                                        <div className="text-xs text-gray-500">{providerInfo.name}</div>
-                                       {model.is_default && <span className="inline-block bg-blue-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full mt-1">DEFAULT</span>}
+                                       {model.is_default && <span className="inline-block bg-teal-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full mt-1">DEFAULT</span>}
                                      </div>
                                    </div>
                                    <div className="grid grid-cols-2 gap-3 text-xs">
                                      <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Context</div><div className="font-semibold">{model.context_window}</div></div>
                                      <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Max Tokens</div><div className="font-semibold">{model.max_tokens}</div></div>
                                      <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Temperature</div><div className="font-semibold">{model.temperature}</div></div>
-                                     <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Status</div><div className={`font-semibold ${testResult?.success ? 'text-green-600' : testResult ? 'text-red-600' : model.api_key_set || model.provider === 'ollama' ? 'text-blue-600' : 'text-amber-600'}`}>{testResult?.success ? 'Active' : testResult ? 'Failed' : model.api_key_set || model.provider === 'ollama' ? 'Ready' : 'Needs Key'}</div></div>
+                                     <div className="bg-gray-50 p-2 rounded"><div className="text-gray-500">Status</div><div className={`font-semibold ${testResult?.success ? 'text-green-600' : testResult ? 'text-red-600' : model.api_key_set || model.provider === 'ollama' ? 'text-teal-600' : 'text-amber-600'}`}>{testResult?.success ? 'Active' : testResult ? 'Failed' : model.api_key_set || model.provider === 'ollama' ? 'Ready' : 'Needs Key'}</div></div>
                                    </div>
                                    <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-gray-200">
                                      <button
@@ -574,7 +574,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                          ? 'bg-green-100 text-green-700 hover:bg-green-200' 
                                          : testResult && !testResult.success
                                          ? 'bg-red-100 text-red-700 hover:bg-red-200'
-                                         : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                         : 'bg-teal-100 text-teal-700 hover:bg-teal-200'
                                        }`}
                                      >
                                        {testResult?.testing ? (
@@ -611,7 +611,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                      {!model.is_default && (
                                        <button
                                          onClick={() => setDefaultModel(model.model_id)}
-                                         className="px-3 py-1.5 bg-blue-100 text-blue-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-blue-200 transition"
+                                         className="px-3 py-1.5 bg-teal-100 text-teal-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-teal-200 transition"
                                        >
                                          <Settings className="w-3.5 h-3.5" />
                                          Set Default
@@ -639,16 +639,16 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                            <input type="number" defaultValue={config.connection_settings.max_retries} min="0" max="10" className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
                          </div>
                          <div className="flex items-center gap-3">
-                           <input type="checkbox" id="fallback" defaultChecked={config.connection_settings.enable_fallback} className="w-4 h-4 text-blue-600" />
+                           <input type="checkbox" id="fallback" defaultChecked={config.connection_settings.enable_fallback} className="w-4 h-4 text-teal-600" />
                            <label htmlFor="fallback" className="text-sm">Enable fallback to other providers on failure</label>
                          </div>
                          <div className="flex items-center gap-3">
-                           <input type="checkbox" id="caching" defaultChecked={config.connection_settings.enable_caching} className="w-4 h-4 text-blue-600" />
+                           <input type="checkbox" id="caching" defaultChecked={config.connection_settings.enable_caching} className="w-4 h-4 text-teal-600" />
                            <label htmlFor="caching" className="text-sm">Enable response caching (improves performance)</label>
                          </div>
                        </div>
                        <div className="mt-6 pt-6 border-t">
-                         <button className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition">Save Settings</button>
+                         <button className="px-6 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 transition">Save Settings</button>
                          <p className="text-xs text-gray-500 mt-2">Changes will apply to all future AI operations</p>
                        </div>
                      </div>
@@ -736,7 +736,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
               </button>
               <button
                 onClick={() => saveApiKey(showApiKeyModal)}
-                className="flex-1 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
+                className="flex-1 px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 transition"
               >
                 Save Key
               </button>
