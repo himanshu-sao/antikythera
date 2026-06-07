@@ -64,6 +64,9 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [showApiKeyModal, setShowApiKeyModal] = useState<string | null>(null);
   const [showKeysModal, setShowKeysModal] = useState(false);
   const [isAddingModel, setIsAddingModel] = useState(false);
+  // Logs state for tail functionality
+  const [logsContent, setLogsContent] = useState<string>('');
+  const [logsLoading, setLogsLoading] = useState<boolean>(false);
 
   // Available models for Add Model UI
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -141,6 +144,26 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   useEffect(() => {
     fetchConfig();
   }, []);
+
+  // Load logs when logs tab active
+  useEffect(() => {
+    const loadLogs = async () => {
+      if (activeTab !== 'logs' || logsLoading) return;
+      setLogsLoading(true);
+      try {
+        const res = await fetch('/api/ai-engine/logs?tail=1048576');
+        if (!res.ok) throw new Error('Failed to fetch logs');
+        const text = await res.text();
+        setLogsContent(text);
+      } catch (e) {
+        console.error(e);
+        setLogsContent('Error loading logs');
+      } finally {
+        setLogsLoading(false);
+      }
+    };
+    loadLogs();
+  }, [activeTab]);
 
   const fetchConfig = async () => {
     try {
@@ -359,7 +382,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                     <input
                       type="number"
                       placeholder="Context Window (default 4096)"
-                      value={apiKeys['new_context'] || 4096}
+                      value={apiKeys['new_context'] || '4096'}
                       onChange={(e) => setApiKeys({ ...apiKeys, new_context: Number(e.target.value) })}
                       className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
@@ -895,8 +918,12 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       {/* Logs Tab */}
       {activeTab === 'logs' && (
           <div className="p-4">
-            <h3 className="text-lg font-bold mb-2">Logs</h3>
-            <p className="text-sm text-gray-600">Coming soon</p>
+            <h3 className="text-lg font-bold mb-2">Logs (tail 1MiB)</h3>
+            {logsLoading ? (
+              <div className="flex items-center"><Loader className="w-5 h-5 animate-spin mr-2"/>Loading...</div>
+            ) : (
+              <pre className="bg-gray-100 p-2 rounded overflow-auto" style={{maxHeight: '400px'}}>{logsContent}</pre>
+            )}
           </div>
         )}
       {showApiKeyModal && (

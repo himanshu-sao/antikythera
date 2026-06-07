@@ -27,6 +27,7 @@ __pycache__/
 .env.*.local
 
 # IDE & OS
++dist/
 .DS_Store
 .vscode/
 .idea/

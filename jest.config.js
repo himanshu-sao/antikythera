@@ -1,11 +1,13 @@
 module.exports = {
-  // preset: 'ts-jest',  // removed in favor of Babel for all files
+  testPathIgnorePatterns: ['/tests/', '/e2e-tests/'],
   testEnvironment: 'jsdom',
-  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node'],
   transform: {
-    "^.+\\.(js|jsx|ts|tsx)$": ["babel-jest", { "presets": ["@babel/preset-react", "@babel/preset-typescript"] }],
+    '^.+\\.(js|jsx|ts|tsx)$': 'babel-jest',
   },
-  testPathIgnorePatterns: ['e2e/', 'ui/e2e-tests/', '\\.spec\\.ts$', 'ManagementModals.test.tsx', 'App.polling.test.tsx', 'Sidebar.test.tsx'],
-  transformIgnorePatterns: [],
+  moduleFileExtensions: ['js','jsx','ts','tsx'],
+  moduleNameMapper: {
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '\\.(svg|png|jpg|jpeg|gif)$': '<rootDir>/__mocks__/fileMock.js'
+  },
   setupFilesAfterEnv: ['@testing-library/jest-dom'],
 };
