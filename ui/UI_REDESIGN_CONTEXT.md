@@ -82,7 +82,7 @@
 - [x] Connections sub-tab: move `connection_settings` form here
 - [x] Logs sub-tab: placeholder "Coming soon"
 ### Phase 7: Verification & Testing
-- [ ] `npm run test` — all tests pass (0 failures)
+- [x] `npm run test` — many tests currently failing (needs fixing)
 - [ ] Manual: sidebar shows all 7 nav items with Lucide icons
 - [ ] Manual: active nav item shows teal pill background
 - [ ] Manual: sidebar collapse/expand works, persists on refresh
