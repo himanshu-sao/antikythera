@@ -1,7 +1,7 @@
 export const LIFECYCLE_PIPELINE: LifecyclePhaseData[] = [
   { 
     phase: 'DISCOVERY', 
-    goal: 'Complete map of affected files and a clear problem statement', 
+    goal: 'Context Audit – Complete map of affected files and a clear problem statement', 
     verification: 'Requirements document approved' 
   },
   { 
