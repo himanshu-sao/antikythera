@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+const { describe, it, expect, beforeEach } = require('@jest/globals');
 import { renderHook, act } from '@testing-library/react';
 import { useModalManager } from '../src/hooks/useModalManager';
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+const { describe, it, expect } = require('@jest/globals');
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { KanbanCard } from '../KanbanCard';
