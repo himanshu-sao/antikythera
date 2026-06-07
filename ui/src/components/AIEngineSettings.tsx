@@ -527,12 +527,12 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                              placeholder="Search models..."
                              value={modelSearch}
                              onChange={(e) => setModelSearch(e.target.value)}
-                             className="flex-1 border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                             className="flex-1 border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
                            />
                            <select
                              value={modelProviderFilter}
                              onChange={(e) => setModelProviderFilter(e.target.value)}
-                             className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                             className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
                            >
                              <option value="all">All Providers</option>
                              {providers.map(p => (
@@ -632,11 +632,11 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                        <div className="space-y-4">
                          <div>
                            <label className="block text-sm font-medium text-gray-700 mb-1">Request Timeout (seconds)</label>
-                           <input type="number" defaultValue={config.connection_settings.timeout_seconds} min="5" max="300" className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                           <input type="number" defaultValue={config.connection_settings.timeout_seconds} min="5" max="300" className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500" />
                          </div>
                          <div>
                            <label className="block text-sm font-medium text-gray-700 mb-1">Maximum Retries</label>
-                           <input type="number" defaultValue={config.connection_settings.max_retries} min="0" max="10" className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                           <input type="number" defaultValue={config.connection_settings.max_retries} min="0" max="10" className="w-full border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500" />
                          </div>
                          <div className="flex items-center gap-3">
                            <input type="checkbox" id="fallback" defaultChecked={config.connection_settings.enable_fallback} className="w-4 h-4 text-teal-600" />
@@ -722,7 +722,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
             <input
               type="password"
               placeholder="••••••••••••••••"
-              className="w-full border rounded px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full border rounded px-3 py-2 mb-4 focus:outline-none focus:ring-2 focus:ring-teal-500"
               value={apiKeys[showApiKeyModal] || ''}
               onChange={(e) => setApiKeys({ ...apiKeys, [showApiKeyModal]: e.target.value })}
             />

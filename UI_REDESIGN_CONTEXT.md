@@ -57,28 +57,28 @@
 - [x] All existing logic preserved: `handlePropose`, `handleAccept`, `sandboxState`, `currentPath`, `AuthModal`
 - [x] **Verification**: UI loads successfully at `http://localhost:5173/` returning HTML with `<div id="root"></div>` after server start.
 ### Phase 5: Integrations Hub Rebuild (`ui/src/components/IntegrationsManager.tsx`)
-- [ ] Add page header: "Integrations Hub" title + subtitle + `[Manage Secrets]` + `[+ Add Connection]` buttons
-- [ ] Add filter bar: search input + All Types dropdown + All Status dropdown
-- [ ] Replace sidebar+detail layout with CSS Grid card layout (`repeat(auto-fill, minmax(240px, 1fr))`)
-- [ ] Integration card: brand-colored icon + name + type label + description + status badge + last sync + ⋮ menu
-- [ ] Status badges: Connected (green), Error (red), Warning (amber), Disconnected (gray)
-- [ ] Card hover: shadow elevation + accent border color
-- [ ] ⋮ kebab menu: Edit, Test Connection, Disconnect, Remove
-- [ ] "Add Connection" CTA card: dashed border + `+` icon + text (last card in grid)
+- [x] Add page header: "Integrations Hub" title + subtitle + `[Manage Secrets]` + `[+ Add Connection]` buttons
+- [x] Add filter bar: search input + All Types dropdown + All Status dropdown
+- [x] Replace sidebar+detail layout with CSS Grid card layout (`repeat(auto-fill, minmax(240px, 1fr))`)
+- [x] Integration card: brand-colored icon + name + type label + description + status badge + last sync + ⋮ menu
+- [x] Status badges: Connected (green), Error (red), Warning (amber), Disconnected (gray)
+- [x] Card hover: shadow elevation + accent border color
+- [x] ⋮ kebab menu: Edit, Test Connection, Disconnect, Remove
+- [x] "Add Connection" CTA card: dashed border + `+` icon + text (last card in grid)
 - [ ] Clicking a card opens slide-in right drawer with connection detail + test/edit options
-- [ ] Search, Type, Status filters all work independently
-- [ ] All existing fetch/API logic preserved: `/api/integrations`, `/api/mcp/tools`, `testConnection()`
+- [x] Search, Type, Status filters all work independently
+- [x] All existing fetch/API logic preserved: `/api/integrations`, `/api/mcp/tools`, `testConnection()`
 ### Phase 6: AI Engine Full Rebuild (`ui/src/components/AIEngineSettings.tsx`)
 - [x] Add 2 new sub-tabs: `Connections` and `Logs` (6 total: Overview, Models, Providers, Connections, Settings, Logs)
 - [x] Rebuild stats row: 5 cards (add "Active Models"; make "Default Model" the 5th card with copy icon)
-- [ ] Remove "Current Default Model" highlighted banner
-- [ ] Remove "Quick Start" and "Connection Status" cards
+- [x] Remove "Current Default Model" highlighted banner
+- [x] Remove "Quick Start" and "Connection Status" cards
 - [x] Build **Provider Health** left panel with status-per-provider table (Healthy=green / Degraded=amber / Error=red)
 - [x] Build **Model Inventory** right panel with search input + All Providers dropdown
 - [x] Model inventory rows: icon + name + [Default] badge + provider + context size + status + ⋮ kebab menu
 - [x] Kebab menu: Set as Default, Test Connection, Set API Key, Remove
 - [x] Provider health derivation: group models by provider, derive aggregate from `testResults`
-- [ ] Replace all blue colors with `var(--accent)` teal token system
+- [x] Replace all blue colors with `var(--accent)` teal token system
 - [x] Connections sub-tab: move `connection_settings` form here
 - [x] Logs sub-tab: placeholder "Coming soon"
 ### Phase 7: Verification & Testing
