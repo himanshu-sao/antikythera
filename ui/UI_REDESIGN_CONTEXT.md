@@ -82,32 +82,52 @@
 - [x] Connections sub-tab: move `connection_settings` form here
 - [x] Logs sub-tab: placeholder "Coming soon"
 ### Phase 7: Verification & Testing
-- [x] `npm run test` — many tests currently failing (needs fixing)
-- [ ] Manual: sidebar shows all 7 nav items with Lucide icons
-- [ ] Manual: active nav item shows teal pill background
-- [ ] Manual: sidebar collapse/expand works, persists on refresh
-- [ ] Manual: top nav bar shows section tabs + active underline
-- [ ] Manual: theme toggle works (light/dark), persists on refresh
-- [ ] **Kanban**: columns show colored icon boxes + stage names + count
-- [ ] **Kanban**: empty state shows correct icon + subtitle text per column
-- [ ] **Kanban**: card shows badge row (tag, priority, confidence) + ⋮ menu
-- [ ] **Kanban**: ACTION REQUIRED badge shows on review-stage cards
-- [ ] **Kanban**: drag-and-drop still works
-- [ ] **Kanban**: clicking card opens slide-in right drawer (not full-screen modal)
-- [ ] **Kanban**: `+ Add idea` link at bottom of columns works
-- [ ] **Studio**: 3-column layout renders correctly
-- [ ] **Studio**: AI model selector populated from API
-- [ ] **Studio**: Propose Step triggers step 2 expansion with proposal card
-- [ ] **Studio**: Active Variables table shows TYPE column
-- [ ] **Studio**: Current Path Sequence shows numbered timeline
-- [ ] **Integrations**: card grid renders 4 per row
-- [ ] **Integrations**: search/type/status filters work
-- [ ] **Integrations**: card status badges show correct color
-- [ ] **Integrations**: clicking card opens slide-in drawer
-- [ ] **Integrations**: Add Connection CTA card opens add modal
-- [ ] **AI Engine**: 5 stat cards render with correct computed values
-- [ ] **AI Engine**: Provider Health panel shows Healthy/Degraded/Error per provider
-- [ ] **AI Engine**: Model Inventory shows searchable/filterable list
-- [ ] **AI Engine**: [Default] badge on default model row
-- [ ] **AI Engine**: status colors (Ready=green, Needs Key=amber)
-- [ ] **AI Engine**: ⋮ kebab menu works on model rows
+- [ ] **Automated UI Test Suite (Jest + React Testing Library)**
+  - Verify sidebar renders all 7 navigation items with correct Lucide icons.
+  - Confirm active navigation item displays teal pill background and accent text.
+  - Test sidebar collapse/expand toggle persists state to `localStorage` and survives page reload.
+  - Validate top navigation bar renders section tabs and active underline correctly.
+  - Ensure theme toggle (light/dark) updates `data-theme` attribute, persists via `localStorage`, and UI reflects the change.
+  - **Kanban Board**: 
+    - Columns display correct colored icon boxes, stage names, and item counts.
+    - Empty state renders appropriate icon, title, and subtitle per stage.
+    - Cards show tag, priority, and confidence badges with expected colors.
+    - ACTION REQUIRED badge appears on review‑stage cards; AGENT WORKING badge on working cards.
+    - Drag‑and‑drop interaction updates card order without React act warnings.
+    - Clicking a card opens the slide‑in right drawer (not a full‑screen modal).
+    - `+ Add idea` link at column bottom opens the idea creator drawer.
+  - **Automation Studio**:
+    - 3‑column layout renders correctly on desktop and responsive breakpoints.
+    - AI model selector dropdown fetches models from `/api/ai-engine/config` and populates options.
+    - Propose Step button expands step‑2 view with proposal card.
+    - Active Variables table includes a `TYPE` column showing `typeof value`.
+    - Current Path Sequence panel displays numbered timeline steps.
+  - **Integrations Hub**:
+    - Card grid displays a responsive 4‑per‑row layout (auto‑fill).
+    - Search input, Type filter, and Status filter work independently and combine correctly.
+    - Integration cards show brand icon, name, type label, description, status badge, last sync timestamp, and kebab menu.
+    - Clicking a card opens a slide‑in right drawer with connection details and actions.
+    - “Add Connection” CTA card opens the add‑connection modal.
+  - **AI Engine Settings**:
+    - Stats row renders 5 cards with correct computed values (including Active Models and Default Model with copy icon).
+    - Provider Health panel lists each provider with a status indicator (Healthy=green, Degraded=amber, Error=red).
+    - Model Inventory panel supports search and provider filter, displays rows with icon, name, `[Default]` badge, provider, context size, status, and kebab menu.
+    - Status colors follow the teal token system (`var(--accent)`).
+    - Kebab menu actions (Set as Default, Test Connection, Set API Key, Remove) are clickable and trigger appropriate UI feedback.
+- [ ] **Backend API Test Suite (Supertest / Jest)**
+  - `/api/ai-engine/config` returns model configuration, validates schema, handles error cases (missing auth, malformed request).
+  - `/api/integrations` returns integration list, supports pagination, filter query parameters, and proper error handling.
+  - `/api/kanban` endpoints for fetching column data, updating card order, and creating new ideas; includes validation of payloads and permission checks.
+  - Health check endpoint `/api/health` returns 200 status with service status JSON.
+  - Authentication middleware correctly enforces JWT validation across protected routes.
+  - Rate‑limiting middleware respects configured limits and returns appropriate 429 responses.
+- [ ] **End‑to‑End UI Tests (Playwright)**
+  - Full navigation flow: open app, verify sidebar items, collapse/expand, switch themes, and persist state across reloads.
+  - Kanban drag‑and‑drop: move a card between columns and assert the new order persists after a page refresh.
+  - Automation Studio workflow: select model, compose instruction, propose step, accept proposal, and confirm that the path sequence updates.
+  - Integrations Hub: apply search and filter combos, open a connection drawer, edit settings, and test the “Test Connection” button.
+  - AI Engine: switch between Overview, Models, Providers, Connections, Settings, and Logs tabs; verify Provider Health table colors; test Model Inventory search.
+- [ ] Run full test suite (`npm run test`) and ensure **zero failures**.
+- [ ] Manual verification checklist (same items as above) to confirm visual correctness and persistence.
+- [ ] Update `UI_REDESIGN_CONTEXT.md` to reflect completed Phase 7 items once all tests pass.
+
