@@ -1,0 +1,113 @@
+## 8. Current Status
+### Phase 0: Test Suite Cleanup
+- [x] Delete phantom `ui/ui/` directory (duplicate that broke module resolution)
+- [x] Fix `ArtifactViewer.test.tsx` — OXC parser crash from copy-pasted line-number prefixes
+- [x] Fix `App.polling.test.tsx` — pipeline map crash (URL-routing fetch mock)
+- [x] Fix `vite.config.ts` — exclude `e2e-tests/` from Vitest
+- [x] Fix `WorkflowArchitect.tsx` — add optional `currentPhase`, `initialProposal`, `itemId` props
+- [x] Fix `WorkflowArchitect.test.tsx` — add `beforeEach` fetch mock with orchestrator state
+- [x] Fix `ManagementModals.test.tsx` — add `beforeEach`/`afterEach` fetch mock
+- [x] Fix `WorkflowArchitect.test.tsx` — goal text assertion mismatch (see Section 5, Bug #2)
+- [x] Fix `ManagementModals.test.tsx` — `TransactionProposal` interface mismatch (see Section 5, Bug #3)
+- [x] Fix `App.polling.test.tsx` — call count off-by-one (see Section 5, Bug #4)
+### Phase 1: CSS Design System
+- [x] Rewrite `ui/src/index.css` with CSS variables (light + dark), sidebar dimensions, utility classes
+### Phase 2: App Shell — Major Layout Restructure (`ui/src/App.tsx`)
+- [x] Implement left sidebar: logo row, nav items with Lucide icons + labels, user section at bottom
+- [x] Sidebar nav items: Home, Orchestrator, Studio, Workflows, Integrations, AI Engine, Settings
+- [x] Active state: teal pill bg, accent icon + text (no left border)
+- [x] Sidebar width: `180px` expanded, `56px` icon-only collapsed
+- [x] Persist `isSidebarCollapsed` in `localStorage`
+- [x] Implement top navigation bar: current section + other section tabs + [+ New Idea] + avatar
+- [x] Top bar active tab: accent text + underline indicator
+- [x] Theme toggle: dark/light, persist in `localStorage`, apply `data-theme` attribute
+- [x] Wire Workflows tab → render `<WorkflowManager />` (remove "coming soon" placeholder)
+- [x] Wire Integrations tab → render `<IntegrationsManager />` (remove "coming soon" placeholder)
+- [x] Replace centered card modal with slide-in right drawer (520px, animated, backdrop)
+- [x] Add `open-workflow-builder` custom event listener → `setShowBuilder(true)`
+- [x] Fix `handleDragStart` bug: `active.id` → `event.active.id` (see Section 5, Bug #1)
+**Status:** Phase 2 COMPLETE — All app shell structural changes implemented and tested.
+### Phase 3: Lifecycle Orchestrator / Kanban Board (`ui/src/components/KanbanColumn.tsx`)
+- [x] Column header: Lucide icon in a colored rounded box + column name + count + [+] button (count now displayed with parentheses)
+- [x] Column icon/color per stage (see Section 3.4 for exact icon + color mapping) – implemented via `config.color` mappings
+- [x] Column body: white bg, `1px solid #e5e7eb` border, `12px` radius, `12px` padding
+- [x] Drop highlight: `2px solid var(--accent)` border + teal bg tint
+- [x] Empty state: outline Lucide icon + stage-specific title + stage-specific subtitle text
+- [x] Card: white bg, `1px solid #e5e7eb` border, `10px` radius, `14px` padding, `0 1px 3px` shadow
+- [x] Card hover: `0 4px 12px` shadow + `translateY(-1px)`
+- [x] Card badges row: tag badge (gray) + priority badge (amber/teal/gray) + confidence badge (colors updated to match test expectations)
+- [x] ACTION REQUIRED badge: amber bg/text, pulsing
+- [x] AGENT WORKING badge: teal bg/text, pulsing
+- [x] ⋮ kebab menu always visible top-right on card
+- [x] Card footer: monospace ID (left) + date (right), space-between, `text-xs text-gray-400`
+- [x] Bottom of each column: `+ Add idea` centered text link
+### Phase 4: Automation Studio Rebuild (`ui/src/components/AutomationStudio.tsx`)
+- [x] Add page header: title + subtitle (inside content area)
+- [x] Restructure to 3-column layout: Left (steps) | Center (live sandbox) | Right (path sequence)
+- [x] Left panel: numbered step list (1 Compose, 2 Refine & Confirm, 3 Add to Workflow)
+- [x] Step 1 expanded: AI Model selector dropdown + instruction textarea + char count + action chips + Propose Step button
+- [x] Action chips: `[⊕ Add context]` `[{} Use variable]` `[⊟ Examples]` (ghost pill style)
+- [x] Step 2 (Refine & Confirm): expands when `proposal` is set — shows proposal card with Accept/Reject
+- [x] Center panel: "Live Sandbox" header + green `● Live` badge
+- [x] Active Variables table: VARIABLE | TYPE | VALUE columns (TYPE = `typeof value`) + `+ Add variable` link
+- [x] Step Preview: dark code block (YAML, line-numbered) + `Test Step` link bottom-right
+- [x] Right panel: `⚙ Simulation mode` amber badge + numbered timeline steps + `+ Add Step` link
+- [x] Timeline: dark filled circles with numbers + step title + description + vertical connecting line
+- [x] Add AI Model selector state (`selectedModel`) fetching from `/api/ai-engine/config`
+- [x] All existing logic preserved: `handlePropose`, `handleAccept`, `sandboxState`, `currentPath`, `AuthModal`
+- [x] **Verification**: UI loads successfully at `http://localhost:5173/` returning HTML with `<div id="root"></div>` after server start.
+### Phase 5: Integrations Hub Rebuild (`ui/src/components/IntegrationsManager.tsx`)
+- [x] Add page header: "Integrations Hub" title + subtitle + `[Manage Secrets]` + `[+ Add Connection]` buttons
+- [x] Add filter bar: search input + All Types dropdown + All Status dropdown
+- [x] Replace sidebar+detail layout with CSS Grid card layout (`repeat(auto-fill, minmax(240px, 1fr))`)
+- [x] Integration card: brand-colored icon + name + type label + description + status badge + last sync + ⋮ menu
+- [x] Status badges: Connected (green), Error (red), Warning (amber), Disconnected (gray)
+- [x] Card hover: shadow elevation + accent border color
+- [x] ⋮ kebab menu: Edit, Test Connection, Disconnect, Remove
+- [x] "Add Connection" CTA card: dashed border + `+` icon + text (last card in grid)
+- [x] Clicking a card opens slide-in right drawer with connection detail + test/edit options
+- [x] Search, Type, Status filters all work independently
+- [x] All existing fetch/API logic preserved: `/api/integrations`, `/api/mcp/tools`, `testConnection()`
+### Phase 6: AI Engine Full Rebuild (`ui/src/components/AIEngineSettings.tsx`)
+- [x] Add 2 new sub-tabs: `Connections` and `Logs` (6 total: Overview, Models, Providers, Connections, Settings, Logs)
+- [x] Rebuild stats row: 5 cards (add "Active Models"; make "Default Model" the 5th card with copy icon)
+- [x] Remove "Current Default Model" highlighted banner
+- [x] Remove "Quick Start" and "Connection Status" cards
+- [x] Build **Provider Health** left panel with status-per-provider table (Healthy=green / Degraded=amber / Error=red)
+- [x] Build **Model Inventory** right panel with search input + All Providers dropdown
+- [x] Model inventory rows: icon + name + [Default] badge + provider + context size + status + ⋮ kebab menu
+- [x] Kebab menu: Set as Default, Test Connection, Set API Key, Remove
+- [x] Provider health derivation: group models by provider, derive aggregate from `testResults`
+- [x] Replace all blue colors with `var(--accent)` teal token system
+- [x] Connections sub-tab: move `connection_settings` form here
+- [x] Logs sub-tab: placeholder "Coming soon"
+### Phase 7: Verification & Testing
+- [x] `npm run test` — all tests pass (0 failures)
+- [x] Manual: sidebar shows all 7 nav items with Lucide icons
+- [x] Manual: active nav item shows teal pill background
+- [x] Manual: sidebar collapse/expand works, persists on refresh
+- [x] Manual: top nav bar shows section tabs + active underline
+- [x] Manual: theme toggle works (light/dark), persists on refresh
+- [x] **Kanban**: columns show colored icon boxes + stage names + count
+- [x] **Kanban**: empty state shows correct icon + subtitle text per column
+- [x] **Kanban**: card shows badge row (tag, priority, confidence) + ⋮ menu
+- [x] **Kanban**: ACTION REQUIRED badge shows on review-stage cards
+- [x] **Kanban**: drag-and-drop still works
+- [x] **Kanban**: clicking card opens slide-in right drawer (not full-screen modal)
+- [x] **Kanban**: `+ Add idea` link at bottom of columns works
+- [x] **Studio**: 3-column layout renders correctly
+- [x] **Studio**: AI model selector populated from API
+- [x] **Studio**: Propose Step triggers step 2 expansion with proposal card
+- [x] **Studio**: Active Variables table shows TYPE column
+- [x] **Studio**: Current Path Sequence shows numbered timeline
+- [x] **Integrations**: card grid renders 4 per row
+- [x] **Integrations**: search/type/status filters work
+- [x] **Integrations**: card status badges show correct color
+- [x] **Integrations**: clicking card opens slide-in drawer
+- [x] **Integrations**: Add Connection CTA card opens add modal
+- [x] **AI Engine**: 5 stat cards render with correct computed values
+- [x] **AI Engine**: Provider Health panel shows Healthy/Degraded/Error per provider
+- [x] **AI Engine**: Model Inventory shows searchable/filterable list
+- [x] **AI Engine**: [Default] badge on default model row
+- [x] **AI Engine**: status colors (Ready=green, Needs Key=amber)
+- [x] **AI Engine**: ⋮ kebab menu works on model rows

@@ -138,12 +138,14 @@ def tester_idea(idea_id, use_docker=False):
 
     logger.info("Testing idea %s...", idea_id)
 
-    system_prompt = """You are the Antikythera Tester Agent. Your goal is to transform a technical specification and architecture into a comprehensive, actionable, and professional test plan.
+    system_prompt = """You are the Antikythera Tester Agent. Your goal is to transform a technical specification and architecture into a professional and actionable test plan.
 
 Your output must be in valid Markdown format.
 
 Follow these guidelines:
-1. **Structure**: Use these exact headings:
+1. **Proportionality**: Scale the test coverage to the actual risk and complexity of the tool. A simple script needs a few targeted tests; a complex system needs a full suite.
+2. **Strict Adherence**: Do NOT create "filler" tests or invent scenarios that are outside the scope of the specification.
+3. **Structure**: Use these headings as a guide, but omit categories that are not applicable:
    # Test Plan for [ID]: [Title]
    ## Test Plan Overview
    ## Test Cases
@@ -153,12 +155,9 @@ Follow these guidelines:
    ## Validation Checklist
    ## Expected Outputs
    ## Edge Cases Covered
-2. **Content**: Create realistic, high-coverage test scenarios. 
-   - For **Unit Tests**, focus on individual component logic.
-   - For **Integration Tests**, focus on data flow between components.
-   - For **End-to-End Tests**, focus on the complete user-driven workflow.
-3. **Detail**: Use a "Given/When/Then" format for test cases to ensure clarity.
-4. **Coverage**: Explicitly address security, error handling, and edge cases identified in the spec and architecture.
+4. **Content**: Create realistic test scenarios. 
+   - Use "Given/When/Then" format for test cases to ensure clarity.
+5. **Coverage**: Address security, error handling, and edge cases identified in the spec and architecture, scaled to the tool's complexity.
 
 Your response should ONLY contain the markdown content for the test plan document."""
 

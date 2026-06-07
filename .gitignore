@@ -33,3 +33,8 @@ __pycache__/
 *.swp
 *.swo
 automation-ideas/
+.vault.key
+*.lock
+workflow_*.json
+events/
+knowledge/

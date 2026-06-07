@@ -1,37 +1,109 @@
-from typing import Dict, Any
-from api.adapters.base import BaseAdapter
-import uuid
+import httpx
+from typing import Any, Dict, Optional
+import logging
+from .base import BaseAdapter, AuthError
+
+logger = logging.getLogger(__name__)
 
 class JiraAdapter(BaseAdapter):
-    """Adapter for interacting with the Jira API."""
-
-    def validate_config(self, config: Dict[str, Any]) -> bool:
-        # Required: 'site' (e.g., 'company.atlassian.net')
-        if "site" not in config:
-            return False
-        return True
-
-    def execute(self, run_id: str, config: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        # Simulated Jira API behavior
-        action = config.get("action")
-        site = config.get("site")
+    """
+    Adapter for Jira Cloud API.
+    """
+    async def fetch(self, resource_id: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        # In real use, we would fetch the token from self.vault.get("JIRA_TOKEN")
+        token = self.vault.get_secret("jira")
+        if not token:
+            logger.warning("Jira token not found in vault")
+            raise AuthError("Jira token not found")
         
-        if action == "create_issue":
-            summary = config.get("summary", "New Issue")
-            return {
-                "status": "success", 
-                "message": f"Created issue in {site}",
-                "external_id": f"JIRA-{uuid.uuid4().hex[:4].upper()}"
-            }
-        elif action == "transition_issue":
-            issue_key = config.get("issue_key")
-            status = config.get("status")
-            return {
-                "status": "success", 
-                "message": f"Transitioned {issue_key} to {status}"
-            }
+        headers = {
+            "Authorization": f"Bearer {token.get('access_token')}" if token.get('access_token') else f"Bearer {token.get('token')}",
+            "Accept": "application/json"
+        }
         
-        return {"status": "error", "message": f"Unsupported Jira action: {action}"}
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://your-domain.atlassian.net/rest/api/3/issue/{resource_id}",
+                headers=headers,
+                params=params
+            )
+            
+            if response.status_code == 401:
+                logger.warning("Jira API returned 401 Unauthorized")
+                raise AuthError("Jira authentication failed")
+            
+            response.raise_for_status()
+            return response.json()
 
-    def check_status(self, run_id: str, config: Dict[str, Any]) -> str:
-        return "COMPLETED"
+    async def update(self, resource_id: str, payload: Dict[str, Any]) -> Any:
+        token = self.vault.get_secret("jira")
+        if not token:
+            logger.warning("Jira token not found in vault")
+            raise AuthError("Jira token not found")
+        
+        headers = {
+            "Authorization": f"Bearer {token.get('access_token')}" if token.get('access_token') else f"Bearer {token.get('token')}",
+            "Content-Type": "application/json"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.put(
+                f"https://your-domain.atlassian.net/rest/api/3/issue/{resource_id}",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 401:
+                logger.warning("Jira API returned 401 Unauthorized")
+                raise AuthError("Jira authentication failed")
+            
+            response.raise_for_status()
+            return response.json()
+
+    async def create(self, payload: Dict[str, Any]) -> Any:
+        token = self.vault.get_secret("jira")
+        if not token:
+            logger.warning("Jira token not found in vault")
+            raise AuthError("Jira token not found")
+        
+        headers = {
+            "Authorization": f"Bearer {token.get('access_token')}" if token.get('access_token') else f"Bearer {token.get('token')}",
+            "Content-Type": "application/json"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://your-domain.atlassian.net/rest/api/3/issue",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 401:
+                logger.warning("Jira API returned 401 Unauthorized")
+                raise AuthError("Jira authentication failed")
+            
+            response.raise_for_status()
+            return response.json()
+
+    async def delete(self, resource_id: str) -> Any:
+        token = self.vault.get_secret("jira")
+        if not token:
+            logger.warning("Jira token not found in vault")
+            raise AuthError("Jira token not found")
+        
+        headers = {
+            "Authorization": f"Bearer {token.get('access_token')}" if token.get('access_token') else f"Bearer {token.get('token')}"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"https://your-domain.atlassian.net/rest/api/3/issue/{resource_id}",
+                headers=headers
+            )
+            
+            if response.status_code == 401:
+                logger.warning("Jira API returned 401 Unauthorized")
+                raise AuthError("Jira authentication failed")
+            
+            response.raise_for_status()
+            return response.json()

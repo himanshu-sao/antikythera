@@ -88,7 +88,8 @@ class LLMClient:
                     ],
                     temperature=temperature,
                 )
-                return response.choices[0].message.content.strip()
+                content = response.choices[0].message.content
+                return content.strip() if content else ""
 
             elif self.provider == "google":
                 response = self.client.models.generate_content(
@@ -99,7 +100,8 @@ class LLMClient:
                         temperature=temperature
                     )
                 )
-                return response.text.strip()
+                text = response.text
+                return text.strip() if text else ""
 
         except Exception as e:
             logger.error(f"{self.provider.capitalize()} chat failed: {str(e)}")

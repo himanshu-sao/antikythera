@@ -11,6 +11,7 @@ interface CardEditorProps {
     source_type?: string;
     source_value?: string;
     due_date?: string;
+    history?: Array<{ stage: string; at: string; agent?: string }>;
   };
   onSave: (updates: any) => Promise<void>;
   onDelete?: () => Promise<void>;
@@ -125,6 +126,28 @@ export function CardEditor({ itemId, initialData, onSave, onDelete, onClose }: C
                 placeholder={formData.source_type === 'url' ? 'https://example.com' : '/path/to/directory'}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
               />
+            </div>
+          </div>
+        )}
+
+        {/* STAGE HISTORY TIMELINE */}
+        {initialData.history && initialData.history.length > 0 && (
+          <div className="pt-4 border-t border-gray-100">
+            <h4 className="text-sm font-bold text-gray-900 mb-4">Stage History</h4>
+            <div className="space-y-4 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-gray-200">
+              {initialData.history.map((event, idx) => (
+                <div key={idx} className="relative pl-8">
+                  <div className="absolute left-0 top-1.5 w-6 h-6 bg-white border-2 border-indigo-500 rounded-full flex items-center justify-center z-10">
+                    <div className="w-2 h-2 bg-indigo-500 rounded-full" />
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs font-bold text-gray-800">{event.stage}</span>
+                    <span className="text-[10px] text-gray-500">
+                      {new Date(event.at).toLocaleString()} {event.agent ? `by ${event.agent}` : ''}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

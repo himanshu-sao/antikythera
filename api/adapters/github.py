@@ -1,40 +1,115 @@
-from typing import Dict, Any
-from api.adapters.base import BaseAdapter
-import uuid
+from .base import BaseAdapter, AuthError
+import httpx
+from typing import Any, Dict, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 class GitHubAdapter(BaseAdapter):
-    """Adapter for interacting with the GitHub API."""
-
-    def validate_config(self, config: Dict[str, Any]) -> bool:
-        # Required: 'repo' (e.g., 'owner/repo')
-        if "repo" not in config:
-            return False
-        return True
-
-    def execute(self, run_id: str, config: Dict[str, Any], context: Dict[str, Any]) -> Dict[str, Any]:
-        # In a production system, this would use requests/httpx to call GitHub API
-        # Here, we simulate the behavior.
-        action = config.get("action")
-        repo = config.get("repo")
+    """
+    Adapter for GitHub REST API.
+    """
+    async def fetch(self, resource_id: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        token = self.vault.get_secret("github")
+        if not token:
+            logger.warning("GitHub token not found in vault")
+            raise AuthError("GitHub token not found")
         
-        if action == "create_comment":
-            body = config.get("body", "Comment from Antikythera")
-            issue_id = config.get("issue_id")
-            return {
-                "status": "success", 
-                "message": f"Created comment on {repo} issue {issue_id}",
-                "external_id": f"gh_com_{uuid.uuid4().hex[:6]}"
-            }
-        elif action == "set_status":
-            state = config.get("state", "success")
-            sha = config.get("sha")
-            return {
-                "status": "success", 
-                "message": f"Set status to {state} for SHA {sha}"
-            }
+        headers = {
+            "Authorization": f"Bearer {token.get('token')}",
+            "Accept": "application/vnd.github+json"
+        }
         
-        return {"status": "error", "message": f"Unsupported GitHub action: {action}"}
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.github.com/repos/{resource_id}",
+                headers=headers,
+                params=params
+            )
+            
+            if response.status_code == 401:
+                logger.warning("GitHub API returned 401 Unauthorized")
+                raise AuthError("GitHub authentication failed")
+            
+            response.raise_for_status()
+            return response.json()
 
-    def check_status(self, run_id: str, config: Dict[str, Any]) -> str:
-        # GitHub actions are usually synchronous for these operations
-        return "COMPLETED"
+    async def update(self, resource_id: str, payload: Dict[str, Any]) -> Any:
+        token = self.vault.get_secret("github")
+        if not token:
+            logger.warning("GitHub token not found in vault")
+            raise AuthError("GitHub token not found")
+        
+        headers = {
+            "Authorization": f"Bearer {token.get('token')}",
+            "Content-Type": "application/json"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.patch(
+                f"https://api.github.com/repos/{resource_id}",
+                headers=headers,
+                json=payload
+            )
+            
+            if response.status_code == 401:
+                logger.warning("GitHub API returned 401 Unauthorized")
+                raise AuthError("GitHub authentication failed")
+            
+            response.raise_for_status()
+            return response.json()
+
+    async def create(self, payload: Dict[str, Any]) -> Any:
+        token = self.vault.get_secret("github")
+        if not token:
+            logger.warning("GitHub token not found in vault")
+            raise AuthError("GitHub token not found")
+        
+        # For simplicity, we assume payload contains 'owner' and 'repo'
+        owner = payload.get("owner")
+        repo = payload.get("repo")
+        if not owner or not repo:
+            raise ValueError("Owner and repo are required for creating a repository")
+        
+        headers = {
+            "Authorization": f"Bearer {token.get('token')}",
+            "Accept": "application/vnd.github+json"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"https://api.github.com/user/repos",
+                headers=headers,
+                json={"name": repo, **{k: v for k, v in payload.items() if k not in ["owner", "repo"]}}
+            )
+            
+            if response.status_code == 401:
+                logger.warning("GitHub API returned 401 Unauthorized")
+                raise AuthError("GitHub authentication failed")
+            
+            response.raise_for_status()
+            return response.json()
+
+    async def delete(self, resource_id: str) -> Any:
+        token = self.vault.get_secret("github")
+        if not token:
+            logger.warning("GitHub token not found in vault")
+            raise AuthError("GitHub token not found")
+        
+        # resource_id should be in the form "owner/repo"
+        headers = {
+            "Authorization": f"Bearer {token.get('token')}"
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"https://api.github.com/repos/{resource_id}",
+                headers=headers
+            )
+            
+            if response.status_code == 401:
+                logger.warning("GitHub API returned 401 Unauthorized")
+                raise AuthError("GitHub authentication failed")
+            
+            response.raise_for_status()
+            return response.json()

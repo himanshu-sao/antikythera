@@ -47,6 +47,25 @@ class WorkflowEngine:
             return run_id
         return None
 
+    def promote_to_pattern(self, item_id: str, artifact_name: str, content: str) -> bool:
+        """
+        Promotes a successful artifact into the central knowledge base (brain/patterns.md).
+        """
+        try:
+            pattern_path = "brain/patterns.md"
+            os.makedirs(os.path.dirname(pattern_path), exist_ok=True)
+            
+            entry = f"\n\n## Pattern: {item_id} - {artifact_name}\n"
+            entry += f"**Promoted at:** {datetime.utcnow().isoformat()}Z\n\n"
+            entry += f"{content}\n\n---\n"
+            
+            with open(pattern_path, "a") as f:
+                f.write(entry)
+            return True
+        except Exception as e:
+            print(f"Pattern promotion failed: {e}")
+            return False
+
     def execute_run(self, run_id: str):
         """The core execution loop. Processes steps until a pause or completion."""
         run = self.state_mgr.get_run(run_id)
@@ -104,7 +123,7 @@ class WorkflowEngine:
                         # ACTUALLY MOVE THE ITEM ON THE BOARD
                         if item_id:
                             from api.state_manager import StateManager
-                            main_state_mgr = StateManager("./automation-ideas/pipeline-state.json")
+                            main_state_mgr = StateManager(self.state_mgr.base_dir)
                             main_state_mgr.update_item(item_id, {"stage": step["board_mapping"]["stage"]})
 
                     

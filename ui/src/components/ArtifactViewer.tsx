@@ -1,364 +1,40 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { debounce } from 'lodash';
-import { apiUrl } from '../config';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import mermaid from 'mermaid';
-import { Clock, CheckCircle2, AlertCircle, Info, ChevronDown, ChevronUp, Terminal, FileText, CheckSquare } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
+import { Mermaid } from './artifacts/Mermaid';
+import { Timeline } from './artifacts/Timeline';
+import { ReviewForm } from './artifacts/ReviewForm';
+import { ZoomableArtifact } from './artifacts/ZoomableArtifact';
+import { useArtifacts } from '../hooks/useArtifacts';
 
-// Initialize mermaid
-mermaid.initialize({ 
-  startOnLoad: false, 
-  theme: 'dark',
-  securityLevel: 'loose' 
-});
-
-// Component to handle mermaid rendering within markdown code blocks
-const MermaidCodeBlock = ({ code }: { code: string }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      const timer = setTimeout(() => {
-        mermaid.contentLoaded();
-        mermaid.init(undefined, containerRef.current);
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [code]);
-
-  return (
-    <div className="flex justify-center my-4 overflow-hidden">
-      <div ref={containerRef} className="mermaid">
-        {code}
-      </div>
-    </div>
-  );
-};
-
-// Component to handle mermaid rendering for standalone content
-const Mermaid = ({ chart }: { chart: string }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (containerRef.current) {
-      const timer = setTimeout(() => {
-        mermaid.contentLoaded();
-        mermaid.init(undefined, containerRef.current);
-      }, 50);
-      return () => clearTimeout(timer);
-    }
-  }, [chart]);
-
-  return (
-    <div ref={containerRef} className="mermaid flex justify-center my-4 overflow-hidden">
-      {chart}
-    </div>
-  );
-};
-
-// NEW: Timeline Component
-interface TimelineEvent {
-  timestamp: string;
-  level: 'INFO' | 'WARN' | 'ERROR';
-  agent: string;
-  action: string;
-  message: string;
-  metadata?: any;
-}
-
-const Timeline = ({ itemId }: { itemId: string }) => {
-  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
-  const [isOpen, setIsOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-
-  const fetchTimeline = async () => {
-    try {
-      const res = await fetch(`${apiUrl}/api/item/${itemId}/timeline`);
-      if (res.ok) {
-        const data = await res.json();
-        setTimeline(data);
-      }
-    } catch (e) {
-      console.error('Failed to fetch timeline', e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchTimeline();
-  }, [itemId]);
-
-  const getLevelColor = (level: string) => {
-    switch (level) {
-      case 'ERROR': return 'text-red-600 bg-red-50 border-red-100';
-      case 'WARN': return 'text-amber-600 bg-amber-50 border-amber-100';
-      default: return 'text-blue-600 bg-blue-50 border-blue-100';
-    }
-  };
-
-  const getLevelIcon = (level: string) => {
-    switch (level) {
-      case 'ERROR': return <AlertCircle size={14} />;
-      case 'WARN': return <Info size={14} />;
-      default: return <CheckCircle2 size={14} />;
-    }
-  };
-
-  if (loading) return null;
-  if (timeline.length === 0) return null;
-
-  return (
-    <div className="mt-6 border-t border-gray-200 pt-4">
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors"
-      >
-        <Terminal size={16} />
-        Execution Timeline ({timeline.length} events)
-        {isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-      </button>
-
-      {isOpen && (
-        <div className="mt-4 space-y-4 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
-          {timeline.map((event, idx) => (
-            <div key={idx} className="relative pl-6 before:content-[''] before:absolute before:left-[7px] before:top-[18px] before:bottom-[-16px] before:w-[2px] before:bg-gray-200 last:before:hidden">
-              <div className={`absolute left-0 top-1 w-4 h-4 rounded-full border-2 border-white ring-2 ring-gray-100 flex items-center justify-center ${getLevelColor(event.level).split(' ')[0]}`}>
-                {React.cloneElement(getLevelIcon(event.level) as React.ReactElement, { size: 10 })}
-              </div>
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold uppercase text-gray-500">{event.agent}</span>
-                  <span className="text-[10px] text-gray-400">{new Date(event.timestamp).toLocaleTimeString()}</span>
-                </div>
-                <div className={`mt-1 text-xs p-2 rounded-md border ${getLevelColor(event.level)}`}>
-                  <div className="font-semibold">{event.action}</div>
-                  <div className="opacity-90">{event.message}</div>
-                  {event.metadata && Object.entries(event.metadata).map(([k, v]) => (
-                    <div key={k} className="text-[10px] opacity-70">{k}: {JSON.stringify(v)}</div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-interface Artifact {
-  name: string;
-  content: string;
-  type: 'spec' | 'architecture' | 'tests' | 'review' | 'report' | 'deliverable';
-}
+const apiUrl = 'http://localhost:8006';
 
 interface ArtifactViewerProps {
   itemId: string;
   onClose: () => void;
 }
 
-const ReviewForm = ({ reviewStatus, setReviewStatus, reviewComments, setReviewComments, submitReview }: any) => (
-    <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-4">
-      <h3 className="font-bold text-gray-900">Submit Review</h3>
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Status</label>
-        <select 
-          className="mt-1 block w-full border border-gray-300 rounded-md p-2"
-          value={reviewStatus}
-          onChange={(e: any) => setReviewStatus(e.target.value)}
-        >
-          <option value="APPROVED">Approved</option>
-          <option value="NEEDS_REVISION">Needs Revision</option>
-        </select>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-gray-700">Comments</label>
-        <textarea 
-          className="mt-1 block w-full border border-gray-300 rounded-md p-2 h-32"
-          value={reviewComments}
-          onChange={(e: any) => setReviewComments(e.target.value)}
-        />
-      </div>
-      <button 
-        onClick={submitReview}
-        className="w-full bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700"
-      >
-        Submit Review
-      </button>
-    </div>
-  );
-
 export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
+  const {
+    artifacts,
+    loading,
+    selectedArtifact,
+    setSelectedArtifact,
+    error,
+    reviewStatus,
+    setReviewStatus,
+    reviewComments,
+    setReviewComments,
+    isSaving,
+    itemDetails,
+    handleContentChange,
+    submitReview,
+    needsReview
+  } = useArtifacts({ itemId, onClose });
 
-  const [artifacts, setArtifacts] = useState<Artifact[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedArtifact, setSelectedArtifact] = useState<Artifact | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [reviewStatus, setReviewStatus] = useState('APPROVED');
-  const [reviewComments, setReviewComments] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [itemDetails, setItemDetails] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'technical' | 'review'>('technical');
   const [isEditing, setIsEditing] = useState(false);
-
-  const submitReview = async () => {
-    const content = `review_status: ${reviewStatus}\n\n## Comments\n${reviewComments}`;
-    await saveContent('review.md', content);
-
-    if (reviewStatus === 'APPROVED') {
-      const nextStageMap: Record<string, string> = {
-        'REVIEW_SPEC': 'ARCHITECTURE',
-        'REVIEW_ARCH': 'TESTING',
-        'REVIEW_TEST': 'APPROVED'
-      };
-      const nextStage = nextStageMap[itemDetails?.stage];
-
-      if (nextStage) {
-        await fetch(`${apiUrl}/api/move`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_id: itemId, new_stage: nextStage })
-        });
-        alert('Review Approved! Transitioning to ' + nextStage);
-        onClose(); // Close the viewer
-      } else {
-        alert('Review Approved!');
-      }
-    } else {
-      alert('Feedback submitted. Task remains in ' + itemDetails?.stage);
-    }
-  };
-
-  useEffect(() => {
-    const fetchItemDetails = async () => {
-      try {
-        const res = await fetch(`${apiUrl}/api/item/${itemId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setItemDetails(data);
-        }
-      } catch (e) {
-        console.error('Failed to fetch item details', e);
-      }
-    };
-    fetchItemDetails();
-  }, [itemId]);
-
-  useEffect(() => {
-    const fetchArtifacts = async () => {
-      try {
-        if (itemDetails?.execution_policy?.mode === 'INLINE') {
-          setArtifacts([{ name: 'Result', content: itemDetails.inline_output || '', type: 'review' }]);
-          setLoading(false);
-          return;
-        }
-
-        const getRelevantArtifacts = (stage: string) => {
-          const isReviewStage = stage.startsWith('REVIEW_') || 
-                                ['ARCHITECTURE', 'DESIGN', 'TESTING'].includes(stage);
-          const base = isReviewStage ? ['review.md'] : [];
-
-          if (stage === 'REVIEW_SPEC') return ['spec.md', ...base];
-          if (stage === 'ARCHITECTURE') return ['spec.md', 'architecture.md', ...base];
-          if (stage === 'DESIGN') return ['architecture.md', 'design.md', ...base];
-          if (stage === 'TESTING') return ['architecture.md', 'tests.md', ...base];
-          
-          if (isReviewStage) return base;
-
-          // If stage is DONE, we want to show the outputs
-          if (stage === 'DONE') return ['execution_report.md', 'deliverables.md'];
-
-          return ['spec.md', 'architecture.md', 'tests.md'];
-        };
-
-        const artifactNames = getRelevantArtifacts(itemDetails?.stage || 'DEFAULT');
-        const fetchedArtifacts: Artifact[] = [];
-        let hasError = false;
-
-        for (const name of artifactNames) {
-          try {
-            const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}`);
-            if (res.ok) {
-              const content = await res.text();
-              let type: any = name.replace('.md', '');
-              if (name === 'execution_report.md') type = 'report';
-              if (name === 'deliverables.md') type = 'deliverable';
-              fetchedArtifacts.push({ name, content, type });
-            }
-          } catch (e: any) {
-            console.error(`Failed to fetch artifact ${name}`, e);
-            hasError = true;
-          }
-        }
-        
-        if (hasError && fetchedArtifacts.length === 0) {
-          throw new Error('No artifacts found');
-        }
-
-        setArtifacts(fetchedArtifacts);
-        setLoading(false);
-      } catch (e: any) {
-        console.error('Failed to fetch artifacts', e);
-        setError(e.message);
-        setLoading(false);
-      }
-    };
-    fetchArtifacts();
-  }, [itemDetails, itemId]);
-
-  const saveContent = React.useCallback(async (name: string, content: string) => {
-    setIsSaving(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}/content`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      });
-      if (!res.ok) {
-        throw new Error('Failed to save content');
-      }
-    } catch (e) {
-      console.error('Save error:', e);
-    } finally {
-      setIsSaving(false);
-    }
-  }, [itemId]);
-
-  const debouncedSave = React.useMemo(
-    () => debounce((name: string, content: string) => saveContent(name, content), 1000),
-    [saveContent]
-  );
-
-  useEffect(() => {
-    return () => {
-      debouncedSave.cancel();
-    };
-  }, [debouncedSave]);
-
-  const handleContentChange = (newContent: string) => {
-    if (!selectedArtifact) return;
-    setSelectedArtifact({ ...selectedArtifact, content: newContent });
-    debouncedSave(selectedArtifact.name, newContent);
-  };
-
-  useEffect(() => {
-    setIsEditing(false);
-  }, [selectedArtifact?.name]);
-
-  const getInstructions = (stage: string) => {
-    switch (stage) {
-      case 'REVIEW_SPEC':
-        return { title: 'Review Specification', steps: ['Read spec.md', 'Note technical concerns', 'Set review_status in review.md'] };
-      case 'ARCHITECTURE':
-        return { title: 'Architecture Review', steps: ['Read architecture.md', 'Check scalability', 'Verify integration'] };
-      default:
-        return null;
-    }
-  };
-
-  const needsReview = itemDetails?.stage?.startsWith('REVIEW_') && !artifacts.some(a => a.name === 'review.md');
-  const instructions = getInstructions(itemDetails?.stage);
 
   if (loading) {
     return (
@@ -386,91 +62,177 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
 
   return (
     <div className="flex h-full overflow-hidden">
+      {/* Sidebar */}
       <div className="w-64 border-r border-gray-200 bg-gray-50 overflow-y-auto flex flex-col justify-between shrink-0">
         <div className="p-4">
           {itemDetails && (
-            <div className="mb-6 pb-4 border-b border-gray-200 text-sm text-gray-600">
-              <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Item Details</h4>
-              <div className="space-y-2">
-                <div>
-                  <span className="font-semibold">Priority:</span>{' '}
-                  <span className="capitalize">{itemDetails.priority}</span>
-                </div>
-                <div>
-                  <span className="font-semibold">Confidence:</span>{' '}
-                  <span>{itemDetails.confidence_score ?? 0}%</span>
-                </div>
-                {itemDetails.source_type && (
+            <>
+              <div className="mb-6 pb-4 border-b border-gray-200 text-sm text-gray-600">
+                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Item Details</h4>
+                <div className="space-y-2">
                   <div>
-                    <span className="font-semibold">Source:</span>{' '}
-                    <div className="text-xs bg-white p-1.5 rounded mt-1 border border-gray-200 overflow-hidden text-ellipsis flex items-center gap-1">
-                      <span>{itemDetails.source_type === 'url' ? '🌐' : '📁'}</span>
-                      <span className="truncate text-gray-700" title={itemDetails.source_value}>
-                        {itemDetails.source_value}
-                      </span>
+                    <span className="font-semibold">Priority:</span>{' '}
+                    <span className="capitalize">{itemDetails.priority}</span>
+                  </div>
+                  <div>
+                    <span className="font-semibold">Confidence:</span>{' '}
+                    <span>{itemDetails.confidence_score ?? 0}%</span>
+                  </div>
+                  {itemDetails.source_type && (
+                    <div>
+                      <span className="font-semibold">Source:</span>{' '}
+                      <div className="text-xs bg-white p-1.5 rounded mt-1 border border-gray-200 overflow-hidden text-ellipsis flex items-center gap-1">
+                        <span>{itemDetails.source_type === 'url' ? '🌐' : '📁'}</span>
+                        <span className="truncate text-gray-700" title={itemDetails.source_value}>
+                          {itemDetails.source_value}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {itemDetails.blocked_reason && (
+                <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-r-lg shadow-sm animate-in fade-in slide-in-from-top-1 duration-300">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-red-800 uppercase tracking-tight">Blocking Error</h4>
+                      <p className="text-sm text-red-700 mt-1 leading-relaxed">
+                        {itemDetails.blocked_reason}
+                      </p>
                     </div>
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
+              )}
+            </>
           )}
+
           <h3 className="font-semibold text-gray-700 mb-3">Artifacts</h3>
+          
+          <div className="flex p-1 bg-gray-200 rounded-lg mb-4">
+            <button
+              onClick={() => setActiveTab('technical')}
+              className={`flex-1 py-1 text-xs font-medium rounded-md transition-all ${
+                activeTab === 'technical' 
+                  ? 'bg-white text-gray-900 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Technical
+            </button>
+            <button
+              onClick={() => setActiveTab('review')}
+              className={`flex-1 py-1 text-xs font-medium rounded-md transition-all ${
+                activeTab === 'review' 
+                  ? 'bg-white text-gray-900 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Review
+            </button>
+          </div>
+
           <div className="space-y-2">
-            {artifacts.map((artifact) => (
-              <button
-                key={artifact.name}
-                onClick={() => setSelectedArtifact(artifact)}
-                className={`w-full text-left p-3 rounded-lg transition-colors ${
-                  selectedArtifact?.name === artifact.name
-                    ? 'bg-blue-100 text-blue-900'
-                    : 'hover:bg-gray-100 text-gray-700'
-                }`}
-              >
-                <div className="font-medium text-sm">{artifact.name}</div>
-                <div className="text-xs text-gray-500 capitalize">{artifact.type}</div>
-              </button>
-            ))}
+            {activeTab === 'technical' ? (
+              <>
+                {artifacts
+                  .filter(a => a.name !== 'review.md')
+                  .map((artifact) => (
+                    <button
+                      key={artifact.name}
+                      onClick={() => {
+                        setSelectedArtifact(artifact);
+                        setIsEditing(false);
+                      }}
+                      className={`w-full text-left p-3 rounded-lg transition-colors ${
+                        selectedArtifact?.name === artifact.name
+                          ? 'bg-blue-100 text-blue-900'
+                          : 'hover:bg-gray-100 text-gray-700'
+                      }`}
+                    >
+                      <div className="font-medium text-sm">{artifact.name}</div>
+                      <div className="text-xs text-gray-500 capitalize">{artifact.type}</div>
+                    </button>
+                  ))}
+                {needsReview && (
+                  <button
+                    onClick={() => {
+                      const reviewArtifact = artifacts.find(a => a.name === 'review.md');
+                      if (reviewArtifact) {
+                        setSelectedArtifact(reviewArtifact);
+                      } else {
+                        setSelectedArtifact({ name: 'review.md', content: '', type: 'review' });
+                      }
+                      setIsEditing(false);
+                    }}
+                    className="w-full text-left p-3 rounded-lg border border-dashed border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 transition-colors mt-4"
+                  >
+                    <div className="font-bold text-sm flex items-center gap-2">
+                      <span>✍️</span> Add Your Review
+                    </div>
+                    <div className="text-[10px] opacity-80 italic">
+                      Open review.md to approve or provide feedback
+                    </div>
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                {artifacts
+                  .filter(a => a.name === 'review.md')
+                  .map((artifact) => (
+                    <button
+                      key={artifact.name}
+                      onClick={() => {
+                        setSelectedArtifact(artifact);
+                        setIsEditing(false);
+                      }}
+                      className={`w-full text-left p-3 rounded-lg transition-colors ${
+                        selectedArtifact?.name === artifact.name
+                          ? 'bg-indigo-100 text-indigo-900'
+                          : 'hover:bg-indigo-50 text-indigo-700'
+                      }`}
+                    >
+                      <div className="font-bold text-sm flex items-center gap-2">
+                        <span>✍️</span> {artifact.name}
+                      </div>
+                      <div className="text-xs text-indigo-500 capitalize">{artifact.type}</div>
+                    </button>
+                  ))}
+              </>
+            )}
           </div>
         </div>
-        
         <Timeline itemId={itemId} />
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 bg-white">
-        {selectedArtifact ? (
-          <div>
-            {/* Action Center - Only visible if we have instructions and no artifact selected */}
-            {instructions && !selectedArtifact && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <h3 className="font-bold text-blue-900">{instructions.title}</h3>
-                <ul className="list-decimal ml-5 mt-2 space-y-1 text-sm text-blue-800">
-                  {instructions.steps.map((step, i) => <li key={i}>{step}</li>)}
-                </ul>
-              </div>
-            )}
-            
+      {/* Main Content Area */}
+      {selectedArtifact ? (
+        <div className="flex-1 overflow-y-auto">
+          <div className="p-4">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-gray-900">{selectedArtifact.name}</h2>
               <div className="flex items-center gap-3">
-              <button
-                onClick={async () => {
-                  if (window.confirm(`Promote ${selectedArtifact.name} to a reusable pattern? This will train the system.`)) {
-                    try {
-                      const res = await fetch(`${apiUrl}/api/item/${itemId}/promote-pattern?artifact_name=${selectedArtifact.name}`, {
-                        method: 'POST'
-                      });
-                      if (!res.ok) throw new Error('Promotion failed');
-                      alert('Pattern promoted successfully!');
-                    } catch (err) {
-                      console.error(err);
-                      alert('Error promoting pattern.');
+                <button
+                  onClick={async () => {
+                    if (window.confirm(`Promote ${selectedArtifact.name} to a reusable pattern? This will train the system.`)) {
+                      try {
+                        const res = await fetch(`${apiUrl}/api/item/${itemId}/promote-pattern?artifact_name=${selectedArtifact.name}`, {
+                          method: 'POST'
+                        });
+                        if (!res.ok) throw new Error('Promotion failed');
+                        alert('Pattern promoted successfully!');
+                      } catch (err) {
+                        console.error(err);
+                        alert('Error promoting pattern.');
+                      }
                     }
-                  }
-                }}
-                className="px-3 py-1 text-xs font-medium text-white bg-purple-600 rounded hover:bg-purple-700 transition-colors"
-              >
-                Promote to Pattern
-              </button>
+                  }}
+                  className="px-3 py-1 text-xs font-medium text-white bg-purple-600 rounded hover:bg-purple-700 transition-colors"
+                >
+                  Promote to Pattern
+                </button>
                 {selectedArtifact.name === 'review.md' && (
                   <span className={`text-xs px-2 py-1 rounded-full transition-colors ${
                     isSaving ? 'bg-yellow-100 text-yellow-700' : 'bg-green-100 text-green-700'
@@ -481,6 +243,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                 <span className="text-sm text-gray-500 capitalize">{selectedArtifact.type}</span>
               </div>
             </div>
+
             {selectedArtifact.name === 'review.md' ? (
               <ReviewForm 
                 reviewStatus={reviewStatus}
@@ -501,58 +264,59 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                     </button>
                   </div>
                 )}
-
-                {isEditing ? (
-                  <textarea
-                    className="w-full h-[calc(100vh-300px)] p-4 rounded-lg border border-gray-200 font-mono text-sm text-gray-800 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                    value={selectedArtifact.content}
-                    onChange={(e) => handleContentChange(e.target.value)}
-                    placeholder={`Edit ${selectedArtifact.name}...`}
-                  />
-                ) : (
-                  <div className="prose prose-slate max-w-none overflow-auto">
-                    <ReactMarkdown 
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        code({node, inline, className, children, ...props}: any) {
-                          const match = /language-mermaid/.exec(className || '')
-                          return !inline && match ? (
-                            <MermaidCodeBlock code={String(children).replace(/\n$/, '')} />
-                          ) : (
-                            <code className={className} {...props}>
+                <div className="relative flex-1 flex flex-col min-h-[500px]">
+                  {isEditing ? (
+                    <textarea
+                      value={selectedArtifact.content}
+                      onChange={(e) => handleContentChange(e.target.value)}
+                      className="flex-1 w-full p-6 font-mono text-sm bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none resize-none shadow-inner"
+                    />
+                  ) : (
+                    <div className="group flex-1">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          img: ({node, ...props}: any) => (
+                            <ZoomableArtifact altText={props.alt}>
+                              <img {...props} className="max-w-full h-auto rounded-lg shadow-sm" />
+                            </ZoomableArtifact>
+                          ),
+                          code: ({node, className, children, ...props}: any) => {
+                            const match = /language-mermaid/i.test(className || '');
+                            return !className?.includes('language-mermaid') && match ? (
+                              <ZoomableArtifact>
+                                <Mermaid chart={String(children).replace(/\\n/g, ' ')} isCodeBlock={true} />
+                              </ZoomableArtifact>
+                            ) : (
+                              <code className="bg-gray-100 px-1 rounded text-sm font-mono" {...props}>
                               {children}
-                            </code>
-                          )
-                        }
-                      }}
-                    >
-                      {selectedArtifact.content}
-                    </ReactMarkdown>
+                              </code>
+                            );
+                          }
+                        }}
+                      >
+                        {selectedArtifact.content}
+                      </ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+                {selectedArtifact.type === 'report' && (
+                  <div className="mt-6 border-t border-gray-200 pt-4">
+                    <div className="font-bold text-gray-900 mb-2">Execution Report Details</div>
+                    <div className="text-sm text-gray-600">
+                      {selectedArtifact.content.split('\n').filter(l => l.trim() !== '').slice(1).join('\n')}
+                    </div>
                   </div>
                 )}
               </div>
             )}
           </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-full text-center">
-            {needsReview ? (
-              <div className="max-w-md p-8 bg-amber-50 border border-amber-200 rounded-2xl shadow-sm">
-                <div className="text-4xl mb-4">📝</div>
-                <h2 className="text-xl font-bold text-amber-900 mb-2">Review Required</h2>
-                <p className="text-amber-800 mb-6">
-                  This task is in a review stage, but no <strong>review.md</strong> has been created yet.
-                  Please create a review to provide feedback or approve the current stage.
-                </p>
-                <div className="text-sm text-amber-700 italic">
-                  Tip: Select an existing artifact (like spec.md) to start your review.
-                </div>
-              </div>
-            ) : (
-              <div className="text-gray-500">Select an artifact to view its contents</div>
-            )}
-          </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="flex-1 flex items-center justify-center h-full">
+          <div className="text-gray-500">Currently no artifact selected. Please select one from the left sidebar.</div>
+        </div>
+      )}
     </div>
   );
 }

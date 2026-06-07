@@ -1,8 +1,3 @@
-"""
-Memory Agent — The continuous learner.
-Analyzes audit logs to discover patterns and update patterns.md.
-"""
-
 import os
 import logging
 import glob
@@ -12,6 +7,7 @@ from agents.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
+# Using relative paths based on project structure
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUDIT_DIR = os.path.join(PROJECT_ROOT, "automation-ideas", "audit")
 PATTERNS_FILE = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "patterns.md")
@@ -43,33 +39,21 @@ class MemoryAgent:
             logger.info("No new patterns identified.")
 
     def _collect_audit_entries(self) -> List[str]:
-        """
-        Reads all audit files and collects their contents.
-        """
         entries = []
         audit_files = sorted(glob.glob(os.path.join(AUDIT_DIR, "*.md")))
-        
         for file_path in audit_files:
             try:
                 with open(file_path, "r") as f:
-                    # We only want the entries, not the header
                     content = f.read()
-                    # Basic heuristic: entries are separated by ---
-                    # We'll take everything after the first header
                     parts = content.split("## ")
                     if len(parts) > 1:
                         entries.extend(parts[1:])
             except Exception as e:
                 logger.error(f"Error reading audit file {file_path}: {str(e)}")
-        
         return entries
 
     def _analyze_patterns(self, entries: List[str]) -> Optional[str]:
-        """
-        Uses the LLM to synthesize patterns from audit entries.
-        """
         logger.info("Analyzing entries for patterns...")
-        
         system_prompt = """You are the Antikythera Memory Agent.
 Your goal is to analyze audit logs and extract structured, reusable patterns.
 
@@ -87,18 +71,9 @@ Use the following structure:
 ### GUIDELINES
 1. **Be Specific**: Don't just say "Python". Say "Preferred use of Python 3.9+ with type hinting".
 2. **Be Actionable**: Patterns should be useful for future agents.
-3. **Avoid Redundancy**: If a pattern already exists in the provided context, do not repeat it.
+3. **Avoid Redundancy**: If a pattern already exists in the provided context, do not remember it.
 """
-
-        user_prompt = f"""
-Here are the recent audit log entries:
-
-{chr(10).join(entries)}
-
-Based on these entries, propose NEW patterns to add to the patterns.md file.
-If no new patterns are found, return an empty string.
-"""
-
+        user_prompt = f"Here are the recent audit log entries:\n\n{chr(10).join(entries)}\n\nBased on these entries, propose NEW patterns to add to the patterns.md file. If no new patterns are found, return an empty string."
         try:
             response_text = self.llm.chat(system_prompt=system_prompt, user_prompt=user_prompt)
             return response_text.strip()
@@ -107,34 +82,17 @@ If no new patterns are found, return an empty string.
             return None
 
     def _update_patterns_file(self, new_patterns: str):
-        """
-        Appends new patterns to patterns.md.
-        """
         logger.info("Updating patterns.md with new insights...")
-        
         if not new_patterns or len(new_patterns.strip()) < 10:
             return
-
         try:
-            # In a production system, we would use an LLM to merge these 
-            # to avoid duplicates and ensure logical ordering.
-            # For now, we append with a timestamp.
             timestamp = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-            
             with open(PATTERNS_FILE, "a") as f:
                 f.write(f"\n\n## Learned on {timestamp}\n\n")
                 f.write(new_patterns)
-            
             logger.info(f"Successfully updated {PATTERNS_FILE}")
         except Exception as e:
             logger.error(f"Failed to update patterns.md: {str(e)}")
-
-if __name__ == "__main__":
-    # Manual run for testing
-    import yaml
-    config_path = "config.yaml"
-    agent = MemoryAgent(config_path=config_path)
-    agent.run_learning_loop()
 
 def extract_pattern_from_content(item_id: str, artifact_name: str, content: str) -> bool:
     """
@@ -146,8 +104,10 @@ def extract_pattern_from_content(item_id: str, artifact_name: str, content: str)
     from datetime import datetime
 
     logger = logging.getLogger(__name__)
-    llm = LLMClient(config_path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config.yaml'))
-    BRAIN_PATTERNS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'automation-ideas', 'brain', 'patterns.md')
+    # Use project root for config and patterns file
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    config_path = os.path.join(project_root, 'config.yaml')
+    brain_patterns = os.path.join(project_root, 'automation-ideas', 'brain', 'patterns.md')
 
     logger.info("Memory Agent: Extracting pattern from %s/%s", item_id, artifact_name)
 
@@ -158,30 +118,32 @@ def extract_pattern_from_content(item_id: str, artifact_name: str, content: str)
 
     Guidelines for Extraction:
     1. **Identify Reusable Logic**: Look for specific error handling strategies, security patterns, or structural elements.
-    2. **Abstract the Pattern**: Do NOT include specific implementation details (like variable names or specific IDs). Instead, describe the *princness* of the pattern.
+    2. **Abstract the Pattern**: Do NOT include specific implementation details (like variable names or specific IDs). Instead, describe the *principle* of the pattern.
     3. **Format for patterns.md**: Output your findings as a new Markdown section with a clear heading and bullet points. Use a style that is easy for other AI agents to read as instructions.
     4. **Avoid Redundancy**: If a similar pattern already exists in the provided context, refine the existing pattern rather than duplicating it.
 
     Input format: [ARTIFACT TYPE] | [ARTIFACT CONTENT]
     Output format: A new Markdown section ready to be appended to patterns.md.
     """
-
     user_prompt = f"<{artifact_name.upper()}>\n{content}"
 
     try:
-        new_pattern_markdown = llm.generate_structured_content(system_prompt, user_prompt)
+        # Using a more generic generate_structured_content if available, 
+        # or falling back to chat
+        llm = LLMClient(config_path=config_path)
+        new_pattern_markdown = llm.chat(system_prompt=system_prompt, user_prompt=user_prompt)
+        
         if not new_pattern_markdown or len(new_pattern_markdown) < 50:
             logger.warning("Pattern extraction yielded insufficient content. Skipping.")
             return False
 
-        # Append to patterns.md
-        if os.path.exists(BRAIN_PATTERNS):
-            with open(BRAIN_PATTERNS, 'r') as f:
+        if os.path.exists(brain_patterns):
+            with open(brain_patterns, 'r') as f:
                 current_content = f.read()
         else:
             current_content = "# Antikythera Architectural Patterns\n\n"
 
-        with open(BRAIN_PATTERNS, 'w') as f:
+        with open(brain_patterns, 'w') as f:
             f.write(current_content + "\n" + new_pattern_markdown + "\n")
 
         logger.info("Successfully updated patterns.md with new pattern from %s", item_id)

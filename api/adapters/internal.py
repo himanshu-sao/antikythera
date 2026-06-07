@@ -28,7 +28,7 @@ class InternalKanbanAdapter(BaseAdapter):
                 return {"status": "error", "message": "No Kanban item bound to this run"}
             item_id = bindings[0]["item_id"]
 
-        state_mgr = StateManager("./automation-ideas/pipeline-state.json")
+        state_mgr = StateManager("./automation-ideas")
         
         if action == "move_item":
             new_stage = config.get("new_stage")
