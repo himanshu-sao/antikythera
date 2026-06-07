@@ -59,9 +59,9 @@ export function IntegrationsManager() {
   const [typeFilter, setTypeFilter] = useState<'all' | 'native' | 'mcp'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'connected' | 'error' | 'warning' | 'disconnected'>('all');
   
-  // Detail drawer state
+  // Detail modal state (centered)
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null);
-  const [showDetailDrawer, setShowDetailDrawer] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
 
   // Focus management refs
   const addCardRef = useRef<HTMLDivElement>(null);
@@ -95,10 +95,10 @@ export function IntegrationsManager() {
 
   // Effect: focus drawer close button when drawer opens
   useEffect(() => {
-    if (showDetailDrawer) {
+    if (showDetailModal) {
       drawerCloseBtnRef.current?.focus();
     }
-  }, [showDetailDrawer]);
+  }, [showDetailModal]);
 
   useEffect(() => {
     fetchIntegrations();
@@ -166,6 +166,24 @@ export function IntegrationsManager() {
       toast.success("Integration added");
     } catch (e: any) {
       toast.error(e.message || "Invalid config JSON or API error");
+    }
+  };
+
+  const handleToggle = async (intg: Integration) => {
+    const currentEnabled = intg.config?.enabled ?? true;
+    const newEnabled = !currentEnabled;
+    const updatedConfig = { ...intg.config, enabled: newEnabled };
+    try {
+      const res = await fetch(`${apiUrl}/api/integrations/${intg.name}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: updatedConfig }),
+      });
+      if (!res.ok) throw new Error('Failed to toggle');
+      fetchIntegrations();
+      toast.success(`Integration ${newEnabled ? 'enabled' : 'disabled'}`);
+    } catch (e: any) {
+      toast.error(e.message || 'Toggle failed');
     }
   };
 
@@ -301,7 +319,7 @@ export function IntegrationsManager() {
             className="bg-white border border-[#d8d3ca] rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-[#0b6b72] transition-all cursor-pointer group"
             onClick={() => {
               setSelectedIntegration(int);
-              setShowDetailDrawer(true);
+              setShowDetailModal(true);
             }}
           >
             <div className="flex justify-between items-start mb-4">
@@ -324,6 +342,12 @@ export function IntegrationsManager() {
               }`}>
                 {int.status ? int.status.charAt(0).toUpperCase() + int.status.slice(1) : 'Disconnected'}
               </div>
+              {int.type === 'mcp' && (
+                <div className="ml-2 flex items-center">
+                  <label className="text-xs text-gray-500 mr-1">Enabled</label>
+                  <input type="checkbox" checked={int.config?.enabled ?? true} onChange={(e)=>{e.stopPropagation(); handleToggle(int);}} className="h-4 w-4" />
+                </div>
+              )}
             </div>
             
             {int.description && (
@@ -384,27 +408,18 @@ export function IntegrationsManager() {
       </div>
       </div>
 
-      {/* Detail Drawer */}
-      {showDetailDrawer && selectedIntegration && (
+      {/* Detail Modal (centered) */}
+      {showDetailModal && selectedIntegration && (
         <>
-          <div 
-            className="fixed inset-0 bg-black bg-opacity-50 z-40"
-            onClick={() => setShowDetailDrawer(false)}
-          />
-          <div className="fixed top-0 right-0 h-full w-[520px] bg-white shadow-2xl z-50 overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
-            <div className="p-6">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-40" onClick={() => setShowDetailModal(false)}></div>
+          <div className="fixed inset-0 flex items-center justify-center z-50">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6 overflow-y-auto max-h-[90vh]" role="dialog" aria-modal="true" aria-labelledby="detail-modal-title">
               <div className="flex justify-between items-start mb-6">
                 <div>
-                  <h2 id="drawer-title" className="text-2xl font-bold text-[#231f19]">{selectedIntegration.name}</h2>
+                  <h2 id="detail-modal-title" className="text-2xl font-bold text-[#231f19]">{selectedIntegration.name}</h2>
                   <p className="text-sm text-gray-500 mt-1">{selectedIntegration.type === 'mcp' ? 'MCP Server' : 'Native Adapter'}</p>
                 </div>
-                <button 
-                  ref={drawerCloseBtnRef}
-                  onClick={() => setShowDetailDrawer(false)}
-                  className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-all"
-                >
-                  ✕
-                </button>
+                <button ref={drawerCloseBtnRef} onClick={() => setShowDetailModal(false)} className="p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-all">✕</button>
               </div>
 
               {/* Status Badge */}
@@ -457,7 +472,7 @@ export function IntegrationsManager() {
               <div className="flex gap-3 mt-8 pt-6 border-t border-gray-100">
                 <button
                   onClick={() => {
-                    setShowDetailDrawer(false);
+                    setShowDetailModal(false);
                     setEditingInt(selectedIntegration);
                     setEditConfig(JSON.stringify(selectedIntegration.config, null, 2));
                     setTestResult(null);
@@ -483,7 +498,7 @@ export function IntegrationsManager() {
                   Test Connection
                 </button>
                 <button
-                  onClick={() => { setShowDetailDrawer(false); handleDelete(selectedIntegration.name); }}
+                  onClick={() => { setShowDetailModal(false); handleDelete(selectedIntegration.name); }}
                   className="px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg font-medium hover:bg-red-50 transition-all"
                 >
                   Delete
