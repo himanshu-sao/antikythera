@@ -254,29 +254,134 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">AI Engine Configuration</h2>
-          <p className="text-gray-600 mt-1">Manage AI models, providers, and connection settings</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={fetchConfig}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
-          <button
-            onClick={() => setIsAddingModel(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 transition"
-          >
-            <Plus className="w-4 h-4" />
-            Add Model
-          </button>
-        </div>
-      </div>
+      // Header
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">AI Engine Configuration</h2>
+                <p className="text-gray-600 mt-1">Manage AI models, providers, and connection settings</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={fetchConfig}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Refresh
+                </button>
+                <button
+                  onClick={() => setIsAddingModel(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 transition"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Model
+                </button>
+              </div>
+            </div>
+
+            {/* Add Model Modal */}
+            {isAddingModel && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+                  <h3 className="text-xl font-bold mb-4">Add New Model</h3>
+                  <div className="grid grid-cols-1 gap-4">
+                    <input
+                      type="text"
+                      placeholder="Model ID (unique)"
+                      value={apiKeys['new_model_id'] || ''}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_model_id: e.target.value })}
+                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Display Name"
+                      value={apiKeys['new_name'] || ''}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_name: e.target.value })}
+                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <select
+                      value={apiKeys['new_provider'] || ''}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_provider: e.target.value })}
+                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    >
+                      <option value="">Select Provider</option>
+                      {providers.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Endpoint URL (optional)"
+                      value={apiKeys['new_endpoint'] || ''}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_endpoint: e.target.value })}
+                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Context Window (default 4096)"
+                      value={apiKeys['new_context'] || 4096}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_context: Number(e.target.value) })}
+                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Temperature (default 0.7)"
+                      value={apiKeys['new_temperature'] || 0.7}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_temperature: Number(e.target.value) })}
+                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Max Tokens (default 2048)"
+                      value={apiKeys['new_max_tokens'] || 2048}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_max_tokens: Number(e.target.value) })}
+                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                  </div>
+                  <div className="flex justify-end mt-6 space-x-3">
+                    <button
+                      onClick={() => setIsAddingModel(false)}
+                      className="px-4 py-2 border rounded hover:bg-gray-50 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        // Prepare payload
+                        const payload = {
+                          model_id: apiKeys['new_model_id'],
+                          name: apiKeys['new_name'],
+                          provider: apiKeys['new_provider'],
+                          endpoint_url: apiKeys['new_endpoint'] || undefined,
+                          context_window: apiKeys['new_context'] || undefined,
+                          temperature: apiKeys['new_temperature'] || undefined,
+                          max_tokens: apiKeys['new_max_tokens'] || undefined,
+                        };
+                        try {
+                          const res = await fetch('/api/ai-engine/add-model', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload),
+                          });
+                          if (!res.ok) {
+                            const err = await res.json();
+                            alert('Failed to add model: ' + (err.detail || err.message));
+                          } else {
+                            await fetchConfig();
+                            setIsAddingModel(false);
+                            toast.success('Model added successfully');
+                          }
+                        } catch (e:any) {
+                          alert('Error adding model: ' + e.message);
+                        }
+                      }}
+                      className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 transition"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
