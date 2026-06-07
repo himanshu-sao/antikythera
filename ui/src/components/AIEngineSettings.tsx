@@ -62,7 +62,22 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [modelSearch, setModelSearch] = useState('');
   const [modelProviderFilter, setModelProviderFilter] = useState('all');
   const [showApiKeyModal, setShowApiKeyModal] = useState<string | null>(null);
+  const [showKeysModal, setShowKeysModal] = useState(false);
   const [isAddingModel, setIsAddingModel] = useState(false);
+
+  // Available models for Add Model UI
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+
+  // Refresh provider model list
+  const refreshModels = async () => {
+    try {
+      const res = await fetch('/api/ai-engine/provider-models');
+      const data = await res.json();
+      setAvailableModels(data.models ?? []);
+    } catch (e) {
+      console.error('Failed to fetch provider models', e);
+    }
+  };
 
   // Provider metadata
   const providers: ProviderInfo[] = [
@@ -110,6 +125,15 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       features: ['local', 'text', 'completion', 'chat'],
       icon: <Cpu className="w-5 h-5" />, // using Cpu icon as placeholder
       color: 'bg-indigo-500'
+    },
+    {
+      id: 'openrouter',
+      name: 'OpenRouter',
+      description: 'Aggregated access to multiple LLM providers via OpenRouter API',
+      requires_api_key: true,
+      features: ['cloud', 'text', 'completion', 'chat', 'multiple-providers'],
+      icon: <Zap className="w-5 h-5" />, // reuse Zap icon
+      color: 'bg-orange-500'
     }
   ];
 
@@ -254,7 +278,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
 
   return (
     <div className="space-y-6">
-      // Header
+      {/* Header */}
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900">AI Engine Configuration</h2>
@@ -275,6 +299,13 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                   <Plus className="w-4 h-4" />
                   Add Model
                 </button>
+                <button
+                  onClick={() => setShowKeysModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
+                >
+                  <Key className="w-4 h-4" />
+                  Configured Keys
+                </button>
               </div>
             </div>
 
@@ -284,13 +315,23 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                 <div className="bg-white rounded-lg p-6 w-full max-w-lg">
                   <h3 className="text-xl font-bold mb-4">Add New Model</h3>
                   <div className="grid grid-cols-1 gap-4">
-                    <input
-                      type="text"
-                      placeholder="Model ID (unique)"
-                      value={apiKeys['new_model_id'] || ''}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_model_id: e.target.value })}
-                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    />
+                    <div className="flex items-center space-x-2">
+                      <select
+                        value={apiKeys['new_model_id'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_model_id: e.target.value })}
+                        className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      >
+                        <option value="" disabled>Select model</option>
+                        {availableModels.map(m => (<option key={m} value={m}>{m}</option>))}
+                      </select>
+                      <button
+                        onClick={refreshModels}
+                        className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                        title="Refresh model list"
+                      >
+                        ↻
+                      </button>
+                    </div>
                     <input
                       type="text"
                       placeholder="Display Name"
@@ -325,14 +366,14 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                     <input
                       type="number"
                       placeholder="Temperature (default 0.7)"
-                      value={apiKeys['new_temperature'] || 0.7}
+                      value={apiKeys['new_temperature'] || ''}
                       onChange={(e) => setApiKeys({ ...apiKeys, new_temperature: Number(e.target.value) })}
                       className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
                     <input
                       type="number"
                       placeholder="Max Tokens (default 2048)"
-                      value={apiKeys['new_max_tokens'] || 2048}
+                      value={apiKeys['new_max_tokens'] || ''}
                       onChange={(e) => setApiKeys({ ...apiKeys, new_max_tokens: Number(e.target.value) })}
                       className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
@@ -389,11 +430,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-6 py-3 font-medium transition-colors border-b-2 ${
-              activeTab === tab
-                ? 'border-teal-500 text-teal-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
-            }`}
+            className={"px-6 py-3 font-medium transition-colors border-b-2 " + (activeTab === tab ? "border-teal-500 text-teal-600" : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300")}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
@@ -471,8 +508,30 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {config.models.map((model) => {
+          <div className="mb-6 flex gap-4">
+          <input
+            type="text"
+            placeholder="Search models..."
+            value={modelSearch}
+            onChange={(e) => setModelSearch(e.target.value)}
+            className="flex-1 border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+          <select
+            value={modelProviderFilter}
+            onChange={(e) => setModelProviderFilter(e.target.value)}
+            className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          >
+            <option value="all">All Providers</option>
+            {providers.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {config.models
+                .filter(m => (modelProviderFilter === 'all' || m.provider === modelProviderFilter))
+                .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()))
+                .map((model) => {
               const providerInfo = getProviderInfo(model.provider);
               const testResult = testResults[model.model_id];
               return (
@@ -732,10 +791,13 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                                                  });
                                                                  if (!res.ok) throw new Error('Delete failed');
                                                                  // Optimistically remove model from UI
-                                                                 setConfig((prev) => ({
-                                                                   ...prev,
-                                                                   models: prev.models.filter((m) => m.model_id !== model.model_id),
-                                                                 }));
+                                                                 setConfig(prev => {
+                                                                   if (!prev) return prev;
+                                                                   return {
+                                                                     ...prev,
+                                                                     models: prev.models.filter((m) => m.model_id !== model.model_id),
+                                                                   };
+                                                                 });
                                                                  toast.success('Model deleted');
                                                                } catch (e) {
                                                                  toast.error('Failed to delete model');
@@ -882,7 +944,40 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
           </div>
         </div>
       )}
-    </div>
+      {showKeysModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+            <h3 className="text-lg font-bold mb-4">Configured API Keys</h3>
+            <ul className="space-y-2">
+              {config.models.filter(m => m.api_key_set && m.provider !== 'ollama').map(m => (
+                <li key={m.model_id} className="flex items-center justify-between">
+                  <span>{m.name} ({getProviderInfo(m.provider).name})</span>
+                  <button
+                    onClick={() => {
+                      setShowApiKeyModal(m.model_id);
+                      setShowKeysModal(false);
+                    }}
+                    className="px-2 py-1 bg-teal-100 text-teal-700 rounded text-sm"
+                  >
+                    Edit
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {config.models.filter(m => m.api_key_set && m.provider !== 'ollama').length === 0 && (
+              <p className="text-gray-600 mt-2">No keys configured.</p>
+            )}
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setShowKeysModal(false)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}</div>
   );
 };
 
