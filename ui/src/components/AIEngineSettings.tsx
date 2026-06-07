@@ -722,7 +722,30 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                          Set Default
                                        </button>
                                      )}
-                                     {/* Kebab menu placeholder */}
+                                     // Delete Model Button
+                                                           <button
+                                                             onClick={async () => {
+                                                               if (!window.confirm('Are you sure you want to delete this model?')) return;
+                                                               try {
+                                                                 const res = await fetch(`/api/ai-engine/config/${model.model_id}`, {
+                                                                   method: 'DELETE',
+                                                                 });
+                                                                 if (!res.ok) throw new Error('Delete failed');
+                                                                 // Optimistically remove model from UI
+                                                                 setConfig((prev) => ({
+                                                                   ...prev,
+                                                                   models: prev.models.filter((m) => m.model_id !== model.model_id),
+                                                                 }));
+                                                                 toast.success('Model deleted');
+                                                               } catch (e) {
+                                                                 toast.error('Failed to delete model');
+                                                               }
+                                                             }}
+                                                             className="px-3 py-1.5 bg-red-100 text-red-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-red-200 transition"
+                                                           >
+                                                             <Trash2 className="w-3.5 h-3.5" />
+                                                             Delete
+                                                           </button>
                                      <button className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-gray-200 transition">⋮</button>
                                    </div>
                                  </div>
