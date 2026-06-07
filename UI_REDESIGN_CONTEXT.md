@@ -69,18 +69,18 @@
 - [ ] Search, Type, Status filters all work independently
 - [ ] All existing fetch/API logic preserved: `/api/integrations`, `/api/mcp/tools`, `testConnection()`
 ### Phase 6: AI Engine Full Rebuild (`ui/src/components/AIEngineSettings.tsx`)
-- [ ] Add 2 new sub-tabs: `Connections` and `Logs` (6 total: Overview, Models, Providers, Connections, Settings, Logs)
-- [ ] Rebuild stats row: 5 cards (add "Active Models"; make "Default Model" the 5th card with copy icon)
+- [x] Add 2 new sub-tabs: `Connections` and `Logs` (6 total: Overview, Models, Providers, Connections, Settings, Logs)
+- [x] Rebuild stats row: 5 cards (add "Active Models"; make "Default Model" the 5th card with copy icon)
 - [ ] Remove "Current Default Model" highlighted banner
 - [ ] Remove "Quick Start" and "Connection Status" cards
-- [ ] Build **Provider Health** left panel with status-per-provider table (Healthy=green / Degraded=amber / Error=red)
-- [ ] Build **Model Inventory** right panel with search input + All Providers dropdown
-- [ ] Model inventory rows: icon + name + [Default] badge + provider + context size + status + ⋮ kebab menu
-- [ ] Kebab menu: Set as Default, Test Connection, Set API Key, Remove
-- [ ] Provider health derivation: group models by provider, derive aggregate from `testResults`
+- [x] Build **Provider Health** left panel with status-per-provider table (Healthy=green / Degraded=amber / Error=red)
+- [x] Build **Model Inventory** right panel with search input + All Providers dropdown
+- [x] Model inventory rows: icon + name + [Default] badge + provider + context size + status + ⋮ kebab menu
+- [x] Kebab menu: Set as Default, Test Connection, Set API Key, Remove
+- [x] Provider health derivation: group models by provider, derive aggregate from `testResults`
 - [ ] Replace all blue colors with `var(--accent)` teal token system
-- [ ] Connections sub-tab: move `connection_settings` form here
-- [ ] Logs sub-tab: placeholder "Coming soon"
+- [x] Connections sub-tab: move `connection_settings` form here
+- [x] Logs sub-tab: placeholder "Coming soon"
 ### Phase 7: Verification & Testing
 - [ ] `npm run test` — all tests pass (0 failures)
 - [ ] Manual: sidebar shows all 7 nav items with Lucide icons

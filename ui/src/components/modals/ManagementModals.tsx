@@ -17,6 +17,8 @@ export const ModalWrapper = ({ isOpen, onClose, title, children }: { isOpen: boo
     </div>
   );
 };
+// Export default for compatibility
+export default ModalWrapper;
 
 export const BuilderModal = ({ isOpen, onClose, itemId }: { isOpen: boolean; onClose: () => void; itemId?: string }) => {
   const [phase, setPhase] = useState<LifecyclePhase>('DISCOVERY');
