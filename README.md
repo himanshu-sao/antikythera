@@ -153,5 +153,14 @@ Every significant change follows: **Proposal → Approval → Execution**
 - **Schema Validation**: JSON against Pydantic models
 
 ---
+## ✨ Updated Features
+
+- Delete model action with confirmation dialog.
+- Provider‑based filter for model listings.
+- API‑key edit modal and configurable keys overview.
+- Fixed “Add Model” workflow with refreshable provider model list and searchable dropdown.
+- OpenRouter provider support.
+- Log‑tailing tab displaying the last 1 MiB of logs.
+- UI refinements: status colors, hover effects, consistent button styling.
 
 *Antikythera: Automating the mundane, empowering the human.*
