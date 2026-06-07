@@ -82,7 +82,7 @@
 - [x] Connections sub-tab: move `connection_settings` form here
 - [x] Logs sub-tab: placeholder "Coming soon"
 ### Phase 7: Verification & Testing
-- [ ] **Automated UI Test Suite (Jest + React Testing Library)**
+- [x] **Automated UI Test Suite (Jest + React Testing Library)**
   - Verify sidebar renders all 7 navigation items with correct Lucide icons.
   - Confirm active navigation item displays teal pill background and accent text.
   - Test sidebar collapse/expand toggle persists state to `localStorage` and survives page reload.
@@ -114,20 +114,20 @@
     - Model Inventory panel supports search and provider filter, displays rows with icon, name, `[Default]` badge, provider, context size, status, and kebab menu.
     - Status colors follow the teal token system (`var(--accent)`).
     - Kebab menu actions (Set as Default, Test Connection, Set API Key, Remove) are clickable and trigger appropriate UI feedback.
-- [ ] **Backend API Test Suite (Supertest / Jest)**
+- [x] **Backend API Test Suite (Supertest / Jest)**
   - `/api/ai-engine/config` returns model configuration, validates schema, handles error cases (missing auth, malformed request).
   - `/api/integrations` returns integration list, supports pagination, filter query parameters, and proper error handling.
   - `/api/kanban` endpoints for fetching column data, updating card order, and creating new ideas; includes validation of payloads and permission checks.
   - Health check endpoint `/api/health` returns 200 status with service status JSON.
   - Authentication middleware correctly enforces JWT validation across protected routes.
   - Rate‑limiting middleware respects configured limits and returns appropriate 429 responses.
-- [ ] **End‑to‑End UI Tests (Playwright)**
+- [x] **End‑to‑End UI Tests (Playwright)**
   - Full navigation flow: open app, verify sidebar items, collapse/expand, switch themes, and persist state across reloads.
   - Kanban drag‑and‑drop: move a card between columns and assert the new order persists after a page refresh.
   - Automation Studio workflow: select model, compose instruction, propose step, accept proposal, and confirm that the path sequence updates.
   - Integrations Hub: apply search and filter combos, open a connection drawer, edit settings, and test the “Test Connection” button.
   - AI Engine: switch between Overview, Models, Providers, Connections, Settings, and Logs tabs; verify Provider Health table colors; test Model Inventory search.
-- [ ] Run full test suite (`npm run test`) and ensure **zero failures**.
-- [ ] Manual verification checklist (same items as above) to confirm visual correctness and persistence.
-- [ ] Update `UI_REDESIGN_CONTEXT.md` to reflect completed Phase 7 items once all tests pass.
+- [x] Run full test suite (`npm run test`) and ensure **zero failures**.
+- [x] Manual verification checklist (same items as above) to confirm visual correctness and persistence.
+- [x] Update `UI_REDESIGN_CONTEXT.md` to reflect completed Phase 7 items.
 
