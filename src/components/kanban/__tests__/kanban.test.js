@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+const { describe, it, expect } = require('@jest/globals');
 
 describe('Kanban Application', () => {
   it('should have basic functionality', () => {
