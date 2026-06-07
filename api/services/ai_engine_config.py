@@ -45,6 +45,8 @@ class AIEngineConfigService:
     def __init__(self, config_path: Optional[str] = None):
         self.config_path = config_path or self._get_default_config_path()
         self.config: AIEngineConfig = self.load_config()
+        # Load any persisted provider API keys from ~/.antikythera/.ai_env
+        self._load_persistent_env()
     
     def _get_default_config_path(self) -> str:
         """Get default config file path"""
@@ -128,6 +130,52 @@ class AIEngineConfigService:
         env_var = model_config.api_key_env
         os.environ[env_var] = api_key
         logger.info(f"Set API key for {model_id} in environment")
+        # Persist the updated key to the ~/.antikythera/.ai_env file
+        self._write_persistent_env()
+
+    def set_provider_api_key(self, provider_id: str, api_key: str) -> None:
+        """Set a single API key for *all* models belonging to ``provider_id``.
+
+        The function updates the environment variable referenced by each model's
+        ``api_key_env`` (or falls back to the conventional ``<PROVIDER>_API_KEY``
+        name if none is defined). This enables the UI to present a single input
+        field under the Providers tab while still allowing per‑model overrides
+        via the existing ``/set-api-key`` endpoint.
+        """
+        # Normalize provider identifier to match AIProvider enum values (allow aliases)
+        normalized = provider_id.lower().replace("-", "_")
+        alias_map = {
+            "nvidia": "nvidia_nim",
+            "nvidia_nim": "nvidia_nim",
+            "google": "google_gemma",
+            "google_gemma": "google_gemma",
+            "ibm": "ibm_bob",
+            "ibm_bob": "ibm_bob",
+            "ollama": "ollama",
+            "openai": "openai",
+            "anthropic": "anthropic",
+        }
+        normalized_key = alias_map.get(normalized)
+        if not normalized_key:
+            raise AIEngineConfigError(f"Invalid provider '{provider_id}'")
+        try:
+            provider_enum = AIProvider(normalized_key)
+        except ValueError as exc:
+            raise AIEngineConfigError(f"Invalid provider '{provider_id}'") from exc
+
+        for model_cfg in self.config.models.values():
+            if model_cfg.provider != provider_enum:
+                continue
+            # Determine which env var to use
+            env_var = model_cfg.api_key_env or f"{provider_enum.value.split('_')[0].upper()}_API_KEY"
+            # Update model config to store the env var name if it was missing
+            if not model_cfg.api_key_env:
+                # Mutate the stored config to remember the env var name for UI
+                model_cfg.api_key_env = env_var
+            os.environ[env_var] = api_key
+            logger.info(f"Set provider API key for {provider_id} (model {model_cfg.model_id}) via {env_var}")
+        # Persist all provider keys to the env file so they survive restarts
+        self._write_persistent_env()
     
     def get_api_key(self, model_id: str) -> Optional[str]:
         """Get API key for a model from environment"""
@@ -422,7 +470,74 @@ class AIEngineConfigService:
         }
 
 
-# Global instance
+    # ---------------------------------------------------------------------
+    # Persistent env handling (~/\.antikythera/.ai_env)
+    # ---------------------------------------------------------------------
+    def _persistent_env_path(self) -> str:
+        """Return the path to the persisted env file used by Antikythera.
+
+        The file is deliberately placed under the user's home directory so it
+        survives a container or VM restart but remains outside the project
+        source tree.
+        """
+        home = Path.home()
+        antikythera_dir = home / ".antikythera"
+        antikythera_dir.mkdir(exist_ok=True)
+        return str(antikythera_dir / ".ai_env")
+
+    def _load_persistent_env(self) -> None:
+        """Load key‑value pairs from ``~/.antikythera/.ai_env`` into ``os.environ``.
+
+        The file follows a simple ``KEY=VALUE`` syntax, optionally quoting the
+        value with single or double quotes. Lines starting with ``#`` are ignored.
+        Missing file is treated as no persisted keys.
+        """
+        env_path = self._persistent_env_path()
+        if not os.path.exists(env_path):
+            return
+        try:
+            with open(env_path, "r") as f:
+                for raw_line in f:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    # Strip surrounding quotes if present
+                    if (val.startswith('"') and val.endswith('"')) or (
+                        val.startswith("'") and val.endswith("'")
+                    ):
+                        val = val[1:-1]
+                    os.environ[key] = val
+        except Exception as e:
+            logger.warning(f"Failed to load persistent env from {env_path}: {e}")
+
+    def _write_persistent_env(self) -> None:
+        """Write all provider‑related env vars currently in ``os.environ`` to the
+        persistent file.
+
+        Only keys that match known provider prefixes (e.g. ``NVIDIA_``, ``GOOGLE_``,
+        ``IBM_BOB_``, ``OPENAI_``, ``ANTHROPIC_``, ``OLLAMA_``) are persisted. This
+        avoids leaking unrelated environment variables.
+        """
+        env_path = self._persistent_env_path()
+        provider_prefixes = ["NVIDIA_", "GOOGLE_", "IBM_BOB_", "OPENAI_", "ANTHROPIC_", "OLLAMA_"]
+        lines: List[str] = []
+        for key, val in os.environ.items():
+            if any(key.startswith(p) for p in provider_prefixes):
+                escaped = val.replace('"', '\\"')
+                lines.append(f"{key}=\"{escaped}\"")
+        try:
+            with open(env_path, "w") as f:
+                f.write("# Auto‑generated by Antikythera AI Engine Config\n")
+                for line in lines:
+                    f.write(line + "\n")
+            os.chmod(env_path, 0o600)
+        except Exception as e:
+            logger.warning(f"Failed to write persistent env to {env_path}: {e}")
+
 _ai_engine_config_service: Optional[AIEngineConfigService] = None
 
 def get_ai_engine_config() -> AIEngineConfigService:

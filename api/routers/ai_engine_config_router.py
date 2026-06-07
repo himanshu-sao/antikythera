@@ -71,6 +71,54 @@ async def get_ai_config(
     """
     return config.get_config_for_ui()
 
+# GET /api/ai-engine/provider-models
+@router.get("/provider-models", response_model=Dict[str, Any])
+async def get_provider_models(
+    provider: Optional[str] = None,
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+) -> Dict[str, Any]:
+    """Return a list of models available from the selected provider.
+
+    The UI uses this endpoint to populate the "Add Model" dialog. For now we return a
+    static placeholder list; in a full implementation each provider would be queried.
+    """
+    # Static placeholder models per provider
+    provider_models_map = {
+        "ollama": ["llama3.1", "code-llama", "mixtral"],
+        "nvidia_nim": ["nvidia-nemotron", "nvidia-llama3"],
+        "google_gemma": ["gemma-7b", "gemma-2b"],
+        "ibm_bob": ["ibm-granite"],
+        "openrouter": ["gpt-4o-mini", "claude-3.5-sonnet", "mixtral-8x7b", "llama3.1"],
+        "lm_studio": ["local-model-a", "local-model-b"],
+        None: ["gpt-4o-mini", "claude-3.5-sonnet", "mixtral-8x7b", "llama3.1"]
+    }
+    placeholder_models = provider_models_map.get(provider, provider_models_map[None])
+    return {"models": placeholder_models}
+
+
+# GET /api/ai-engine/logs
+@router.get("/logs", response_model=Dict[str, Any])
+async def get_logs(
+    tail: int = 1048576,  # 1MiB by default
+) -> Dict[str, Any]:
+    """Return the last *tail* bytes of the backend log file.
+
+    This supports the UI "tail logs" feature. If the log file cannot be read we return
+    an empty string.
+    """
+    import os
+    log_path = os.path.abspath("backend.log")
+    try:
+        size = os.path.getsize(log_path)
+        with open(log_path, "rb") as f:
+            if size > tail:
+                f.seek(-tail, os.SEEK_END)
+            content = f.read().decode(errors="replace")
+    except Exception:
+        content = ""
+    return {"logs": content}
+
+
 # GET /api/ai-engine/models
 @router.get("/models", response_model=List[Dict[str, Any]])
 async def list_models(
@@ -135,6 +183,42 @@ async def set_api_key(
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# POST /api/ai-engine/set-provider-api-key
+class SetProviderApiKeyRequest(BaseModel):
+    provider_id: str = Field(..., description="Provider identifier (e.g., 'nvidia_nim')")
+    api_key: str = Field(..., description="API key to set for all models of this provider")
+
+@router.post("/set-provider-api-key")
+async def set_provider_api_key(
+    request: SetProviderApiKeyRequest,
+    config: AIEngineConfigService = Depends(get_ai_engine_config)
+):
+    """
+    Set a single API key for all models belonging to a provider.
+    This updates the environment variable used by each model (or creates a default one).
+    """
+    # Normalize provider identifiers to match AIProvider enum values.
+    # Accept common aliases like "nvidia", "nvidia_nim", "google", "google_gemma", etc.
+    normalized = request.provider_id.lower().replace("-", "_")
+    alias_map = {
+        "nvidia": "nvidia_nim",
+        "nvidia_nim": "nvidia_nim",
+        "google": "google_gemma",
+        "google_gemma": "google_gemma",
+        "ibm": "ibm_bob",
+        "ibm_bob": "ibm_bob",
+        "ollama": "ollama",
+        "openai": "openai",
+        "anthropic": "anthropic",
+    }
+    provider_key = alias_map.get(normalized)
+    if not provider_key:
+        raise HTTPException(status_code=400, detail=f"Unknown provider '{request.provider_id}'")
+    try:
+        config.set_provider_api_key(provider_key, request.api_key)
+        return {"success": True, "message": f"API key set for provider {provider_key}"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 # POST /api/ai-engine/add-model
 @router.post("/add-model")
 async def add_model(

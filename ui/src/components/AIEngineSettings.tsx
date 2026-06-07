@@ -15,6 +15,9 @@ import {
   Globe,
   Database
 } from 'lucide-react';
+import { DeleteConfirmModal } from './modals/DeleteConfirmModal';
+import { AIEngineOverview } from './AIEngineOverview';
+
 
 interface ModelConfig {
   model_id: string;
@@ -64,6 +67,9 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [showApiKeyModal, setShowApiKeyModal] = useState<string | null>(null);
   const [showKeysModal, setShowKeysModal] = useState(false);
   const [isAddingModel, setIsAddingModel] = useState(false);
+  // Delete modal state
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   // Logs state for tail functionality
   const [logsContent, setLogsContent] = useState<string>('');
   const [logsLoading, setLogsLoading] = useState<boolean>(false);
@@ -383,21 +389,21 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                       type="number"
                       placeholder="Context Window (default 4096)"
                       value={apiKeys['new_context'] || '4096'}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_context: Number(e.target.value) })}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_context: e.target.value })}
                       className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
                     <input
                       type="number"
                       placeholder="Temperature (default 0.7)"
                       value={apiKeys['new_temperature'] || ''}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_temperature: Number(e.target.value) })}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_temperature: e.target.value })}
                       className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
                     <input
                       type="number"
                       placeholder="Max Tokens (default 2048)"
                       value={apiKeys['new_max_tokens'] || ''}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_max_tokens: Number(e.target.value) })}
+                      onChange={(e) => setApiKeys({ ...apiKeys, new_max_tokens: e.target.value })}
                       className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
                     />
                   </div>
@@ -531,6 +537,9 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
             </div>
           </div>
 
+          {/* Placeholder for overview graphs and datapoints */}
+          <AIEngineOverview />
+
           <div className="mb-6 flex gap-4">
           <input
             type="text"
@@ -630,6 +639,16 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                       >
                         <Settings className="w-3.5 h-3.5" />
                         Set Default
+                      </button>
+                    )}
+                    {/* Delete Model Button */}
+                    {!model.is_default && (
+                      <button
+                        onClick={() => { setDeleteTarget(model.model_id); setShowDeleteModal(true); }}
+                        className="px-3 py-1.5 bg-red-100 text-red-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-red-200 transition"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
                       </button>
                     )}
                   </div>
@@ -804,7 +823,6 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                          Set Default
                                        </button>
                                      )}
-                                     // Delete Model Button
                                                            <button
                                                              onClick={async () => {
                                                                if (!window.confirm('Are you sure you want to delete this model?')) return;
@@ -904,9 +922,44 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                   ))}
                 </div>
 
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-gray-600 mb-2">
                   <strong>{modelCount}</strong> {modelCount === 1 ? 'model' : 'models'} configured
                 </div>
+
+                {provider.requires_api_key && (
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="password"
+                      placeholder="Enter API key"
+                      value={apiKeys[provider.id] || ''}
+                      onChange={(e) => setApiKeys({ ...apiKeys, [provider.id]: e.target.value })}
+                      className="flex-1 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/ai-engine/set-provider-api-key', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ provider_id: provider.id, api_key: apiKeys[provider.id] })
+                          });
+                          if (!res.ok) {
+                            const err = await res.json();
+                            alert('Failed to set provider key: ' + (err.detail || err.message));
+                          } else {
+                            await fetchConfig();
+                            toast.success(`API key set for ${provider.name}`);
+                          }
+                        } catch (e:any) {
+                          alert('Error setting provider API key: ' + e.message);
+                        }
+                      }}
+                      className="px-3 py-1 bg-teal-500 text-white rounded text-sm hover:bg-teal-600"
+                    >
+                      Save
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1004,7 +1057,34 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
             </div>
           </div>
         </div>
-      )}</div>
+      )}
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <DeleteConfirmModal
+          isOpen={showDeleteModal}
+          targetId={deleteTarget}
+          onClose={() => { setShowDeleteModal(false); setDeleteTarget(null); }}
+          onConfirm={async () => {
+            if (!deleteTarget) return;
+            try {
+              const res = await fetch(`/api/ai-engine/remove-model/${deleteTarget}`, { method: 'DELETE' });
+              if (!res.ok) {
+                const err = await res.json();
+                alert('Delete failed: ' + (err.detail || err.message));
+              } else {
+                await fetchConfig();
+                toast.success('Model deleted');
+              }
+            } catch (e:any) {
+              alert('Error deleting model: ' + e.message);
+            } finally {
+              setShowDeleteModal(false);
+              setDeleteTarget(null);
+            }
+          }}
+        />
+      )}
+    </div>
   );
 };
 

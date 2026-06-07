@@ -21,6 +21,17 @@ session_state = SessionStateManager()
 
 router = APIRouter()
 
+@router.get("/templates")
+async def get_templates():
+    """Return a list of available automation templates (static placeholder)."""
+    templates = [
+        {"name": "GitHub Issue Sync", "description": "Sync issues between repos"},
+        {"name": "Jira Ticket Automation", "description": "Create Jira tickets from chat commands"},
+        {"name": "File Watcher", "description": "Monitor a directory and trigger actions"},
+    ]
+    return {"templates": templates}
+
+
 class ProposalRequest(BaseModel):
     instruction: str
     current_state: Dict[str, Any]

@@ -680,24 +680,49 @@ export function IntegrationsManager() {
           <div className="bg-white rounded-2xl shadow-xl w-full md:w-1/2 p-6">
             <h2 id="secret-modal-title" className="text-xl font-bold mb-4 text-[#231f19]">Secret Vault</h2>
             <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Profile ID</label>
-                <input type="text" ref={secretProfileRef} className="w-full p-2 border rounded-lg" value={secretProfile} onChange={e => setSecretProfile(e.target.value)} placeholder="e.g. github_prod" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Secrets (JSON)</label>
-                <textarea 
-                  className="w-full p-2 border rounded-lg font-mono text-xs h-32" 
-                  value={secretData} 
-                  onChange={e => setSecretData(e.target.value)} 
-                  placeholder='{"api_key": "...", "token": "..."}'
-                />
-              </div>
-              <div className="flex justify-end gap-3 pt-4">
-                <button onClick={() => setShowSecretModal(false)} className="px-4 py-2 text-gray-600">Cancel</button>
-                <button onClick={handleSaveSecret} className="px-4 py-2 bg-[#0b6b72] text-white rounded-lg font-medium">Save Secrets</button>
-              </div>
-            </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Profile ID</label>
+                            <input type="text" ref={secretProfileRef} className="w-full p-2 border rounded-lg" value={secretProfile} onChange={e => setSecretProfile(e.target.value)} placeholder="e.g. github_prod" />
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={async () => {
+                                  if (!secretProfile) { toast.error('Enter profile ID first'); return; }
+                                  try {
+                                    const res = await fetch(`${apiUrl}/api/integrations/secrets/${secretProfile}`);
+                                    if (!res.ok) throw new Error('Failed to load secrets');
+                                    const data = await res.json();
+                                    setSecretData(JSON.stringify(data, null, 2));
+                                    toast.success('Secrets loaded');
+                                  } catch (e:any) {
+                                    toast.error(e.message);
+                                  }
+                                }}
+                                className="px-3 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                              >
+                                Load
+                              </button>
+                              <button
+                                onClick={() => { setSecretData(''); setSecretProfile(''); }}
+                                className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Secrets (JSON)</label>
+                            <textarea 
+                              className="w-full p-2 border rounded-lg font-mono text-xs h-32" 
+                              value={secretData} 
+                              onChange={e => setSecretData(e.target.value)} 
+                              placeholder='{"api_key": "***", "token": "***"}'
+                            />
+                          </div>
+                          <div className="flex justify-end gap-3 pt-4">
+                            <button onClick={() => setShowSecretModal(false)} className="px-4 py-2 text-gray-600">Cancel</button>
+                            <button onClick={handleSaveSecret} className="px-4 py-2 bg-[#0b6b72] text-white rounded-lg font-medium">Save Secrets</button>
+                          </div>
+                        </div>
           </div>
         </div>
       )}
