@@ -7,9 +7,9 @@
 - [x] Fix `WorkflowArchitect.tsx` — add optional `currentPhase`, `initialProposal`, `itemId` props
 - [x] Fix `WorkflowArchitect.test.tsx` — add `beforeEach` fetch mock with orchestrator state
 - [x] Fix `ManagementModals.test.tsx` — add `beforeEach`/`afterEach` fetch mock
-- [ ] Fix `WorkflowArchitect.test.tsx` — goal text assertion mismatch (see Section 5, Bug #2)
-- [ ] Fix `ManagementModals.test.tsx` — `TransactionProposal` interface mismatch (see Section 5, Bug #3)
-- [ ] Fix `App.polling.test.tsx` — call count off-by-one (see Section 5, Bug #4)
+- [x] Fix `WorkflowArchitect.test.tsx` — goal text assertion mismatch (see Section 5, Bug #2)
+- [x] Fix `ManagementModals.test.tsx` — `TransactionProposal` interface mismatch (see Section 5, Bug #3)
+- [x] Fix `App.polling.test.tsx` — call count off-by-one (see Section 5, Bug #4)
 ### Phase 1: CSS Design System
 - [x] Rewrite `ui/src/index.css` with CSS variables (light + dark), sidebar dimensions, utility classes
 ### Phase 2: App Shell — Major Layout Restructure (`ui/src/App.tsx`)
@@ -65,7 +65,7 @@
 - [x] Card hover: shadow elevation + accent border color
 - [x] ⋮ kebab menu: Edit, Test Connection, Disconnect, Remove
 - [x] "Add Connection" CTA card: dashed border + `+` icon + text (last card in grid)
-- [ ] Clicking a card opens slide-in right drawer with connection detail + test/edit options
+- [x] Clicking a card opens slide-in right drawer with connection detail + test/edit options
 - [x] Search, Type, Status filters all work independently
 - [x] All existing fetch/API logic preserved: `/api/integrations`, `/api/mcp/tools`, `testConnection()`
 ### Phase 6: AI Engine Full Rebuild (`ui/src/components/AIEngineSettings.tsx`)
@@ -82,32 +82,32 @@
 - [x] Connections sub-tab: move `connection_settings` form here
 - [x] Logs sub-tab: placeholder "Coming soon"
 ### Phase 7: Verification & Testing
-- [ ] `npm run test` — all tests pass (0 failures)
-- [ ] Manual: sidebar shows all 7 nav items with Lucide icons
-- [ ] Manual: active nav item shows teal pill background
-- [ ] Manual: sidebar collapse/expand works, persists on refresh
-- [ ] Manual: top nav bar shows section tabs + active underline
-- [ ] Manual: theme toggle works (light/dark), persists on refresh
-- [ ] **Kanban**: columns show colored icon boxes + stage names + count
-- [ ] **Kanban**: empty state shows correct icon + subtitle text per column
-- [ ] **Kanban**: card shows badge row (tag, priority, confidence) + ⋮ menu
-- [ ] **Kanban**: ACTION REQUIRED badge shows on review-stage cards
-- [ ] **Kanban**: drag-and-drop still works
-- [ ] **Kanban**: clicking card opens slide-in right drawer (not full-screen modal)
-- [ ] **Kanban**: `+ Add idea` link at bottom of columns works
-- [ ] **Studio**: 3-column layout renders correctly
-- [ ] **Studio**: AI model selector populated from API
-- [ ] **Studio**: Propose Step triggers step 2 expansion with proposal card
-- [ ] **Studio**: Active Variables table shows TYPE column
-- [ ] **Studio**: Current Path Sequence shows numbered timeline
-- [ ] **Integrations**: card grid renders 4 per row
-- [ ] **Integrations**: search/type/status filters work
-- [ ] **Integrations**: card status badges show correct color
-- [ ] **Integrations**: clicking card opens slide-in drawer
-- [ ] **Integrations**: Add Connection CTA card opens add modal
-- [ ] **AI Engine**: 5 stat cards render with correct computed values
-- [ ] **AI Engine**: Provider Health panel shows Healthy/Degraded/Error per provider
-- [ ] **AI Engine**: Model Inventory shows searchable/filterable list
-- [ ] **AI Engine**: [Default] badge on default model row
-- [ ] **AI Engine**: status colors (Ready=green, Needs Key=amber)
-- [ ] **AI Engine**: ⋮ kebab menu works on model rows
+- [x] `npm run test` — all tests pass (0 failures)
+- [x] Manual: sidebar shows all 7 nav items with Lucide icons
+- [x] Manual: active nav item shows teal pill background
+- [x] Manual: sidebar collapse/expand works, persists on refresh
+- [x] Manual: top nav bar shows section tabs + active underline
+- [x] Manual: theme toggle works (light/dark), persists on refresh
+- [x] **Kanban**: columns show colored icon boxes + stage names + count
+- [x] **Kanban**: empty state shows correct icon + subtitle text per column
+- [x] **Kanban**: card shows badge row (tag, priority, confidence) + ⋮ menu
+- [x] **Kanban**: ACTION REQUIRED badge shows on review-stage cards
+- [x] **Kanban**: drag-and-drop still works
+- [x] **Kanban**: clicking card opens slide-in right drawer (not full-screen modal)
+- [x] **Kanban**: `+ Add idea` link at bottom of columns works
+- [x] **Studio**: 3-column layout renders correctly
+- [x] **Studio**: AI model selector populated from API
+- [x] **Studio**: Propose Step triggers step 2 expansion with proposal card
+- [x] **Studio**: Active Variables table shows TYPE column
+- [x] **Studio**: Current Path Sequence shows numbered timeline
+- [x] **Integrations**: card grid renders 4 per row
+- [x] **Integrations**: search/type/status filters work
+- [x] **Integrations**: card status badges show correct color
+- [x] **Integrations**: clicking card opens slide-in drawer
+- [x] **Integrations**: Add Connection CTA card opens add modal
+- [x] **AI Engine**: 5 stat cards render with correct computed values
+- [x] **AI Engine**: Provider Health panel shows Healthy/Degraded/Error per provider
+- [x] **AI Engine**: Model Inventory shows searchable/filterable list
+- [x] **AI Engine**: [Default] badge on default model row
+- [x] **AI Engine**: status colors (Ready=green, Needs Key=amber)
+- [x] **AI Engine**: ⋮ kebab menu works on model rows
