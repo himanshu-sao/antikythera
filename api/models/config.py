@@ -10,6 +10,7 @@ class AIProvider(str, Enum):
     NVIDIA_NIM = "nvidia_nim"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    OPENROUTER = "openrouter"
 
 class ModelConfig(BaseModel):
     """Configuration for a specific AI model"""
@@ -48,7 +49,8 @@ class AIEngineConfig(BaseModel):
         AIProvider.OLLAMA,
         AIProvider.NVIDIA_NIM,
         AIProvider.GOOGLE_GEMMA,
-        AIProvider.IBM_BOB
+        AIProvider.IBM_BOB,
+        AIProvider.OPENROUTER
     ])
     
     # Caching
@@ -151,14 +153,25 @@ PRECONFIGURED_MODELS = {
         context_window=2048,
         provider_config={"base_url": "https://generativelanguage.googleapis.com/v1beta"},
         config_note="Set GOOGLE_API_KEY. You can customize this env var name in model settings."
+    ),
+    # OpenRouter model (example)
+    "openrouter-gpt-4o": ModelConfig(
+        model_id="openrouter/gpt-4o-mini",
+        provider=AIProvider.OPENROUTER,
+        name="OpenRouter GPT‑4o Mini",
+        endpoint_url="https://openrouter.ai/api/v1",
+        api_key_env="OPENROUTER_API_KEY",
+        context_window=8192,
+        provider_config={"base_url": "https://openrouter.ai/api/v1"},
+        config_note="Set OPENROUTER_API_KEY in ~/.antikythera/.ai_env. Adjust endpoint if using a different OpenRouter deployment."
     )
 }
 
 # Create default config with pre-configured models
 DEFAULT_AI_ENGINE_CONFIG = AIEngineConfig(
-    default_provider=AIProvider.OLLAMA,
-    default_model_id="llama3.1",
-    models=PRECONFIGURED_MODELS,
-    enable_fallback=True,
-    enable_caching=True
+default_provider=AIProvider.OLLAMA,
+default_model_id="llama3.1",
+models=PRECONFIGURED_MODELS,
+enable_fallback=True,
+enable_caching=True
 )

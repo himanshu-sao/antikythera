@@ -153,7 +153,7 @@ class AIEngineConfigService:
             "ibm_bob": "ibm_bob",
             "ollama": "ollama",
             "openai": "openai",
-            "anthropic": "anthropic",
+            "openrouter": "openrouter",
         }
         normalized_key = alias_map.get(normalized)
         if not normalized_key:
@@ -476,12 +476,19 @@ class AIEngineConfigService:
     def _persistent_env_path(self) -> str:
         """Return the path to the persisted env file used by Antikythera.
 
-        The file is deliberately placed under the user's home directory so it
+        The file is deliberately placed under the **real** user's home directory so it
         survives a container or VM restart but remains outside the project
-        source tree.
+        source tree. We resolve the true home directory via the password database
+        rather than the potentially overridden ``HOME`` environment variable (which
+        may point to a Hermes profile directory).
         """
-        home = Path.home()
-        antikythera_dir = home / ".antikythera"
+        try:
+            import pwd
+            real_home = pwd.getpwuid(os.getuid()).pw_dir
+        except Exception:
+            # Fallback to Path.home() if pwd lookup fails (e.g., on non‑POSIX).
+            real_home = str(Path.home())
+        antikythera_dir = Path(real_home) / ".antikythera"
         antikythera_dir.mkdir(exist_ok=True)
         return str(antikythera_dir / ".ai_env")
 
@@ -523,7 +530,7 @@ class AIEngineConfigService:
         avoids leaking unrelated environment variables.
         """
         env_path = self._persistent_env_path()
-        provider_prefixes = ["NVIDIA_", "GOOGLE_", "IBM_BOB_", "OPENAI_", "ANTHROPIC_", "OLLAMA_"]
+        provider_prefixes = ["NVIDIA_", "GOOGLE_", "IBM_BOB_", "OPENAI_", "ANTHROPIC_", "OLLAMA_", "OPENROUTER_"]
         lines: List[str] = []
         for key, val in os.environ.items():
             if any(key.startswith(p) for p in provider_prefixes):
