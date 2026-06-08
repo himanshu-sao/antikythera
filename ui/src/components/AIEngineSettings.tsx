@@ -686,7 +686,23 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       {/* Connections Tab */}
       {activeTab === 'connections' && (
                    <>
-                     <div className="flex flex-col md:flex-row gap-4">
+   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+     <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
+       <div>
+         <div className="text-sm text-gray-500">Total Models</div>
+         <div className="text-2xl font-bold text-gray-800">{config.models.length}</div>
+       </div>
+       <div className="p-2 bg-teal-100 rounded"><Cpu className="w-5 h-5 text-teal-600" /></div>
+     </div>
+     <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
+       <div>
+         <div className="text-sm text-gray-500">Configured Keys</div>
+         <div className="text-2xl font-bold text-green-600">{config.models.filter(m => m.api_key_set || m.provider === 'ollama').length}</div>
+       </div>
+       <div className="p-2 bg-green-100 rounded"><Key className="w-5 h-5 text-green-600" /></div>
+     </div>
+   </div>
+   <div className="flex flex-col md:flex-row gap-4">
                        {/* Left panel – Provider Health */}
                        <div className="md:w-1/3">
                          <h3 className="font-semibold mb-2 text-gray-800">Provider Health</h3>
