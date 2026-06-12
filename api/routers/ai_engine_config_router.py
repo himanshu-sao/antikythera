@@ -78,22 +78,32 @@ async def get_provider_models(
     config: AIEngineConfigService = Depends(get_ai_engine_config)
 ) -> Dict[str, Any]:
     """Return a list of models available from the selected provider.
-
-    The UI uses this endpoint to populate the "Add Model" dialog. For now we return a
-    static placeholder list; in a full implementation each provider would be queried.
+    The UI uses this endpoint to populate the "Add Model" dialog.
     """
-    # Static placeholder models per provider
-    provider_models_map = {
-        "ollama": ["llama3.1", "code-llama", "mixtral"],
-        "nvidia_nim": ["nvidia-nemotron", "nvidia-llama3"],
-        "google_gemma": ["gemma-7b", "gemma-2b"],
-        "ibm_bob": ["ibm-granite"],
-        "openrouter": ["gpt-4o-mini", "claude-3.5-sonnet", "mixtral-8x7b", "llama3.1"],
-        "lm_studio": ["local-model-a", "local-model-b"],
-        None: ["gpt-4o-mini", "claude-3.5-sonnet", "mixtral-8x7b", "llama3.1"]
-    }
-    placeholder_models = provider_models_map.get(provider, provider_models_map[None])
-    return {"models": placeholder_models}
+    # Resolve provider identifier to enum, accepting common aliases
+    if provider:
+        normalized = provider.lower().replace("-", "_")
+        alias_map = {
+            "nvidia": "nvidia_nim",
+            "google": "google_gemma",
+            "ibm": "ibm_bob",
+            "openrouter": "openrouter",
+            "anthropic": "anthropic",
+            "openai": "openai",
+            "ollama": "ollama",
+        }
+        normalized = alias_map.get(normalized, normalized)
+        try:
+            prov_enum = AIProvider(normalized)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Unsupported provider '{provider}'") from exc
+    else:
+        prov_enum = config.config.default_provider
+    try:
+        models = config.list_provider_models(prov_enum)
+        return {"models": models}
+    except AIEngineConfigError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # GET /api/ai-engine/logs

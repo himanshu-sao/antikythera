@@ -75,12 +75,39 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [logsLoading, setLogsLoading] = useState<boolean>(false);
 
   // Available models for Add Model UI
-  const [availableModels, setAvailableModels] = useState<string[]>([]);
+   const [selectedProvider, setSelectedProvider] = useState<string>('');
+   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  // Mapping of model IDs to recommended max tokens (placeholder values)
+  const modelMaxTokenMap: Record<string, number> = {
+    'llama3.1': 8192,
+    'code-llama': 4096,
+    'mixtral': 4096,
+    'nvidia-nemotron': 8192,
+    'nvidia-llama3': 8192,
+    'gemma-7b': 4096,
+    'gemma-2b': 2048,
+    'ibm-granite': 4096,
+    'gpt-4o-mini': 8192,
+    'claude-3.5-sonnet': 10000,
+    'mixtral-8x7b': 4096,
+    'llama3.1': 8192,
+  };
 
-  // Refresh provider model list
-  const refreshModels = async () => {
+  // Auto‑populate max tokens when a model is selected, unless the user already entered a value
+  useEffect(() => {
+    const model = apiKeys['new_model_id'];
+    if (model && modelMaxTokenMap[model] && !apiKeys['new_max_tokens']) {
+      setApiKeys(prev => ({ ...prev, new_max_tokens: modelMaxTokenMap[model].toString() }));
+    }
+  }, [apiKeys['new_model_id']]);
+  // Refresh provider model list for a given provider
+  const refreshModels = async (providerId: string) => {
     try {
-      const res = await fetch('/api/ai-engine/provider-models');
+      const url = new URL('/api/ai-engine/provider-models', window.location.origin);
+      if (providerId) {
+        url.searchParams.append('provider', providerId);
+      }
+      const res = await fetch(url.toString());
       const data = await res.json();
       setAvailableModels(data.models ?? []);
     } catch (e) {
@@ -88,7 +115,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
     }
   };
 
-  // Provider metadata
+  // Provider metadata (unchanged)
   const providers: ProviderInfo[] = [
     {
       id: 'ollama',
@@ -338,85 +365,135 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
               </div>
             </div>
 
-            {/* Add Model Modal */}
+            {/* Add Model Modal – modern design */}
             {isAddingModel && (
               <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                <div className="bg-white rounded-lg p-6 w-full max-w-lg">
-                  <h3 className="text-xl font-bold mb-4">Add New Model</h3>
-                  <div className="grid grid-cols-1 gap-4">
-                    <div className="flex items-center space-x-2">
+                <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl transform transition-all">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-2xl font-semibold text-gray-800">Add New Model</h3>
+                    <button
+                      onClick={() => setIsAddingModel(false)}
+                      className="text-gray-400 hover:text-gray-600 focus:outline-none"
+                      aria-label="Close"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <form className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Provider selector */}
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+                      <div className="flex space-x-2">
+                        <select
+                          value={selectedProvider}
+                          onChange={(e) => {
+                            const prov = e.target.value;
+                            setSelectedProvider(prov);
+                            setApiKeys(prev => ({ ...prev, new_provider: prov }));
+                            setApiKeys(prev => ({ ...prev, new_model_id: '' }));
+                            setAvailableModels([]);
+                            refreshModels(prov);
+                          }}
+                          className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                        >
+                          <option value="" disabled>Select Provider</option>
+                          {providers.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => refreshModels(selectedProvider)}
+                          disabled={!selectedProvider}
+                          className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50"
+                        >
+                          Refresh Models
+                        </button>
+                      </div>
+                    </div>
+                    {/* Model selector */}
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
                       <select
                         value={apiKeys['new_model_id'] || ''}
                         onChange={(e) => setApiKeys({ ...apiKeys, new_model_id: e.target.value })}
-                        className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                        disabled={!availableModels.length}
                       >
                         <option value="" disabled>Select model</option>
-                        {availableModels.map(m => (<option key={m} value={m}>{m}</option>))}
+                        {availableModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
                       </select>
-                      <button
-                        onClick={refreshModels}
-                        className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-                        title="Refresh model list"
-                      >
-                        ↻
-                      </button>
                     </div>
-                    <input
-                      type="text"
-                      placeholder="Display Name"
-                      value={apiKeys['new_name'] || ''}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_name: e.target.value })}
-                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    />
-                    <select
-                      value={apiKeys['new_provider'] || ''}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_provider: e.target.value })}
-                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    >
-                      <option value="">Select Provider</option>
-                      {providers.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
-                    <input
-                      type="text"
-                      placeholder="Endpoint URL (optional)"
-                      value={apiKeys['new_endpoint'] || ''}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_endpoint: e.target.value })}
-                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Context Window (default 4096)"
-                      value={apiKeys['new_context'] || '4096'}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_context: e.target.value })}
-                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Temperature (default 0.7)"
-                      value={apiKeys['new_temperature'] || ''}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_temperature: e.target.value })}
-                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    />
-                    <input
-                      type="number"
-                      placeholder="Max Tokens (default 2048)"
-                      value={apiKeys['new_max_tokens'] || ''}
-                      onChange={(e) => setApiKeys({ ...apiKeys, new_max_tokens: e.target.value })}
-                      className="border rounded px-3 py-2 w-full focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    />
-                  </div>
+                    {/* Display Name */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+                      <input
+                        type="text"
+                        placeholder="Display Name"
+                        value={apiKeys['new_name'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_name: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                      />
+                    </div>
+                    {/* Endpoint URL */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL (optional)</label>
+                      <input
+                        type="text"
+                        placeholder="https://example.com/api"
+                        value={apiKeys['new_endpoint'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_endpoint: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                      />
+                    </div>
+                    {/* Context Window */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Context Window</label>
+                      <input
+                        type="number"
+                        placeholder="4096"
+                        value={apiKeys['new_context'] || '4096'}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_context: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500" 
+                      />
+                    </div>
+                    {/* Temperature */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="0.7"
+                        value={apiKeys['new_temperature'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_temperature: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                      />
+                    </div>
+                    {/* Max Tokens */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Max Tokens</label>
+                      <input
+                        type="number"
+                        placeholder="2048"
+                        value={apiKeys['new_max_tokens'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_max_tokens: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                      />
+                    </div>
+                  </form>
                   <div className="flex justify-end mt-6 space-x-3">
                     <button
                       onClick={() => setIsAddingModel(false)}
-                      className="px-4 py-2 border rounded hover:bg-gray-50 transition"
+                      className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition"
                     >
                       Cancel
                     </button>
                     <button
                       onClick={async () => {
-                        // Prepare payload
                         const payload = {
                           model_id: apiKeys['new_model_id'],
                           name: apiKeys['new_name'],
@@ -440,11 +517,11 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                             setIsAddingModel(false);
                             toast.success('Model added successfully');
                           }
-                        } catch (e:any) {
+                        } catch (e: any) {
                           alert('Error adding model: ' + e.message);
                         }
                       }}
-                      className="px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 transition"
+                      className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition"
                     >
                       Save
                     </button>

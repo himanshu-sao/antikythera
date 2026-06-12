@@ -11,6 +11,7 @@ class AIProvider(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     OPENROUTER = "openrouter"
+    LM_STUDIO = "lm_studio"
 
 class ModelConfig(BaseModel):
     """Configuration for a specific AI model"""
@@ -153,6 +154,17 @@ PRECONFIGURED_MODELS = {
         context_window=2048,
         provider_config={"base_url": "https://generativelanguage.googleapis.com/v1beta"},
         config_note="Set GOOGLE_API_KEY. You can customize this env var name in model settings."
+    ),
+    # LM Studio model (local Ollama‑compatible server)
+    "lm-studio-default": ModelConfig(
+        model_id="lm-studio-default",
+        provider=AIProvider.LM_STUDIO,
+        name="LM Studio Default",
+        endpoint_url="http://127.0.0.1:1234",
+        api_key_env=None,
+        context_window=8192,
+        provider_config={"base_url": "http://127.0.0.1:1234"},
+        config_note="LM Studio runs locally on port 1234 and uses the Ollama‑compatible /api/tags endpoint. No API key required unless you enable auth."
     ),
     # OpenRouter model (example)
     "openrouter-gpt-4o": ModelConfig(
