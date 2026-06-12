@@ -312,11 +312,11 @@ export function IntegrationsManager() {
       </div>
 
       {/* Integrations Grid */}
-      <div className="grid gap-6" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))' }}>
+      <div className="grid gap-6" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))' }}>
         {filteredIntegrations.map(int => (
           <div 
             key={int.name} 
-            className="bg-white border border-[#d8d3ca] rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-[#0b6b72] transition-all cursor-pointer group"
+            className="bg-white border border-[#d8d3ca] rounded-2xl p-4 shadow-sm hover:shadow-md hover:border-[#0b6b72] transition-all cursor-pointer group"
             onClick={() => {
               setSelectedIntegration(int);
               setShowDetailModal(true);
