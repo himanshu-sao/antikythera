@@ -14,11 +14,13 @@ from api.pipeline_router import router as pipeline_router
 from api.brain_api import router as brain_router
 from api.board_router import router as board_router
 from api.integrations_router import router as integrations_router
+from api.jira_router import router as jira_router
 from api.orchestrator_router import router as orchestrator_router
 from api.engine_router import router as engine_router
 from api.routers.ai_engine_config_router import router as ai_engine_config_router
 
 # Assuming other routers exist, if not I'll add placeholders or just the ones I've built
+# Include Jira integration routes
 app = FastAPI(title="Hermes Brain API")
 
 # Enable CORS for frontend development
@@ -52,6 +54,7 @@ app.include_router(pipeline_router, prefix="/api/pipelines", tags=["Pipeline Man
 app.include_router(brain_router)
 app.include_router(board_router)
 app.include_router(integrations_router)
+app.include_router(jira_router)
 app.include_router(orchestrator_router)
 app.include_router(engine_router)
 app.include_router(ai_engine_config_router, prefix="/api/ai-engine", tags=["AI Engine Configuration"])

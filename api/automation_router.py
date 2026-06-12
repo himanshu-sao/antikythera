@@ -205,6 +205,14 @@ async def accept_proposal(request: AcceptProposalRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/store-token")
+# New endpoint to retrieve stored config values (e.g., Jira URL)
+@router.get("/config/{service}")
+async def get_config(service: str):
+    """Return the stored secret (or config) for a given service name."""
+    secret = vault.get_secret(service)
+    if secret is None:
+        raise HTTPException(status_code=404, detail="Config for service not found")
+    return secret
 async def store_token(request: TokenStorageRequest):
     """
     Store a token for a given service (jira, github) in the vault.
