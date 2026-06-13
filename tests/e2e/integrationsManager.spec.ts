@@ -18,7 +18,7 @@ test.describe('Integrations Manager UI', () => {
 
   test.beforeEach(async ({ page }) => {
     // Mock the integrations API endpoint
-    await page.route('http://localhost:8000/api/integrations*', async route => {
+    await page.route('http://localhost:8006/api/integrations*', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

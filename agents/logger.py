@@ -12,6 +12,8 @@ class TaskLogger:
         self.item_id = item_id.upper()
         self.log_dir = os.path.join(base_dir, self.item_id)
         self.log_file = os.path.join(self.log_dir, "timeline.jsonl")
+        # Register this logger in the singleton map
+        _loggers[self.item_id] = self
 
     def _log(self, level: str, agent: str, action: str, message: str, metadata: Optional[dict] = None):
         """Writes a single log entry to the JSONL file."""

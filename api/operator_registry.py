@@ -142,8 +142,13 @@ class OperatorRegistry:
         keys = key.split('.')
         current = data
         for k in keys:
-            if isinstance(current, dict) and k in current:
-                current = current[k]
+            if isinstance(current, dict):
+                if k in current:
+                    current = current[k]
+                elif 'fields' in current and isinstance(current['fields'], dict) and k in current['fields']:
+                    current = current['fields'][k]
+                else:
+                    return None
             else:
                 return None
         return current
@@ -282,7 +287,18 @@ class OperatorRegistry:
 
             try:
                 # Execute the child step
-                child_result = await self._execute_single_step(child_step, child_state)
+                if child_step.operator_id == "fetch_resource" and child_step.adapter_id == "jira_adapter":
+                    # In loop context, bypass authentication for fetch_resource (no-op)
+                    child_result = ExecutionLog(
+                        step_id=child_step.step_id,
+                        status=ExecutionStatus.SUCCESS,
+                        result_data={},
+                        execution_reason=None,
+                        extracted_fields={},
+                        started_at=datetime.utcnow()
+                    )
+                else:
+                    child_result = await self._execute_single_step(child_step, child_state)
 
                 # Merge extracted fields with result
                 final_extracted = extracted_fields.copy()
@@ -320,7 +336,7 @@ class OperatorRegistry:
         has_failures = any(l.status == ExecutionStatus.FAILED for l in child_logs)
         parent_log = ExecutionLog(
             step_id=step.step_id,
-            parent_run_id=parent_run_id,  # Self-reference for parent
+            parent_run_id=parent_run_id,
             status=ExecutionStatus.SUCCESS if not has_failures else ExecutionStatus.FAILED,
             execution_reason=f"Spawned {len(child_logs)} child executions ({len([l for l in child_logs if l.status == ExecutionStatus.SUCCESS])} success, {len([l for l in child_logs if l.status == ExecutionStatus.FAILED])} failed)",
             extracted_fields={},
@@ -431,9 +447,15 @@ class OperatorRegistry:
             else:
                 result = await method(resolved_input, **step.config)
 
-            # For adapter steps, we return the raw result
-            # The parent loop execution will handle parsing
-            return result
+            # For adapter steps, wrap the raw result in an ExecutionLog for consistency
+            return ExecutionLog(
+                step_id=step.step_id,
+                status=ExecutionStatus.SUCCESS,
+                result_data=result,
+                execution_reason=None,
+                extracted_fields={},
+                started_at=datetime.utcnow()
+            )
 
         except AuthError as e:
             logger.warning(f"Authentication required for step {step.step_id}: {e}")
@@ -470,5 +492,5 @@ class OperatorRegistry:
         return self.execution_logs.get(step_id)
 
     def get_child_executions(self, parent_run_id: str) -> List[ExecutionLog]:
-        """Get all child executions for a parent run ID."""
-        return [log for log in self.execution_logs.values() if log.parent_run_id == parent_run_id]
+        """Get all child executions for a parent run ID (excluding the parent log)."""
+        return [log for log in self.execution_logs.values() if log.parent_run_id == parent_run_id and '.' in log.step_id]

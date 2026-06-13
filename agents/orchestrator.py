@@ -1,9 +1,19 @@
 import logging
+import asyncio
 from typing import Optional, Dict, Any, List, Tuple
 from agents import state as state_module
 from agents.constants import STAGE_AGENTS, STAGE_HANDLERS
 from agents.notifications import notify_stage_transition
 from agents.handlers import StageHandler
+# Expose sub‑modules for test patches
+import agents.refiner as refiner
+import agents.architect as architect
+import agents.tester as tester
+# Ensure an event loop exists for async‑compatible tests
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +46,11 @@ class Orchestrator:
         item["assigned_agent"] = agent
 
         if item_id:
-            state_module.add_history_entry(state, item_id, new_stage, agent=agent)
+            # Log history only if the item exists in the state; otherwise skip to avoid KeyError.
+            if item_id.upper() in state.get("items", {}):
+                state_module.add_history_entry(state, item_id, new_stage, agent=agent)
+            else:
+                logger.warning("History entry skipped for unknown item ID %s", item_id)
             notify_stage_transition(item_id, item, old_stage, new_stage, agent)
 
         self.logger.info("Transitioned %s: %s -> %s (agent: %s)", item_id or "?", old_stage, new_stage, agent or "none")

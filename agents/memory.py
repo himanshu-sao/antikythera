@@ -11,6 +11,9 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AUDIT_DIR = os.path.join(PROJECT_ROOT, "automation-ideas", "audit")
 PATTERNS_FILE = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "patterns.md")
+# Additional paths used by the brain‑loop tests
+PENDING_UPDATES_FILE = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "pending-updates.md")
+HISTORY_DIR = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "history")
 
 class MemoryAgent:
     def __init__(self, config_path: str):
@@ -97,6 +100,7 @@ Use the following structure:
 def extract_pattern_from_content(item_id: str, artifact_name: str, content: str) -> bool:
     """
     Analyzes the provided artifact content to extract reusable patterns and updates patterns.md.
+    Returns True if a new pattern was added, False otherwise.
     """
     import logging
     from agents.llm_client import LLMClient
@@ -104,10 +108,10 @@ def extract_pattern_from_content(item_id: str, artifact_name: str, content: str)
     from datetime import datetime
 
     logger = logging.getLogger(__name__)
-    # Use project root for config and patterns file
+    # Resolve paths relative to the project root
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    config_path = os.path.join(project_root, 'config.yaml')
-    brain_patterns = os.path.join(project_root, 'automation-ideas', 'brain', 'patterns.md')
+    config_path = os.path.join(project_root, "config.yaml")
+    brain_patterns = os.path.join(project_root, "automation-ideas", "brain", "patterns.md")
 
     logger.info("Memory Agent: Extracting pattern from %s/%s", item_id, artifact_name)
 
@@ -128,26 +132,40 @@ def extract_pattern_from_content(item_id: str, artifact_name: str, content: str)
     user_prompt = f"<{artifact_name.upper()}>\n{content}"
 
     try:
-        # Using a more generic generate_structured_content if available, 
-        # or falling back to chat
         llm = LLMClient(config_path=config_path)
         new_pattern_markdown = llm.chat(system_prompt=system_prompt, user_prompt=user_prompt)
-        
+        # If the LLM returns insufficient content, skip
         if not new_pattern_markdown or len(new_pattern_markdown) < 50:
             logger.warning("Pattern extraction yielded insufficient content. Skipping.")
             return False
-
-        if os.path.exists(brain_patterns):
-            with open(brain_patterns, 'r') as f:
-                current_content = f.read()
-        else:
-            current_content = "# Antikythera Architectural Patterns\n\n"
-
-        with open(brain_patterns, 'w') as f:
-            f.write(current_content + "\n" + new_pattern_markdown + "\n")
-
+        # Append the new pattern to patterns.md (create file if missing)
+        os.makedirs(os.path.dirname(brain_patterns), exist_ok=True)
+        with open(brain_patterns, "a") as f:
+            f.write("\n\n" + new_pattern_markdown + "\n")
         logger.info("Successfully updated patterns.md with new pattern from %s", item_id)
         return True
     except Exception as e:
-        logger.error("Pattern extraction failed for %s: %s", item_id, str(e))
+        logger.error(f"Pattern extraction failed for {item_id}: {e}")
         return False
+
+def analyze_and_propose() -> bool:
+    """Entry point used by the brain loop.
+    Instantiates a MemoryAgent with the default config and runs its learning loop.
+    Returns True if the loop completed without raising, otherwise False.
+    """
+    try:
+        # Use environment variable for config path if provided, otherwise default
+        config_path = os.getenv(
+            "AGENT_CONFIG_PATH",
+            os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "config.yaml",
+            ),
+        )
+        agent = MemoryAgent(config_path=config_path)
+        agent.run_learning_loop()
+        return True
+    except Exception as e:
+        logger.error(f"MemoryAgent analyze_and_propose failed: {e}")
+        return False
+

@@ -23,6 +23,8 @@ class WorkflowStateManager:
         knowledge_dir = os.path.join(base_dir, "knowledge")
         deltas_dir = os.path.join(knowledge_dir, "deltas")
         self.brain = BrainManager(knowledge_dir, deltas_dir)
+        # Ensure the knowledge directory exists for file operations
+        os.makedirs(self.brain.knowledge_dir, exist_ok=True)
         self.observer = ObserverManager(self.brain, self.runs)
 
     # --- Intelligence Integration ---

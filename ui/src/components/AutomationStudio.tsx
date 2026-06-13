@@ -63,7 +63,8 @@ export function AutomationStudio() {
   // ==== State ==== //
   const [instruction, setInstruction] = useState('');
   const [selectedModel, setSelectedModel] = useState<string>(''); // AI model selector
-  const [jiraUrl, setJiraUrl] = useState('');
+  const [integrations, setIntegrations] = useState<any[]>([]);
+  const [selectedIntegration, setSelectedIntegration] = useState<string>('');
   const [proposal, setProposal] = useState<any | null>(null);
   const [currentPath, setCurrentPath] = useState<PathStep[]>([]);
   const [sandboxState, setSandboxState] = useState<Record<string, any>>({});
@@ -75,7 +76,7 @@ export function AutomationStudio() {
   const [currentStepForAuth, setCurrentStepForAuth] = useState<PathStep | null>(null);
   const [proposalIdForAuth, setProposalIdForAuth] = useState<string | null>(null);
 
-  // ==== Initialize AI model and Jira URL (if previously saved) ==== //
+  // ==== Initialize AI model and Integrations (if previously saved) ==== //
   useEffect(() => {
     const init = async () => {
       // Load AI models
@@ -90,19 +91,19 @@ export function AutomationStudio() {
       } catch (e) {
         console.error('Failed to fetch AI models', e);
       }
-      // Load saved Jira URL
+      // Load Integrations
       try {
-        const res = await fetch(`${apiUrl}/api/automation/config/jira_url`);
+        const res = await fetch(`${apiUrl}/api/integrations/`);
         if (res.ok) {
           const data = await res.json();
-          if (typeof data === 'string') {
-            setJiraUrl(data);
-          } else if (data.access_token) {
-            setJiraUrl(data.access_token);
+          const list = Array.isArray(data) ? data : data.integrations || [];
+          setIntegrations(list);
+          if (list.length > 0) {
+            setSelectedIntegration(list[0].name);
           }
         }
       } catch (e) {
-        console.error('Failed to load Jira URL', e);
+        console.error('Failed to load integrations', e);
       }
     };
     init();
@@ -117,12 +118,13 @@ export function AutomationStudio() {
       const res = await fetch(`${apiUrl}/api/automation/propose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instruction,
-          model: selectedModel,
-          current_state: sandboxState,
-          path_id: 'recording_session',
-        }),
+      body: JSON.stringify({
+        instruction,
+        model: selectedModel,
+        current_state: sandboxState,
+        path_id: 'recording_session',
+        integration_id: selectedIntegration,
+      }),
       });
       if (!res.ok) throw new Error('Failed to get proposal');
       const data = await res.json();
@@ -267,29 +269,7 @@ export function AutomationStudio() {
     setProposalIdForAuth(null);
     if (proposal) setProposal(proposal);
   };
-
-  // Save Jira URL to vault via store-token endpoint (service "jira_url")
-  const handleSaveJiraUrl = async () => {
-    if (!jiraUrl) {
-      toast.error('Please enter a Jira URL before saving');
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/automation/store-token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ service: 'jira_url', token: jiraUrl }),
-      });
-      if (!res.ok) throw new Error('Failed to store Jira URL');
-      toast.success('Jira URL saved successfully');
-    } catch (e: any) {
-      toast.error(e.message ?? 'Error saving Jira URL');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  
   // ==== UI Sections ==== //
   const renderStepList = () => (
     <div className="flex flex-col gap-4 p-6 bg-[#fcfbf8] border-r border-[#d8d3ca] h-full overflow-y-auto">
@@ -307,42 +287,26 @@ export function AutomationStudio() {
           >
             {selectedModel && <option value={selectedModel}>{selectedModel}</option>}
           </select>
-          {/* Jira instance URL input */}
-          <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Jira Instance URL</label>
-          <input
-            type="text"
-            value={jiraUrl}
-            onChange={(e) => setJiraUrl(e.target.value)}
-            placeholder="https://your-domain.atlassian.net"
-            className="w-full rounded border border-[#d8d3ca] py-1 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0b6b72]"
-          />
-          <button
-            onClick={handleSaveJiraUrl}
-            disabled={isLoading}
-            className="mt-1 w-full bg-[#0b6b72] text-white py-1 rounded text-xs font-bold hover:bg-[#0a5c62] disabled:opacity-50"
-          >
-            {isLoading ? 'Saving…' : 'Save Jira URL'}
-          </button>
-          <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Your instruction</label>
+           <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Target Integration</label>
+           <select
+             value={selectedIntegration}
+             onChange={(e) => setSelectedIntegration(e.target.value)}
+             className="w-full rounded border border-[#d8d3ca] py-1 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0b6b72]"
+           >
+             {integrations.map(int => (
+               <option key={int.name} value={int.name}>
+                 {int.name} {int.status === 'connected' ? '✅' : '❌'}
+               </option>
+             ))}
+           </select>
+           <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Your instruction</label>
         <textarea
                                       value={instruction}
                                       onChange={(e) => setInstruction(e.target.value)}
                                       placeholder='e.g. Fetch all Jira tickets with JQL "(assignee=currentUser() AND status NOT IN (Done, Cancelled, Obsolete)) AND labels = Twistlock-Commercial"'
                                       className="w-full h-28 p-2 border border-[#d8d3ca] rounded resize-none focus:outline-none focus:ring-2 focus:ring-[#0b6b72] text-sm bg-white"
-                                    />
-                                    {/* Help: supported Jira actions */}
-                                    <div className="mt-2 text-xs text-gray-600">
-                                      <strong>Supported Jira actions (via this integration):</strong>
-                                      <ul className="list-disc list-inside ml-4">
-                                        <li>List tickets by JQL (as you type above)</li>
-                                        <li>Get details of a ticket – use <code>GET /api/integrations/jira/ticket/&#123;ticketId&#125;</code></li>
-                                        <li>Transition an issue – use <code>POST /api/integrations/jira/transition</code></li>
-                                        <li>Assign an issue – <code>POST /api/integrations/jira/assign</code></li>
-                                        <li>Add a comment – <code>POST /api/integrations/jira/comment</code></li>
-                                      </ul>
-                                      <em>These endpoints are handled by the JiraAdapter; see <code>api/adapters/jira.py</code> for details.</em>
-                                    </div>
-        <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
+                                     />
+                                     <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
           <span>{instruction.length} / 2000</span>
         </div>
         <div className="flex gap-2 mt-2">

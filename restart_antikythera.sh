@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # --- Configuration ---
-ROOT_DIR="$(pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_PATH="$ROOT_DIR/venv"
 PYTHON_EXE="$VENV_PATH/bin/python3"
 UI_DIR="$ROOT_DIR/ui"
 
 # Extract VITE_API_URL from .env
-VITE_API_URL=$(grep '^VITE_API_URL=' .env | cut -d '=' -f2)
+VITE_API_URL=$(grep '^VITE_API_URL=' "$ROOT_DIR/.env" | cut -d '=' -f2)
 if [ -z "$VITE_API_URL" ]; then
   echo -e "${RED}Error: VITE_API_URL not found in .env file${NC}"
   exit 1
@@ -28,9 +28,9 @@ echo -e "\n${BLUE}🚀 Starting Antikythera Full Stack...${NC}"
 # 1. Start Backend API
 echo -e "Loading port from .env..."
 # Extract PORT value using grep and cut
-PORT=$(grep '^PORT=' .env | cut -d '=' -f2)
+PORT=$(grep '^PORT=' "$ROOT_DIR/.env" | cut -d '=' -f2)
 set -a
-source .env
+source "$ROOT_DIR/.env"
 # Load API keys from .ai_env and export them
 if [ -f "$HOME/.antikythera/.ai_env" ]; then
   set -a

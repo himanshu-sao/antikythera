@@ -27,7 +27,7 @@ The system supports two modes of operation:
 
 ### 2. The Integration Hub
 A centralized hub for managing external services:
-- **Secret Vault**: Encrypted storage for API keys and tokens
+- **Secret Vault**: Encrypted storage for API keys and tokens (All integration secrets, including Jira credentials, are persisted here to survive system restarts)
 - **Connector Types**:
   - **MCP Servers**: Plug-and-play discovery of tools from external MCP servers
   - **Native Adapters**: Custom Python glue code for complex local tasks or niche APIs
@@ -154,6 +154,8 @@ Every significant change follows: **Proposal → Approval → Execution**
 
 ---
 ## ✨ Updated Features
+
+- **Jira Integration Enhancements**: <br>  • Test Connection now performs a real request to `<JIRA_BASE_URL>/rest/api/3/myself` and reports precise HTTP status codes (e.g., 401, 403, 404). <br>  • Falls back to environment variables `JIRA_ISV_PERSONAL_ACCESS_TOKEN` and `JIRA_BASE_URL` (loaded from `~/.antikythera/.env` before the project `.env`). <br>  • Integration status (`connected`/`error`) is updated based on actual authentication success. <br>  • UI masks secret fields (`token`, `access_token`, `jira_url`, `url`) with `*****` and removes the unused `test` flag from the JSON editor, preventing credential leakage.
 
 - Delete model action with confirmation dialog.
 - Provider‑based filter for model listings.

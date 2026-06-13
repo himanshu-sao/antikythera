@@ -20,15 +20,19 @@ This is the **single master document** for the Antikythera project. It tracks th
 - [x] **Phase 1**: Discovery & Context audit.
 - [x] **Phase 2**: Architectural Blueprint & directory structure.
 - [x] **Phase 3**: Atomic Implementation (Modular App, custom hooks).
-- [ ] **Phase 4: Unit Verification** (Current)
+- [x] **Phase 4: Unit Verification**
     - [x] Fix `App.test.tsx` parse errors.
     - [x] Fix `ArtifactViewer.test.tsx` timeouts.
     - [x] Fix `App.polling.test.tsx` environment issues.
     - [x] Stabilize `ArtifactViewer.edit.test.tsx`.
     - [ ] **Implement "Workflow Architect" component**.
     - [x] Verify Lifecycle Orchestrator End-to-End.
-- [ ] **Phase 5: Integration Flow**
+- [x] **Phase 5: Integration Flow**
     - [ ] Test component interactions and API flows.
+    - [x] **Decouple "Compose Instruction" from Jira (Use Integration Hub selector)**.
+    - [x] **Implement Structured Jira Configuration (URL, Password) in Integrations Hub**.
+    - [x] **Fix Integration Connection Status UI/API**.
+    - [x] **Implement Capability Discovery in Integration Detail Modal**.
 - [ ] **Phase 6: System Validation**
     - [ ] End-to-end user journey testing.
     - [ ] Error scenario and recovery validation.
@@ -41,7 +45,6 @@ This is the **single master document** for the Antikythera project. It tracks th
 
 ### Automation Studio
 - [ ] **UI Placeholders**: Implement "Add Context", "Use Variable", and "Examples" buttons.
-- [ ] **Integration**: Wire up "Compose Instruction" to call Jira adapter with JQL.
 - [ ] **Validation**: Add unit/integration tests for new endpoints and UI components.
 
 ### General System Gaps

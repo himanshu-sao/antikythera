@@ -62,6 +62,9 @@ export function IntegrationsManager() {
   // Detail modal state (centered)
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  
+  // Jira-specific config state
+  const [jiraConfig, setJiraConfig] = useState({ url: '', token: '' });
 
   // Focus management refs
   const addCardRef = useRef<HTMLDivElement>(null);
@@ -69,6 +72,24 @@ export function IntegrationsManager() {
   const editConfigRef = useRef<HTMLTextAreaElement>(null);
   const secretProfileRef = useRef<HTMLInputElement>(null);
   const drawerCloseBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Helper to get capabilities
+  const getCapabilities = (int: Integration) => {
+    if (int.type === 'native') {
+      if (int.name.toLowerCase().includes('jira') || JSON.stringify(int.config).toLowerCase().includes('jira')) {
+        return [
+          { action: 'fetch_resource', desc: 'List tickets by JQL or get ticket details' },
+          { action: 'update_resource', desc: 'Transition ticket status or update fields' },
+          { action: 'create_resource', desc: 'Create a new Jira issue' },
+          { action: 'delete_resource', desc: 'Delete a Jira issue' },
+          { action: 'add_comment', desc: 'Add a comment to a ticket' },
+          { action: 'assign_issue', desc: 'Assign a ticket to a user' },
+        ];
+      }
+      return [];
+    }
+    return []; // MCP capabilities are handled by the Tools list in Edit modal
+  };
 
   // Effect: focus Add modal input when opened, return focus to button when closed
   useEffect(() => {
@@ -366,11 +387,30 @@ export function IntegrationsManager() {
                               </button>
                               {menuOpen === int.name && (
                                 <div className="absolute right-0 mt-2 w-32 bg-white border rounded shadow-lg z-10">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); setEditingInt(int); setEditConfig(JSON.stringify(int.config, null, 2)); setTestResult(null); setShowTestLogs(false); setMenuOpen(null); }}
-                                    className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
-                                  >
-                                    Edit
+                               <button
+                                 onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingInt(int);
+                      // Mask sensitive fields and remove helper keys before showing config
+                      const maskConfig = (cfg:any) => {
+                        const copy = {...cfg};
+                        // Remove test flag if present
+                        delete copy.test;
+                        // Mask secrets
+                        ['token','access_token','jira_url','url'].forEach(k => {
+                          if (copy[k]) copy[k] = '*****';
+                        });
+                        return JSON.stringify(copy, null, 2);
+                      };
+                      setEditConfig(maskConfig(int.config));
+                      setTestResult(null);
+                      setShowTestLogs(false);
+                      setMenuOpen(null);
+                      setJiraConfig({ url: int.config?.jira_url || '', token: int.config?.token || '' });
+                    }}
+                                 className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
+                               >
+                                 Edit
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleTest(int.name).then(() => toast.success('Connection successful')).catch(err => toast.error(err.message)); setMenuOpen(null); }}
@@ -460,21 +500,44 @@ export function IntegrationsManager() {
                     {selectedIntegration.last_sync ? new Date(selectedIntegration.last_sync).toLocaleString() : 'Never synced'}
                   </p>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Configuration</label>
-                  <pre className="bg-gray-50 p-3 rounded-lg text-xs font-mono text-gray-700 overflow-x-auto max-h-48 custom-scrollbar">
-                    {JSON.stringify(selectedIntegration.config, null, 2)}
-                  </pre>
-                </div>
-              </div>
-
-              {/* Actions */}
+                 <div>
+                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Configuration</label>
+                   <pre className="bg-gray-50 p-3 rounded-lg text-xs font-mono text-gray-700 overflow-x-auto max-h-48 custom-scrollbar">
+                     {JSON.stringify(selectedIntegration.config, null, 2)}
+                   </pre>
+                 </div>
+                 <div>
+                   <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Capabilities</label>
+                   <div className="grid grid-cols-1 gap-2">
+                     {getCapabilities(selectedIntegration).length > 0 ? (
+                       getCapabilities(selectedIntegration).map((cap, i) => (
+                         <div key={i} className="flex items-start gap-2 p-2 bg-gray-50 rounded border border-gray-100">
+                           <span className="text-xs font-mono font-bold text-[#0b6b72]">{cap.action}</span>
+                           <span className="text-xs text-gray-600">{cap.desc}</span>
+                         </div>
+                       ))
+                     ) : (
+                       <p className="text-xs text-gray-400 italic">No specific capabilities listed for this adapter.</p>
+                     )}
+                   </div>
+                 </div>
+               </div>
+               {/* Actions */}
               <div className="flex gap-3 mt-8 pt-6 border-t border-gray-100">
                 <button
                   onClick={() => {
                     setShowDetailModal(false);
                     setEditingInt(selectedIntegration);
-                    setEditConfig(JSON.stringify(selectedIntegration.config, null, 2));
+                    // Mask secrets and remove helper keys before editing
+const maskConfig = (cfg:any) => {
+  const copy = {...cfg};
+  delete copy.test;
+  ['token','access_token','jira_url','url'].forEach(k => {
+    if (copy[k]) copy[k] = '*****';
+  });
+  return JSON.stringify(copy, null, 2);
+};
+setEditConfig(maskConfig(selectedIntegration.config));
                     setTestResult(null);
                     setShowTestLogs(false);
                   }}
@@ -517,16 +580,80 @@ export function IntegrationsManager() {
               <h2 id="edit-modal-title" className="text-xl font-bold text-[#231f19]">Edit Integration: {editingInt.name}</h2>
               <button onClick={() => setEditingInt(null)} className="text-gray-400 hover:text-gray-600">✕</button>
             </div>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Config (JSON)</label>
-                <textarea 
-                  ref={editConfigRef}
-                  className="w-full p-2 border rounded-lg font-mono text-xs h-48 resize-y overflow-auto custom-scrollbar" 
-                  value={editConfig} 
-                  onChange={e => setEditConfig(e.target.value)} 
-                />
-              </div>
+               <div className="space-y-4">
+                 {editingInt?.type === 'native' && (editingInt?.name.toLowerCase().includes('jira') || JSON.stringify(editingInt?.config).toLowerCase().includes('jira')) ? (
+<div className="space-y-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <h3 className="text-sm font-bold text-gray-700">Jira Connection Settings</h3>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                          Jira URL Env Var Name
+                          <span className="ml-2 text-[10px] font-normal text-gray-400">(Use: JIRA_BASE_URL)</span>
+                        </label>
+                        <input 
+                          type="text" 
+                          className="w-full p-2 border rounded-lg text-sm" 
+                          value={jiraConfig.url} 
+                          onChange={e => setJiraConfig({...jiraConfig, url: e.target.value})} 
+                          placeholder="JIRA_BASE_URL" 
+                          onBlur={() => {
+                            // Save as placeholder string if value is not empty
+                            const varName = jiraConfig.url || "JIRA_BASE_URL";
+                            const cfg = { ...editingInt?.config, jira_url: `\${env:${varName}}` };
+                            setEditConfig(JSON.stringify(cfg, null, 2));
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-1">
+                          Jira Token Env Var Name
+                          <span className="ml-2 text-[10px] font-normal text-gray-400">(Use: JIRA_PAT)</span>
+                        </label>
+                        <input 
+                          type="text" 
+                          className="w-full p-2 border rounded-lg text-sm" 
+                          value={jiraConfig.token} 
+                          onChange={e => setJiraConfig({...jiraConfig, token: e.target.value})} 
+                          placeholder="JIRA_PAT" 
+                          onBlur={() => {
+                            // Save as placeholder string if value is not empty
+                            const varName = jiraConfig.token || "JIRA_PAT";
+                            const cfg = { ...editingInt?.config, token: `\${env:${varName}}` };
+                            setEditConfig(JSON.stringify(cfg, null, 2));
+                          }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-gray-400 italic">
+                        Ensure {`JIRA_BASE_URL`} and {`JIRA_PAT`} are defined in your .env file.
+                      </p>
+                    </div>
+                 ) : (
+                   <div>
+                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Config (JSON)</label>
+<textarea 
+                        ref={editConfigRef}
+                        className="w-full p-2 border rounded-lg font-mono text-xs h-48 resize-y overflow-auto custom-scrollbar" 
+                        value={
+                          // Mask tokens in the displayed JSON to avoid exposing secrets
+                          (() => {
+                            try {
+                              const cfg = JSON.parse(editConfig);
+                              const maskKeys = ["token", "access_token", "jira_url"];
+                              maskKeys.forEach(k => {
+                                if (cfg.hasOwnProperty(k)) {
+                                  cfg[k] = "*****";
+                                }
+                              });
+                              return JSON.stringify(cfg, null, 2);
+                            } catch {
+                              return editConfig;
+                            }
+                          })()
+                        } 
+                        onChange={e => setEditConfig(e.target.value)} 
+                      />
+                   </div>
+                 )}
+               </div>
 
               {testResult && (
                 <div className={`p-3 rounded-lg text-xs font-mono ${testResult.status === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
@@ -636,10 +763,9 @@ export function IntegrationsManager() {
               )}
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Add Modal */}
+        )}
+        
+        {/* Add Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" role="dialog" aria-modal="true" aria-labelledby="add-modal-title">
           <div className="bg-white rounded-2xl shadow-xl w-full md:w-1/2 p-6">
@@ -680,49 +806,49 @@ export function IntegrationsManager() {
           <div className="bg-white rounded-2xl shadow-xl w-full md:w-1/2 p-6">
             <h2 id="secret-modal-title" className="text-xl font-bold mb-4 text-[#231f19]">Secret Vault</h2>
             <div className="space-y-4">
-                          <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Profile ID</label>
-                            <input type="text" ref={secretProfileRef} className="w-full p-2 border rounded-lg" value={secretProfile} onChange={e => setSecretProfile(e.target.value)} placeholder="e.g. github_prod" />
-                            <div className="flex gap-2 mt-2">
-                              <button
-                                onClick={async () => {
-                                  if (!secretProfile) { toast.error('Enter profile ID first'); return; }
-                                  try {
-                                    const res = await fetch(`${apiUrl}/api/integrations/secrets/${secretProfile}`);
-                                    if (!res.ok) throw new Error('Failed to load secrets');
-                                    const data = await res.json();
-                                    setSecretData(JSON.stringify(data, null, 2));
-                                    toast.success('Secrets loaded');
-                                  } catch (e:any) {
-                                    toast.error(e.message);
-                                  }
-                                }}
-                                className="px-3 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
-                              >
-                                Load
-                              </button>
-                              <button
-                                onClick={() => { setSecretData(''); setSecretProfile(''); }}
-                                className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
-                              >
-                                Clear
-                              </button>
-                            </div>
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Secrets (JSON)</label>
-                            <textarea 
-                              className="w-full p-2 border rounded-lg font-mono text-xs h-32" 
-                              value={secretData} 
-                              onChange={e => setSecretData(e.target.value)} 
-                              placeholder='{"api_key": "***", "token": "***"}'
-                            />
-                          </div>
-                          <div className="flex justify-end gap-3 pt-4">
-                            <button onClick={() => setShowSecretModal(false)} className="px-4 py-2 text-gray-600">Cancel</button>
-                            <button onClick={handleSaveSecret} className="px-4 py-2 bg-[#0b6b72] text-white rounded-lg font-medium">Save Secrets</button>
-                          </div>
-                        </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Profile ID</label>
+                <input type="text" ref={secretProfileRef} className="w-full p-2 border rounded-lg" value={secretProfile} onChange={e => setSecretProfile(e.target.value)} placeholder="e.g. github_prod" />
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={async () => {
+                      if (!secretProfile) { toast.error('Enter profile ID first'); return; }
+                      try {
+                        const res = await fetch(`${apiUrl}/api/integrations/secrets/${secretProfile}`);
+                        if (!res.ok) throw new Error('Failed to load secrets');
+                        const data = await res.json();
+                        setSecretData(JSON.stringify(data, null, 2));
+                        toast.success('Secrets loaded');
+                      } catch (e:any) {
+                        toast.error(e.message);
+                      }
+                    }}
+                    className="px-3 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
+                  >
+                    Load
+                  </button>
+                  <button
+                    onClick={() => { setSecretData(''); setSecretProfile(''); }}
+                    className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Secrets (JSON)</label>
+                <textarea 
+                  className="w-full p-2 border rounded-lg font-mono text-xs h-32" 
+                  value={secretData} 
+                  onChange={e => setSecretData(e.target.value)} 
+                  placeholder='{"api_key": "***", "token": "***"}'
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-4">
+                <button onClick={() => setShowSecretModal(false)} className="px-4 py-2 text-gray-600">Cancel</button>
+                <button onClick={handleSaveSecret} className="px-4 py-2 bg-[#0b6b72] text-white rounded-lg font-medium">Save Secrets</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

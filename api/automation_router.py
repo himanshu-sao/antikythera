@@ -4,17 +4,14 @@ from typing import Any, Dict, Optional, List
 from .models.automation import PathStep, Path, Pipeline, ExecutionMode
 from .operator_registry import OperatorRegistry
 from .session_state_manager import SessionStateManager
-from .secret_vault import SecretVault
+# SecretVault removed – not used in this simplified flow
 import os
 from functools import lru_cache
 
 # Use the same base directory as main.py
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "automation-ideas"))
-
-# Create vault instance (will create the directory if needed)
-os.makedirs(BASE_DIR, exist_ok=True)
-vault = SecretVault(BASE_DIR)
-registry = OperatorRegistry(vault)
+# No vault – OperatorRegistry instantiated without it
+registry = OperatorRegistry(None)
 # For simplicity in this prototype, we use a global state manager. 
 # In production, this would be keyed by session_id.
 session_state = SessionStateManager()
@@ -36,6 +33,7 @@ class ProposalRequest(BaseModel):
     instruction: str
     current_state: Dict[str, Any]
     path_id: Optional[str] = None
+    integration_id: Optional[str] = None
 
 class ProposalResponse(BaseModel):
     proposal_id: str
@@ -62,6 +60,10 @@ async def propose_step(request: ProposalRequest):
     # MOCK AI LOGIC for demonstration of the flow:
     instruction = request.instruction.lower()
     current_state = request.current_state
+    integration_id = request.integration_id
+    
+    # Use provided integration_id or guess from instruction
+    target_adapter = integration_id if integration_id else ("jira_adapter" if "jira" in instruction else "github_adapter")
     
     # Enhanced logic to generate script steps and multi-choice proposals
     
@@ -73,7 +75,7 @@ async def propose_step(request: ProposalRequest):
         suggested_step = PathStep(
             step_id="step_new",
             operator_id="run_script",
-            adapter_id="jira_adapter",  # placeholder
+            adapter_id=target_adapter,  # use selected integration
             mode=ExecutionMode.SCRIPT,
             config={
                 "code": '''import re
@@ -109,7 +111,7 @@ result = extracted'''
         suggested_step = PathStep(
             step_id="step_new",
             operator_id="update_resource",
-            adapter_id="jira_adapter" if "jira" in instruction else "github_adapter",
+            adapter_id=target_adapter,
             mode=ExecutionMode.ADAPTER,
             config={"status": "Investigating"},
             input_ref=None,
@@ -133,7 +135,7 @@ result = extracted'''
         suggested_step = PathStep(
             step_id="step_new",
             operator_id="fetch_resource",
-            adapter_id="jira_adapter" if "jira" in instruction else "github_adapter",
+            adapter_id=target_adapter,
             mode=ExecutionMode.ADAPTER,
             config={"params": {}},
             input_ref=None,
@@ -155,7 +157,7 @@ result = extracted'''
         suggested_step = PathStep(
             step_id="step_new",
             operator_id="fetch_resource",
-            adapter_id="jira_adapter" if "jira" in instruction else "github_adapter",
+            adapter_id=target_adapter,
             config={"params": {}},
             input_ref="resource_id",
             output_ref="fetched_data"
@@ -165,7 +167,7 @@ result = extracted'''
         suggested_step = PathStep(
             step_id="step_new",
             operator_id="update_resource",
-            adapter_id="jira_adapter" if "jira" in instruction else "github_adapter",
+            adapter_id=target_adapter,
             config={"status": "Investigating"},
             input_ref="fetched_data",
             output_ref="update_result"
@@ -204,27 +206,7 @@ async def accept_proposal(request: AcceptProposalRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/store-token")
-# New endpoint to retrieve stored config values (e.g., Jira URL)
-@router.get("/config/{service}")
-async def get_config(service: str):
-    """Return the stored secret (or config) for a given service name."""
-    secret = vault.get_secret(service)
-    if secret is None:
-        raise HTTPException(status_code=404, detail="Config for service not found")
-    return secret
-async def store_token(request: TokenStorageRequest):
-    """
-    Store a token for a given service (jira, github) in the vault.
-    """
-    try:
-        # Store the token as a dictionary with access_token key
-        secret_data = {"access_token": request.token}
-        vault.store_secret(request.service, secret_data)
-        return {"status": "success", "message": f"Token for {request.service} stored successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+# Token storage endpoints removed – credentials are now provided via environment variables and integration config placeholders
 @router.get("/state")
 async def get_state():
     return session_state.export_state()

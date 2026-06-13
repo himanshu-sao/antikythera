@@ -1,5 +1,5 @@
 import json
-from fastapi import APIRouter, HTTPException, Response, Request
+from fastapi import APIRouter, HTTPException, Response, Request, Body
 from fastapi.responses import FileResponse
 from typing import List, Dict, Any, Optional
 import os
@@ -12,19 +12,19 @@ from api.workflow_state_manager import WorkflowStateManager
 router = APIRouter(prefix="/api", tags=["Board Items"])
 
 # Initialize manager
-BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "automation-ideas")
-state_manager = WorkflowStateManager(BASE_DIR)
+# State manager is obtained via the getter to allow test overrides
+from api.main import get_state_manager
 
 @router.get("/state", summary="Get full pipeline state")
 async def get_state(request: Request):
     try:
-        return request.app.state.state_manager.load_state()
+        return get_state_manager().load_state()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load state: {str(e)}")
 
 @router.post("/items", summary="Create new pipeline item")
 async def create_item(request: Request, item_request: CreateItemRequest):
-    success = request.app.state.state_manager.create_item(
+    success = get_state_manager().create_item(
         item_request.item_id,
         item_request.title,
         goal=item_request.goal,
@@ -38,20 +38,34 @@ async def create_item(request: Request, item_request: CreateItemRequest):
     return {"status": "success", "message": f"Item {item_request.item_id} created"}
 
 @router.patch("/item/{item_id}", summary="Update item details")
+
+
 async def update_item(request: Request, item_id: str, item_request: UpdateItemRequest):
     normalized_id = item_id.upper()
     updates = item_request.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=400, detail="No fields provided for update")
-    success = request.app.state.state_manager.update_item(normalized_id, updates)
+    success = get_state_manager().update_item(normalized_id, updates)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "message": f"Item {normalized_id} updated"}
 
+@router.patch("/item/{item_id}/name", summary="Update item name (title)")
+async def update_item_name(request: Request, item_id: str, payload: dict = Body(...)):
+    normalized_id = item_id.upper()
+    name = payload.get("name")
+    if not name:
+        raise HTTPException(status_code=400, detail="Missing 'name' field")
+    updates = {"title": name}
+    success = get_state_manager().update_item(normalized_id, updates)
+    if not success:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"status": "success", "message": f"Item {normalized_id} name updated"}
+
 @router.delete("/item/{item_id}", summary="Delete pipeline item")
 async def delete_item(request: Request, item_id: str):
     normalized_id = item_id.upper()
-    success = request.app.state.state_manager.delete_item(normalized_id)
+    success = get_state_manager().delete_item(normalized_id)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "message": f"Item {normalized_id} deleted"}
@@ -59,7 +73,7 @@ async def delete_item(request: Request, item_id: str):
 @router.post("/item/{item_id}/comment", summary="Add comment to item")
 async def add_comment(request: Request, item_id: str, comment_request: CommentRequest):
     normalized_id = item_id.upper()
-    comment = request.app.state.state_manager.add_comment(normalized_id, comment_request.author, comment_request.body)
+    comment = get_state_manager().add_comment(normalized_id, comment_request.author, comment_request.body)
     if not comment:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "comment": comment}
@@ -67,7 +81,7 @@ async def add_comment(request: Request, item_id: str, comment_request: CommentRe
 @router.delete("/item/{item_id}/comment/{comment_id}", summary="Delete comment")
 async def delete_comment(request: Request, item_id: str, comment_id: str):
     normalized_id = item_id.upper()
-    success = request.app.state.state_manager.delete_comment(normalized_id, comment_id)
+    success = get_state_manager().delete_comment(normalized_id, comment_id)
     if not success:
         raise HTTPException(status_code=404, detail="Item or comment not found")
     return {"status": "success", "message": f"Comment {comment_id} deleted"}
@@ -78,20 +92,20 @@ async def move_item(request: Request, move_request: MoveRequest):
     updates: dict = {"stage": move_request.new_stage}
     if move_request.order is not None:
         updates["order"] = move_request.order
-    success = request.app.state.state_manager.update_item(normalized_id, updates)
+    success = get_state_manager().update_item(normalized_id, updates)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "message": f"Item {normalized_id} moved to {move_request.new_stage}"}
 
 @router.post("/items/reorder", summary="Bulk reorder items")
 async def reorder_items(request: Request, reorder_request: ReorderRequest):
-    request.app.state.state_manager.reorder_items(reorder_request.stage, reorder_request.ordered_ids)
+    get_state_manager().reorder_items(reorder_request.stage, reorder_request.ordered_ids)
     return {"status": "success", "message": f"Reordered {len(reorder_request.ordered_ids)} items in {reorder_request.stage}"}
 
 @router.get("/item/{item_id}", summary="Get item details")
 async def get_item(request: Request, item_id: str):
     normalized_id = item_id.upper()
-    item = request.app.state.state_manager.get_item_details(normalized_id)
+    item = get_state_manager().get_item_details(normalized_id)
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
@@ -103,6 +117,10 @@ async def get_artifact(item_id: str, artifact_name: str):
         raise HTTPException(status_code=400, detail="Invalid item ID")
     if artifact_name not in VALID_ARTIFACTS:
         raise HTTPException(status_code=400, detail="Invalid artifact name")
+    # Verify the item exists in the Kanban board; otherwise treat as missing
+    from api.main import get_state_manager
+    if not get_state_manager().get_item_details(item_id):
+        return Response(status_code=204)
     artifact_path = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", item_id, artifact_name)
     if not os.path.exists(artifact_path):
         return Response(status_code=204)
@@ -118,6 +136,10 @@ async def update_artifact_content(item_id: str, artifact_name: str, request: dic
     content = request.get("content")
     if content is None:
         raise HTTPException(status_code=400, detail="Missing content field")
+    # Ensure the item exists in Kanban; otherwise it's an invalid operation
+    from api.main import get_state_manager
+    if not get_state_manager().get_item_details(item_id):
+        raise HTTPException(status_code=500, detail="Item not found for update")
     artifact_path = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", item_id, artifact_name)
     temp_path = artifact_path + ".tmp"
     try:

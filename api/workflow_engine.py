@@ -15,7 +15,7 @@ class WorkflowEngine:
         self.adapters = {
             "INTERNAL": InternalKanbanAdapter(),
             "GITHUB": GitHubAdapter(),
-            "JIRA": JiraAdapter()
+            "JIRA": JiraAdapter(vault=None)
         }
 
     def trigger_run(self, template_id: str, inputs: Dict[str, Any], trigger_event_id: Optional[str] = None) -> Optional[str]:

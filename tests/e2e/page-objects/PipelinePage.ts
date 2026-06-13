@@ -20,7 +20,7 @@ export class PipelinePage {
   }
 
   async goto() {
-    await this.page.goto('/');
+    await this.page.goto('/pipeline');
   }
 
   async createIdea(id: string, title: string) {
