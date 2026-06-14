@@ -7,6 +7,7 @@ from api.workflow_state_manager import WorkflowStateManager
 from api.adapters.internal import InternalKanbanAdapter
 from api.adapters.github import GitHubAdapter
 from api.adapters.jira import JiraAdapter
+from api.adapters.bob_shell import BobShellAdapter
 
 class WorkflowEngine:
     def __init__(self, state_dir: str):
@@ -15,7 +16,8 @@ class WorkflowEngine:
         self.adapters = {
             "INTERNAL": InternalKanbanAdapter(),
             "GITHUB": GitHubAdapter(),
-            "JIRA": JiraAdapter(vault=None)
+            "JIRA": JiraAdapter(vault=None),
+            "BOB_SHELL": BobShellAdapter()
         }
 
     def trigger_run(self, template_id: str, inputs: Dict[str, Any], trigger_event_id: Optional[str] = None) -> Optional[str]:
