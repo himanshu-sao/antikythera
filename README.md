@@ -84,8 +84,35 @@ All kanban-fix branch enhancements have been integrated:
 - Setup frontend: `cd ui && npm install`
 
 ### 2. Running the System
-- **Backend**: `python -m uvicorn api.main:app --host 0.0.0.0 --port 8006`
-- **Frontend**: `npm run dev`
+
+#### Option A: Docker (Recommended)
+
+See [docker/README.md](docker/README.md) for detailed instructions.
+
+```bash
+# 1. Create config directory
+mkdir -p ~/.antikythera
+
+# 2. Create config file with your credentials
+vim ~/.antikythera/.env
+
+# 3. Create data directory
+mkdir -p ~/antikythera-data
+
+# 4. Start with Docker Compose
+cd docker
+docker-compose pull && docker-compose up
+```
+
+**Services:**
+- Frontend UI: http://localhost:5173
+- Backend API: http://localhost:8006
+- API Docs: http://localhost:8006/docs
+
+#### Option B: Local Development
+
+- **Backend**: `source venv/bin/activate && python -m uvicorn api.main:app --host 0.0.0.0 --port 8006`
+- **Frontend**: `cd ui && npm run dev`
 
 ### 3. Key Directories
 ```
