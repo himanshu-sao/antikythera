@@ -92,8 +92,15 @@ All kanban-fix branch enhancements have been integrated:
 /
 ├── api/                          # Core backend logic and routers
 │   ├── adapters/                 # Integration adapters (Jira, GitHub, etc.)
+│   ├── managers/                 # State management hierarchy (BaseJSONManager+)
 │   ├── models/                   # Pydantic data models
-│   └── routers/                  # FastAPI route definitions
+│   ├── services/                 # Service layer (AI engine config)
+│   ├── executors/                # SafeExecutor for sandboxed execution
+│   ├── routers/                  # Router subpackage (ai_engine_config only)
+│   ├── board_router.py           # Kanban board endpoints
+│   ├── pipeline_router.py        # Pipeline CRUD, runs, logs
+│   ├── integrations_router.py    # Integration Hub endpoints
+│   └── workflow_state_manager.py # Facade delegating to managers/
 ├── ui/                           # React frontend
 │   ├── src/components/           # React components
 │   └── src/types.ts              # TypeScript type definitions
@@ -102,7 +109,7 @@ All kanban-fix branch enhancements have been integrated:
 │   ├── refiner.py                # Requirements extraction
 │   ├── architect.py              # Technical design
 │   ├── tester.py                 # Validation and testing
-│   └── memory.py                 | Pattern learning and brain updates
+│   └── memory.py                 # Pattern learning and brain updates
 ├── automation-ideas/             # Data store for state, templates, requirements
 │   ├── ideas.md                  # Owner's intake file
 │   ├── pipeline-state.json       # Single source of truth for pipeline state
@@ -122,10 +129,10 @@ For detailed information, refer to these specialized documents:
 
 | Document | Purpose |
 |----------|---------|
+| `CLAUDE.md` | **AI agent entry point** — Quick facts, actual directory structure, run/test commands, gotchas |
 | `PROJECT_STATUS.md` | **Master reference** - Implementation roadmap, technical baseline, API mappings, remediation tasks |
-| `VERIFICATION_CRITERIA.md` | **Definition of Done** - Phase-specific completion criteria |
-| `execution.md` | **Granular task tracker** - Low-code compiler workflow with 6-stage loops |
-| `AI.md` | **AI agent index** - Directs agents to specialized briefings |
+| `AI.md` | **Dispatch table** - Directs agents to specialized briefings by domain |
+| `docs/api-spec.md` | **API contract** — REST endpoint schemas and request/response formats |
 
 ### AI Agent Briefings
 | Scope | Briefing File | Focus Area |

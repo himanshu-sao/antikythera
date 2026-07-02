@@ -1,4 +1,4 @@
-# Hermes Kanban — UI Enhancement Branch Guidance
+# Antikythera — UI Enhancement Branch Guidance
 
 Branch name: `ui-enhancement`
 Base branch: `kanban-fix`
@@ -6,7 +6,7 @@ Purpose: Improve the current generic pipeline UI without changing the underlying
 
 ## Core product rule
 
-The Hermes board must remain a generic pipeline. The existing stage-based Kanban is the canonical operational surface for all work. New UX should improve clarity, navigation, and extensibility without converting the core board into a hardcoded workflow-specific product.
+The Antikythera board must remain a generic pipeline. The existing stage-based Kanban is the canonical operational surface for all work. New UX should improve clarity, navigation, and extensibility without converting the core board into a hardcoded workflow-specific product.
 
 ## Design intent
 
@@ -23,7 +23,7 @@ This navigation is a UX framing device. In this branch, the generic pipeline rem
 ## Required visual references
 
 The following files are required design references for any future implementation work in this branch:
-- `docs/mockups/hermes-workflow-mockup.html`
+- `docs/mockups/antikythera-workflow-mockup.html`
 - `docs/mockups/screenshots/pipeline-board-reference.png`
 - `docs/mockups/screenshots/workflow-builder-reference.png`
 - `docs/mockups/screenshots/run-detail-reference.png`

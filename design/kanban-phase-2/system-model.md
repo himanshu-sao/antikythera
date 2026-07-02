@@ -73,7 +73,7 @@ A `WorkflowRun` is a specific instance of a `WorkflowTemplate` execution.
 - `run_id`: (String, PK) Unique execution ID.
 - `template_id`: (String, FK) Reference to the template.
 - `template_version`: (String) Version used for this run.
-- `status`: (Enum: "PENDING", "RUNNING", "WAITING_FOR_APPROVAL", "COMPLETED", "FAILED", "CANCELLED")
+- `status`: (Enum: "PENDING", "ACTIVE", "NEEDS_APPROVAL", "COMPLETED", "FAILED", "CANCELLED")
 - `current_step_id`: (String) The step currently being executed.
 - `inputs`: (JSON) The actual values provided for this specific run.
 - `started_at`: (ISO8601 Timestamp)
@@ -84,7 +84,7 @@ A `WorkflowRun` is a specific instance of a `WorkflowTemplate` execution.
 - `run_step_id`: (String, PK)
 - `run_id`: (String, FK)
 - `step_id`: (String, FK)
-- `status`: (Enum: "PENDING", "RUNNING", "COMPLETED", "FAILED", "SKIPPED")
+- `status`: (Enum: "PENDING", "ACTIVE", "COMPLETED", "FAILED", "SKIPPED")
 - `started_at`: (ISO8601 Timestamp)
 - `finished_at`: (ISO8601 Timestamp, Optional)
 - `output`: (JSON, Optional) Result of the step execution.

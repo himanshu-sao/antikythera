@@ -619,7 +619,7 @@ class AIEngineConfigService:
         survives a container or VM restart but remains outside the project
         source tree. We resolve the true home directory via the password database
         rather than the potentially overridden ``HOME`` environment variable (which
-        may point to a Hermes profile directory).
+        may point to an Antikythera profile directory).
         """
         try:
             import pwd

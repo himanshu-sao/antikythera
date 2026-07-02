@@ -20,7 +20,7 @@ PYTHONPATH=$ROOT_DIR $PYTHON_EXE -m uvicorn api.main:app --host 0.0.0.0 --port $
 
 ### Virtual Environment Status
 
-✅ **Virtual Environment exists:** `/Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/venv/`
+✅ **Virtual Environment exists:** `venv/`
 
 ✅ **Dependencies installed in venv:**
 - uvicorn

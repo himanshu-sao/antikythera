@@ -1,8 +1,8 @@
-# Project Lifecycle: Antikythera
+# Project Lifecycle: Antikythera — UI Track
 
-## 🏗️ Current Phase: Phase 4: 🧪 Unit Verification 🟢
-**Active Task:** Stabilize Test Suite & Implement Workflow Architect
-**Status:** In Progress (Fixing `ArtifactViewer.edit.test.tsx` fetch mocks)
+## 🏗️ Current Phase: Phase 6: 🛡️ System Validation ⚪
+**Active Task:** End-to-end user journey testing and error recovery validation
+**Status:** Phases 0–4 and 6–7 of the UI Redesign are complete per `ui/UI_REDESIGN_CONTEXT.md`
 
 ## 🗺️ The Roadmap (Phase-Gated)
 
@@ -17,15 +17,19 @@
 - [x] Implement custom hooks (useModalManager, useDragAndDrop, etc.)
 - [x] Centralize constants and utilities
 
-### Phase 4: 🧪 Unit Verification 🔵
+### Phase 4: 🧪 Unit Verification 🟢
 - [x] Fix `App.test.tsx` parse errors
 - [x] Fix `ArtifactViewer.test.tsx` timeouts
 - [x] Fix `App.polling.test.tsx` environment issues
-- [x] Stabilize `ArtifactViewer.edit.test.tsx` (Refining fetch mocks)
-- [ ] Implement "Workflow Architect" component
-- [x] Verify Lifecycle Orchestrator End-to-End (Add version label to header)
+- [x] Stabilize `ArtifactViewer.edit.test.tsx`
+- [x] Implement "Workflow Architect" component
+- [x] Verify Lifecycle Orchestrator End-to-End
 
-### Phase 5: 🔗 Integration Flow ⚪
+### Phase 5: 🔗 Integration Flow 🔵
+- [x] Decouple "Compose Instruction" from Jira; use Integration Hub selector
+- [x] Implement Structured Jira Configuration (URL, Password) in Integrations Hub
+- [x] Fix Integration Connection Status UI/API
+- [x] Implement Capability Discovery in Integration Detail Modal
 - [ ] Test component interactions and API flows
 
 ### Phase 6: 🛡️ System Validation ⚪
@@ -36,7 +40,7 @@
 - [ ] Final documentation and handover
 
 ---
-## 🎯 Immediate Next Steps (Agent Recommendations)
-1. Resolve `Error: No artifacts found` in `ArtifactViewer.edit.test.tsx` by refining `fetch` mock.
-2. Complete Phase 4 unit testing requirements.
-3. Begin Phase 4: Workflow Architect Discovery.
+## 🎯 Immediate Next Steps
+1. Complete Phase 5 remaining test items (component interaction and API flow testing).
+2. Run E2E user journey tests (see `docs/task-5.3-e2e-test-plan.md`).
+3. Validate error recovery scenarios.

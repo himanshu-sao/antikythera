@@ -41,7 +41,7 @@ from api.routers.ai_engine_config_router import router as ai_engine_config_route
 
 # Assuming other routers exist, if not I'll add placeholders or just the ones I've built
 # Include Jira integration routes
-app = FastAPI(title="Hermes Brain API")
+app = FastAPI(title="Antikythera API")
 
 
 # Enable CORS for frontend development
@@ -84,4 +84,4 @@ app.mount("/docs", StaticFiles(directory=BASE_DIR), name="docs")
 
 @app.get("/")
 async def root():
-    return {"message": "Hermes Brain API is running"}
+    return {"message": "Antikythera API is running"}
