@@ -1,16 +1,107 @@
-version: '3.8'
+# Antikythera - Docker Compose (Development Mode)
+#
+# Prerequisites:
+#   1. Create ~/.antikythera/.env with your credentials
+#   2. Ensure ~/antikythera-data directory exists for persistent data
+#
+# Usage:
+#   docker-compose up          # Start all services
+#   docker-compose up -d       # Start in background
+#   docker-compose logs -f     # Follow logs
+#   docker-compose down        # Stop all services
+#
+# Services:
+#   - backend:   FastAPI API server (port 8006)
+#   - frontend:  Vite dev server (port 5173)
+#   - orchestrator: Background pipeline processor
 
 services:
-  tester-sandbox:
+  # -------------------------------------------------------------------------
+  # Backend API Server
+  # -------------------------------------------------------------------------
+  backend:
     build:
-      context: .
-      dockerfile: Dockerfile.sandbox
-    container_name: antikythera-tester-sandbox
-    volumes:
-      - ../automation-ideas/requirements:/workspace/requirements
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: himanshusao/antikythera:latest
+    container_name: antikythera-backend
+    restart: unless-stopped
+    ports:
+      - "8006:8006"
     environment:
-      - PYTHONUNBUFFERED=1
-      - PYTHONDONTWRITEBYTECODE=1
-    working_dir: /workspace
-    command: ["pytest", "-v", "requirements/"]
-    restart: "no"
+      # These are loaded from ~/.antikythera/.env by the entrypoint
+      - HOME=/root
+    volumes:
+      # Mount user config directory (read-only for security)
+      - ~/.antikythera:/root/.antikythera:ro
+      # Mount data directory for persistent state
+      - ~/antikythera-data:/app/automation-ideas
+      # Optional: mount logs directory
+      - ./logs:/app/logs
+    networks:
+      - antikythera-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on: []
+
+  # -------------------------------------------------------------------------
+  # Frontend UI Server (Vite Development)
+  # -------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+    image: himanshusao/antikythera-ui:latest
+    container_name: antikythera-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8006
+      - HOME=/root
+    volumes:
+      # Mount config for any UI-level config needs
+      - ~/.antikythera:/root/.antikythera:ro
+    networks:
+      - antikythera-network
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # -------------------------------------------------------------------------
+  # Orchestrator - Background Pipeline Processor
+  # -------------------------------------------------------------------------
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: himanshusao/antikythera:latest
+    container_name: antikythera-orchestrator
+    restart: unless-stopped
+    command: --start-orchestrator
+    environment:
+      - HOME=/root
+    volumes:
+      # Mount user config directory (read-only for security)
+      - ~/.antikythera:/root/.antikythera:ro
+      # Mount data directory for persistent state
+      - ~/antikythera-data:/app/automation-ideas
+      # Mount logs directory
+      - ./logs:/app/logs
+    networks:
+      - antikythera-network
+    depends_on:
+      backend:
+        condition: service_healthy
+
+# -------------------------------------------------------------------------
+# Networks
+# -------------------------------------------------------------------------
+networks:
+  antikythera-network:
+    driver: bridge
+    name: antikythera-network

@@ -1,0 +1,65 @@
+# Antikythera - Minimal Docker Compose for Users
+#
+# Copy this file to your machine and run:
+#   docker-compose pull && docker-compose up
+#
+# Prerequisites:
+#   1. mkdir -p ~/.antikythera
+#   2. Create ~/.antikythera/.env with your credentials (see template below)
+#   3. mkdir -p ~/antikythera-data
+#
+# See https://github.com/himanshusao/antikythera/blob/main/docker/README.md
+
+services:
+  backend:
+    image: himanshusao/antikythera:latest
+    container_name: antikythera-backend
+    restart: unless-stopped
+    ports:
+      - "8006:8006"
+    volumes:
+      - ~/.antikythera:/root/.antikythera:ro
+      - ~/antikythera-data:/app/automation-ideas
+      - ./logs:/app/logs
+    networks:
+      - antikythera-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8006/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    image: himanshusao/antikythera-ui:latest
+    container_name: antikythera-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8006
+    networks:
+      - antikythera-network
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  orchestrator:
+    image: himanshusao/antikythera:latest
+    container_name: antikythera-orchestrator
+    restart: unless-stopped
+    command: --start-orchestrator
+    volumes:
+      - ~/.antikythera:/root/.antikythera:ro
+      - ~/antikythera-data:/app/automation-ideas
+      - ./logs:/app/logs
+    networks:
+      - antikythera-network
+    depends_on:
+      backend:
+        condition: service_healthy
+
+networks:
+  antikythera-network:
+    driver: bridge
+    name: antikythera-network
