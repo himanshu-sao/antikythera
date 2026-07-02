@@ -1,10 +1,11 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 import { BuilderModal } from '../modals/ManagementModals';
 
 // Mock fetch for WorkflowArchitect used inside modal
-global.fetch = jest.fn(() =>
+global.fetch = vi.fn(() =>
   Promise.resolve({
     ok: true,
     json: async () => ({
@@ -16,7 +17,7 @@ global.fetch = jest.fn(() =>
 
 describe('BuilderModal component', () => {
   test('renders the WorkflowArchitect within the modal', () => {
-    const onClose = jest.fn();
+    const onClose = vi.fn();
     render(<BuilderModal isOpen={true} onClose={onClose} itemId="test-id" />);
     expect(screen.getByText(/Workflow Architect/i)).toBeInTheDocument();
   });

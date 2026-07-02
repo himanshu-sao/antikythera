@@ -1,10 +1,11 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 import { WorkflowArchitect } from '../WorkflowArchitect';
 
 // Mock fetch to avoid network calls
-global.fetch = jest.fn(() =>
+global.fetch = vi.fn(() =>
   Promise.resolve({ ok: true, json: async () => ({ current_phase: 'DISCOVERY', proposal: null }) } as any)
 );
 
