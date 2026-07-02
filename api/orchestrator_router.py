@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
+from api.main import get_state_manager
 from typing import Dict, Any, Optional
 from pydantic import BaseModel
 from api.workflow_state_manager import WorkflowStateManager
@@ -16,7 +17,7 @@ class ProposalRequest(BaseModel):
 
 @router.get("/{item_id}")
 async def get_orchestrator_state(item_id: str, request: Request):
-    state_manager: WorkflowStateManager = request.app.state.state_manager
+    state_manager: WorkflowStateManager = get_state_manager()
     state = state_manager.load_state()
     item = state.items.get(item_id)
     

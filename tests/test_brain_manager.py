@@ -49,7 +49,7 @@ def test_commit_add_delta(brain_setup):
     
     delta_path = os.path.join(deltas_dir, f"{delta.delta_id}.json")
     with open(delta_path, "w") as f:
-        f.write(delta.json())
+        f.write(delta.model_dump_json())
         
     # Verify it's pending
     pending = manager.get_pending_deltas()
@@ -81,7 +81,7 @@ def test_refine_delta(brain_setup):
     
     delta_path = os.path.join(deltas_dir, f"{delta.delta_id}.json")
     with open(delta_path, "w") as f:
-        f.write(delta.json())
+        f.write(delta.model_dump_json())
         
     # Refine it
     refined_delta = manager.refine_delta(delta.delta_id, "Make it more technical")
@@ -109,7 +109,7 @@ def test_reject_delta(brain_setup):
     
     delta_path = os.path.join(deltas_dir, f"{delta.delta_id}.json")
     with open(delta_path, "w") as f:
-        f.write(delta.json())
+        f.write(delta.model_dump_json())
         
     success = manager.reject_delta(delta.delta_id)
     assert success is True

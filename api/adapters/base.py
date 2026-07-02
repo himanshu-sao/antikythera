@@ -10,7 +10,7 @@ class BaseAdapter(ABC):
     Ensures a consistent interface for the Operator Registry to call.
     """
 
-    def __init__(self, vault):
+    def __init__(self, vault=None):
         """
         Initialize with a vault instance for secure credential access.
         """

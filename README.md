@@ -27,7 +27,7 @@ The system supports two modes of operation:
 
 ### 2. The Integration Hub
 A centralized hub for managing external services:
-- **Secret Vault**: Encrypted storage for API keys and tokens
+- **Secret Vault**: Encrypted storage for API keys and tokens (All integration secrets, including Jira credentials, are persisted here to survive system restarts)
 - **Connector Types**:
   - **MCP Servers**: Plug-and-play discovery of tools from external MCP servers
   - **Native Adapters**: Custom Python glue code for complex local tasks or niche APIs
@@ -92,8 +92,15 @@ All kanban-fix branch enhancements have been integrated:
 /
 ├── api/                          # Core backend logic and routers
 │   ├── adapters/                 # Integration adapters (Jira, GitHub, etc.)
+│   ├── managers/                 # State management hierarchy (BaseJSONManager+)
 │   ├── models/                   # Pydantic data models
-│   └── routers/                  # FastAPI route definitions
+│   ├── services/                 # Service layer (AI engine config)
+│   ├── executors/                # SafeExecutor for sandboxed execution
+│   ├── routers/                  # Router subpackage (ai_engine_config only)
+│   ├── board_router.py           # Kanban board endpoints
+│   ├── pipeline_router.py        # Pipeline CRUD, runs, logs
+│   ├── integrations_router.py    # Integration Hub endpoints
+│   └── workflow_state_manager.py # Facade delegating to managers/
 ├── ui/                           # React frontend
 │   ├── src/components/           # React components
 │   └── src/types.ts              # TypeScript type definitions
@@ -102,7 +109,7 @@ All kanban-fix branch enhancements have been integrated:
 │   ├── refiner.py                # Requirements extraction
 │   ├── architect.py              # Technical design
 │   ├── tester.py                 # Validation and testing
-│   └── memory.py                 | Pattern learning and brain updates
+│   └── memory.py                 # Pattern learning and brain updates
 ├── automation-ideas/             # Data store for state, templates, requirements
 │   ├── ideas.md                  # Owner's intake file
 │   ├── pipeline-state.json       # Single source of truth for pipeline state
@@ -122,10 +129,10 @@ For detailed information, refer to these specialized documents:
 
 | Document | Purpose |
 |----------|---------|
+| `CLAUDE.md` | **AI agent entry point** — Quick facts, actual directory structure, run/test commands, gotchas |
 | `PROJECT_STATUS.md` | **Master reference** - Implementation roadmap, technical baseline, API mappings, remediation tasks |
-| `VERIFICATION_CRITERIA.md` | **Definition of Done** - Phase-specific completion criteria |
-| `execution.md` | **Granular task tracker** - Low-code compiler workflow with 6-stage loops |
-| `AI.md` | **AI agent index** - Directs agents to specialized briefings |
+| `AI.md` | **Dispatch table** - Directs agents to specialized briefings by domain |
+| `docs/api-spec.md` | **API contract** — REST endpoint schemas and request/response formats |
 
 ### AI Agent Briefings
 | Scope | Briefing File | Focus Area |
@@ -153,5 +160,16 @@ Every significant change follows: **Proposal → Approval → Execution**
 - **Schema Validation**: JSON against Pydantic models
 
 ---
+## ✨ Updated Features
+
+- **Jira Integration Enhancements**: <br>  • Test Connection now performs a real request to `<JIRA_BASE_URL>/rest/api/3/myself` and reports precise HTTP status codes (e.g., 401, 403, 404). <br>  • Falls back to environment variables `JIRA_ISV_PERSONAL_ACCESS_TOKEN` and `JIRA_BASE_URL` (loaded from `~/.antikythera/.env` before the project `.env`). <br>  • Integration status (`connected`/`error`) is updated based on actual authentication success. <br>  • UI masks secret fields (`token`, `access_token`, `jira_url`, `url`) with `*****` and removes the unused `test` flag from the JSON editor, preventing credential leakage.
+
+- Delete model action with confirmation dialog.
+- Provider‑based filter for model listings.
+- API‑key edit modal and configurable keys overview.
+- Fixed “Add Model” workflow with refreshable provider model list and searchable dropdown.
+- OpenRouter provider support.
+- Log‑tailing tab displaying the last 1 MiB of logs.
+- UI refinements: status colors, hover effects, consistent button styling.
 
 *Antikythera: Automating the mundane, empowering the human.*

@@ -1,1 +1,4 @@
-export const apiUrl = (import.meta.env as any)?.VITE_API_URL ?? (globalThis as any)?.process?.env?.VITE_API_URL ?? 'http://localhost:8000';
+const procEnv = (globalThis as any).process?.env;
+let apiUrl = (procEnv && procEnv.VITE_API_URL) ? procEnv.VITE_API_URL : '' ;
+export { apiUrl };
+

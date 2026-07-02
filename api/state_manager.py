@@ -10,9 +10,22 @@ class StateManager:
     Now integrated with WorkflowStateManager to avoid state duplication.
     """
     def __init__(self, base_dir: str):
-        self.base_dir = base_dir
-        self.state_path = os.path.join(base_dir, "pipeline-state.json")
-        self._lock = FileLock(self.state_path + ".lock")
+        """Initialize StateManager.
+
+        ``base_dir`` may be a directory containing ``pipeline-state.json``
+        or a direct path to the ``pipeline-state.json`` file. The constructor
+        normalises the path so that ``self.state_path`` always points to the JSON
+        file and ``self._lock`` is created alongside it.
+        """
+        # Determine if ``base_dir`` is already a file path
+        if base_dir.endswith('.json'):
+            self.state_path = base_dir
+            self.base_dir = os.path.dirname(base_dir)
+        else:
+            self.base_dir = base_dir
+            self.state_path = os.path.join(base_dir, "pipeline-state.json")
+        # Use a lock file alongside the state file
+        self._lock = FileLock(os.path.join(os.path.dirname(self.state_path), ".state.lock"))
 
     def load_state(self) -> Dict[str, Any]:
         with self._lock:

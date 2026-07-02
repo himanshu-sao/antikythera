@@ -102,7 +102,7 @@ class ExecutionLog(BaseModel):
     # --- NEW FIELDS FOR PHASE 1.5 ---
     execution_reason: Optional[str] = None  # Why skipped/failed
     extracted_fields: Dict[str, Any] = Field(default_factory=dict)  # Structured data (Image, OS, etc.)
-    result_data: Optional[Dict[str, Any]] = None
+    result_data: Optional[Any] = None
     error_detail: Optional[str] = None
     duration_ms: Optional[int] = None
 

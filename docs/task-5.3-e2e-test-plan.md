@@ -16,7 +16,7 @@ Validate the complete end-to-end flow of the Low-Code AI Compiler:
 ## Prerequisites
 
 ### Running Services
-- [ ] Backend API running on `http://localhost:8000`
+- [ ] Backend API running on `http://localhost:8006`
 - [ ] Frontend dev server running on `http://localhost:5173`
 - [ ] Database/storage initialized
 
@@ -265,7 +265,7 @@ After testing, clean up test data:
 - Confirm deletion
 
 # Option 2: Direct API call
-curl -X DELETE http://localhost:8000/api/pipelines/{pipeline_id}
+curl -X DELETE http://localhost:8006/api/pipelines/{pipeline_id}
 
 # Option 3: Clear in-memory store
 - Restart backend (if using in-memory DB)

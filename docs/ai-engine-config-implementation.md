@@ -105,15 +105,15 @@ Added comprehensive AI Engine Configuration system to support multiple AI provid
 
 ```bash
 # Get configuration
-curl http://localhost:8000/api/ai-engine/config
+curl http://localhost:8006/api/ai-engine/config
 
 # Test connection
-curl -X POST http://localhost:8000/api/ai-engine/test-connection \
+curl -X POST http://localhost:8006/api/ai-engine/test-connection \
   -H "Content-Type: application/json" \
   -d '{"model_id": "llama3.1"}'
 
 # Set default model
-curl -X POST http://localhost:8000/api/ai-engine/set-default \
+curl -X POST http://localhost:8006/api/ai-engine/set-default \
   -H "Content-Type: application/json" \
   -d '{"model_id": "nvidia-nemotron"}'
 ```

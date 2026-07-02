@@ -190,7 +190,7 @@ cd /Users/himanshusao/Work/src/extra/himanshu-sao/antikythera
    ```bash
    # Backend
    pip install uvicorn fastapi python-multipart
-   python3 -m uvicorn api.main:app --reload --port 8000
+   python3 -m uvicorn api.main:app --reload --port 8006
    
    # Frontend
    cd ui && npm run dev
@@ -344,7 +344,7 @@ Phase 5 implementation is **100% complete** from a code perspective. All compone
    ```
 2. **Start Backend Server:**
    ```bash
-   python3 -m uvicorn api.main:app --reload --port 8000
+   python3 -m uvicorn api.main:app --reload --port 8006
    ```
 3. **Start Frontend Server:**
    ```bash

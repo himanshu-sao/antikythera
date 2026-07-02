@@ -15,6 +15,9 @@ import {
   Globe,
   Database
 } from 'lucide-react';
+import { DeleteConfirmModal } from './modals/DeleteConfirmModal';
+import { AIEngineOverview } from './AIEngineOverview';
+
 
 interface ModelConfig {
   model_id: string;
@@ -62,9 +65,57 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [modelSearch, setModelSearch] = useState('');
   const [modelProviderFilter, setModelProviderFilter] = useState('all');
   const [showApiKeyModal, setShowApiKeyModal] = useState<string | null>(null);
+  const [showKeysModal, setShowKeysModal] = useState(false);
   const [isAddingModel, setIsAddingModel] = useState(false);
+  // Delete modal state
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  // Logs state for tail functionality
+  const [logsContent, setLogsContent] = useState<string>('');
+  const [logsLoading, setLogsLoading] = useState<boolean>(false);
 
-  // Provider metadata
+  // Available models for Add Model UI
+   const [selectedProvider, setSelectedProvider] = useState<string>('');
+   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  // Mapping of model IDs to recommended max tokens (placeholder values)
+  const modelMaxTokenMap: Record<string, number> = {
+    'llama3.1': 8192,
+    'code-llama': 4096,
+    'mixtral': 4096,
+    'nvidia-nemotron': 8192,
+    'nvidia-llama3': 8192,
+    'gemma-7b': 4096,
+    'gemma-2b': 2048,
+    'ibm-granite': 4096,
+    'gpt-4o-mini': 8192,
+    'claude-3.5-sonnet': 10000,
+    'mixtral-8x7b': 4096,
+    'llama3.1': 8192,
+  };
+
+  // Auto‑populate max tokens when a model is selected, unless the user already entered a value
+  useEffect(() => {
+    const model = apiKeys['new_model_id'];
+    if (model && modelMaxTokenMap[model] && !apiKeys['new_max_tokens']) {
+      setApiKeys(prev => ({ ...prev, new_max_tokens: modelMaxTokenMap[model].toString() }));
+    }
+  }, [apiKeys['new_model_id']]);
+  // Refresh provider model list for a given provider
+  const refreshModels = async (providerId: string) => {
+    try {
+      const url = new URL('/api/ai-engine/provider-models', window.location.origin);
+      if (providerId) {
+        url.searchParams.append('provider', providerId);
+      }
+      const res = await fetch(url.toString());
+      const data = await res.json();
+      setAvailableModels(data.models ?? []);
+    } catch (e) {
+      console.error('Failed to fetch provider models', e);
+    }
+  };
+
+  // Provider metadata (unchanged)
   const providers: ProviderInfo[] = [
     {
       id: 'ollama',
@@ -110,6 +161,15 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       features: ['local', 'text', 'completion', 'chat'],
       icon: <Cpu className="w-5 h-5" />, // using Cpu icon as placeholder
       color: 'bg-indigo-500'
+    },
+    {
+      id: 'openrouter',
+      name: 'OpenRouter',
+      description: 'Aggregated access to multiple LLM providers via OpenRouter API',
+      requires_api_key: true,
+      features: ['cloud', 'text', 'completion', 'chat', 'multiple-providers'],
+      icon: <Zap className="w-5 h-5" />, // reuse Zap icon
+      color: 'bg-orange-500'
     }
   ];
 
@@ -117,6 +177,26 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   useEffect(() => {
     fetchConfig();
   }, []);
+
+  // Load logs when logs tab active
+  useEffect(() => {
+    const loadLogs = async () => {
+      if (activeTab !== 'logs' || logsLoading) return;
+      setLogsLoading(true);
+      try {
+        const res = await fetch('/api/ai-engine/logs?tail=1048576');
+        if (!res.ok) throw new Error('Failed to fetch logs');
+        const text = await res.text();
+        setLogsContent(text);
+      } catch (e) {
+        console.error(e);
+        setLogsContent('Error loading logs');
+      } finally {
+        setLogsLoading(false);
+      }
+    };
+    loadLogs();
+  }, [activeTab]);
 
   const fetchConfig = async () => {
     try {
@@ -255,28 +335,200 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">AI Engine Configuration</h2>
-          <p className="text-gray-600 mt-1">Manage AI models, providers, and connection settings</p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={fetchConfig}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
-          >
-            <RefreshCw className="w-4 h-4" />
-            Refresh
-          </button>
-          <button
-            onClick={() => setIsAddingModel(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 transition"
-          >
-            <Plus className="w-4 h-4" />
-            Add Model
-          </button>
-        </div>
-      </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">AI Engine Configuration</h2>
+                <p className="text-gray-600 mt-1">Manage AI models, providers, and connection settings</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={fetchConfig}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Refresh
+                </button>
+                <button
+                  onClick={() => setIsAddingModel(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-teal-500 text-white rounded hover:bg-teal-600 transition"
+                >
+                  <Plus className="w-4 h-4" />
+                  Add Model
+                </button>
+                <button
+                  onClick={() => setShowKeysModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition"
+                >
+                  <Key className="w-4 h-4" />
+                  Configured Keys
+                </button>
+              </div>
+            </div>
+
+            {/* Add Model Modal – modern design */}
+            {isAddingModel && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-2xl transform transition-all">
+                  <div className="flex justify-between items-center mb-6">
+                    <h3 className="text-2xl font-semibold text-gray-800">Add New Model</h3>
+                    <button
+                      onClick={() => setIsAddingModel(false)}
+                      className="text-gray-400 hover:text-gray-600 focus:outline-none"
+                      aria-label="Close"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                  <form className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Provider selector */}
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+                      <div className="flex space-x-2">
+                        <select
+                          value={selectedProvider}
+                          onChange={(e) => {
+                            const prov = e.target.value;
+                            setSelectedProvider(prov);
+                            setApiKeys(prev => ({ ...prev, new_provider: prov }));
+                            setApiKeys(prev => ({ ...prev, new_model_id: '' }));
+                            setAvailableModels([]);
+                            refreshModels(prov);
+                          }}
+                          className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                        >
+                          <option value="" disabled>Select Provider</option>
+                          {providers.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => refreshModels(selectedProvider)}
+                          disabled={!selectedProvider}
+                          className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50"
+                        >
+                          Refresh Models
+                        </button>
+                      </div>
+                    </div>
+                    {/* Model selector */}
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Model</label>
+                      <select
+                        value={apiKeys['new_model_id'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_model_id: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                        disabled={!availableModels.length}
+                      >
+                        <option value="" disabled>Select model</option>
+                        {availableModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {/* Display Name */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Display Name</label>
+                      <input
+                        type="text"
+                        placeholder="Display Name"
+                        value={apiKeys['new_name'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_name: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                      />
+                    </div>
+                    {/* Endpoint URL */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Endpoint URL (optional)</label>
+                      <input
+                        type="text"
+                        placeholder="https://example.com/api"
+                        value={apiKeys['new_endpoint'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_endpoint: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                      />
+                    </div>
+                    {/* Context Window */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Context Window</label>
+                      <input
+                        type="number"
+                        placeholder="4096"
+                        value={apiKeys['new_context'] || '4096'}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_context: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500" 
+                      />
+                    </div>
+                    {/* Temperature */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Temperature</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        placeholder="0.7"
+                        value={apiKeys['new_temperature'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_temperature: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                      />
+                    </div>
+                    {/* Max Tokens */}
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Max Tokens</label>
+                      <input
+                        type="number"
+                        placeholder="2048"
+                        value={apiKeys['new_max_tokens'] || ''}
+                        onChange={(e) => setApiKeys({ ...apiKeys, new_max_tokens: e.target.value })}
+                        className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+                      />
+                    </div>
+                  </form>
+                  <div className="flex justify-end mt-6 space-x-3">
+                    <button
+                      onClick={() => setIsAddingModel(false)}
+                      className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        const payload = {
+                          model_id: apiKeys['new_model_id'],
+                          name: apiKeys['new_name'],
+                          provider: apiKeys['new_provider'],
+                          endpoint_url: apiKeys['new_endpoint'] || undefined,
+                          context_window: apiKeys['new_context'] || undefined,
+                          temperature: apiKeys['new_temperature'] || undefined,
+                          max_tokens: apiKeys['new_max_tokens'] || undefined,
+                        };
+                        try {
+                          const res = await fetch('/api/ai-engine/add-model', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload),
+                          });
+                          if (!res.ok) {
+                            const err = await res.json();
+                            alert('Failed to add model: ' + (err.detail || err.message));
+                          } else {
+                            await fetchConfig();
+                            setIsAddingModel(false);
+                            toast.success('Model added successfully');
+                          }
+                        } catch (e: any) {
+                          alert('Error adding model: ' + e.message);
+                        }
+                      }}
+                      className="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 transition"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
       {/* Tabs */}
       <div className="flex border-b border-gray-200">
@@ -284,11 +536,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-6 py-3 font-medium transition-colors border-b-2 ${
-              activeTab === tab
-                ? 'border-teal-500 text-teal-600'
-                : 'border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300'
-            }`}
+            className={"px-6 py-3 font-medium transition-colors border-b-2 " + (activeTab === tab ? "border-teal-500 text-teal-600" : "border-transparent text-gray-600 hover:text-gray-900 hover:border-gray-300")}
           >
             {tab.charAt(0).toUpperCase() + tab.slice(1)}
           </button>
@@ -366,8 +614,33 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {config.models.map((model) => {
+          {/* Placeholder for overview graphs and datapoints */}
+          <AIEngineOverview />
+
+          <div className="mb-6 flex gap-4">
+          <input
+            type="text"
+            placeholder="Search models..."
+            value={modelSearch}
+            onChange={(e) => setModelSearch(e.target.value)}
+            className="flex-1 border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+          <select
+            value={modelProviderFilter}
+            onChange={(e) => setModelProviderFilter(e.target.value)}
+            className="border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          >
+            <option value="all">All Providers</option>
+            {providers.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {config.models
+                .filter(m => (modelProviderFilter === 'all' || m.provider === modelProviderFilter))
+                .filter(m => m.name.toLowerCase().includes(modelSearch.toLowerCase()))
+                .map((model) => {
               const providerInfo = getProviderInfo(model.provider);
               const testResult = testResults[model.model_id];
               return (
@@ -445,6 +718,16 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                         Set Default
                       </button>
                     )}
+                    {/* Delete Model Button */}
+                    {!model.is_default && (
+                      <button
+                        onClick={() => { setDeleteTarget(model.model_id); setShowDeleteModal(true); }}
+                        className="px-3 py-1.5 bg-red-100 text-red-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-red-200 transition"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Delete
+                      </button>
+                    )}
                   </div>
                   
                   {/* Test Result Message - Always show after test */}
@@ -480,7 +763,23 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       {/* Connections Tab */}
       {activeTab === 'connections' && (
                    <>
-                     <div className="flex flex-col md:flex-row gap-4">
+   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+     <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
+       <div>
+         <div className="text-sm text-gray-500">Total Models</div>
+         <div className="text-2xl font-bold text-gray-800">{config.models.length}</div>
+       </div>
+       <div className="p-2 bg-teal-100 rounded"><Cpu className="w-5 h-5 text-teal-600" /></div>
+     </div>
+     <div className="bg-white border rounded-lg p-4 flex items-center justify-between">
+       <div>
+         <div className="text-sm text-gray-500">Configured Keys</div>
+         <div className="text-2xl font-bold text-green-600">{config.models.filter(m => m.api_key_set || m.provider === 'ollama').length}</div>
+       </div>
+       <div className="p-2 bg-green-100 rounded"><Key className="w-5 h-5 text-green-600" /></div>
+     </div>
+   </div>
+   <div className="flex flex-col md:flex-row gap-4">
                        {/* Left panel – Provider Health */}
                        <div className="md:w-1/3">
                          <h3 className="font-semibold mb-2 text-gray-800">Provider Health</h3>
@@ -617,7 +916,32 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                          Set Default
                                        </button>
                                      )}
-                                     {/* Kebab menu placeholder */}
+                                                           <button
+                                                             onClick={async () => {
+                                                               if (!window.confirm('Are you sure you want to delete this model?')) return;
+                                                               try {
+                                                                 const res = await fetch(`/api/ai-engine/config/${model.model_id}`, {
+                                                                   method: 'DELETE',
+                                                                 });
+                                                                 if (!res.ok) throw new Error('Delete failed');
+                                                                 // Optimistically remove model from UI
+                                                                 setConfig(prev => {
+                                                                   if (!prev) return prev;
+                                                                   return {
+                                                                     ...prev,
+                                                                     models: prev.models.filter((m) => m.model_id !== model.model_id),
+                                                                   };
+                                                                 });
+                                                                 toast.success('Model deleted');
+                                                               } catch (e) {
+                                                                 toast.error('Failed to delete model');
+                                                               }
+                                                             }}
+                                                             className="px-3 py-1.5 bg-red-100 text-red-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-red-200 transition"
+                                                           >
+                                                             <Trash2 className="w-3.5 h-3.5" />
+                                                             Delete
+                                                           </button>
                                      <button className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-gray-200 transition">⋮</button>
                                    </div>
                                  </div>
@@ -691,9 +1015,44 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                   ))}
                 </div>
 
-                <div className="text-sm text-gray-600">
+                <div className="text-sm text-gray-600 mb-2">
                   <strong>{modelCount}</strong> {modelCount === 1 ? 'model' : 'models'} configured
                 </div>
+
+                {provider.requires_api_key && (
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="password"
+                      placeholder="Enter API key"
+                      value={apiKeys[provider.id] || ''}
+                      onChange={(e) => setApiKeys({ ...apiKeys, [provider.id]: e.target.value })}
+                      className="flex-1 border rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                    />
+                    <button
+                      onClick={async () => {
+                        try {
+                          const res = await fetch('/api/ai-engine/set-provider-api-key', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ provider_id: provider.id, api_key: apiKeys[provider.id] })
+                          });
+                          if (!res.ok) {
+                            const err = await res.json();
+                            alert('Failed to set provider key: ' + (err.detail || err.message));
+                          } else {
+                            await fetchConfig();
+                            toast.success(`API key set for ${provider.name}`);
+                          }
+                        } catch (e:any) {
+                          alert('Error setting provider API key: ' + e.message);
+                        }
+                      }}
+                      className="px-3 py-1 bg-teal-500 text-white rounded text-sm hover:bg-teal-600"
+                    >
+                      Save
+                    </button>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -705,8 +1064,12 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       {/* Logs Tab */}
       {activeTab === 'logs' && (
           <div className="p-4">
-            <h3 className="text-lg font-bold mb-2">Logs</h3>
-            <p className="text-sm text-gray-600">Coming soon</p>
+            <h3 className="text-lg font-bold mb-2">Logs (tail 1MiB)</h3>
+            {logsLoading ? (
+              <div className="flex items-center"><Loader className="w-5 h-5 animate-spin mr-2"/>Loading...</div>
+            ) : (
+              <pre className="bg-gray-100 p-2 rounded overflow-auto" style={{maxHeight: '400px'}}>{logsContent}</pre>
+            )}
           </div>
         )}
       {showApiKeyModal && (
@@ -753,6 +1116,66 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
             </div>
           </div>
         </div>
+      )}
+      {showKeysModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-lg">
+            <h3 className="text-lg font-bold mb-4">Configured API Keys</h3>
+            <ul className="space-y-2">
+              {config.models.filter(m => m.api_key_set && m.provider !== 'ollama').map(m => (
+                <li key={m.model_id} className="flex items-center justify-between">
+                  <span>{m.name} ({getProviderInfo(m.provider).name})</span>
+                  <button
+                    onClick={() => {
+                      setShowApiKeyModal(m.model_id);
+                      setShowKeysModal(false);
+                    }}
+                    className="px-2 py-1 bg-teal-100 text-teal-700 rounded text-sm"
+                  >
+                    Edit
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {config.models.filter(m => m.api_key_set && m.provider !== 'ollama').length === 0 && (
+              <p className="text-gray-600 mt-2">No keys configured.</p>
+            )}
+            <div className="flex justify-end mt-4">
+              <button
+                onClick={() => setShowKeysModal(false)}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <DeleteConfirmModal
+          isOpen={showDeleteModal}
+          targetId={deleteTarget}
+          onClose={() => { setShowDeleteModal(false); setDeleteTarget(null); }}
+          onConfirm={async () => {
+            if (!deleteTarget) return;
+            try {
+              const res = await fetch(`/api/ai-engine/remove-model/${deleteTarget}`, { method: 'DELETE' });
+              if (!res.ok) {
+                const err = await res.json();
+                alert('Delete failed: ' + (err.detail || err.message));
+              } else {
+                await fetchConfig();
+                toast.success('Model deleted');
+              }
+            } catch (e:any) {
+              alert('Error deleting model: ' + e.message);
+            } finally {
+              setShowDeleteModal(false);
+              setDeleteTarget(null);
+            }
+          }}
+        />
       )}
     </div>
   );

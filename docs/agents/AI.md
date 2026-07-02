@@ -55,7 +55,7 @@
 - Fully functional codebase following architecture
 - `execution_report.md`: Summary of implemented features, test results
 - Git commits with atomic changes and descriptive messages
-**See**: `docs/agents/executor-agent-design.md` for detailed specification
+**See**: `docs/agents/executor-agent-design.md` for design spec; `api/executors/safe_executor.py` for the actual implementation
 
 ### 6. Audit Agent
 **Role**: Security review and compliance checking
@@ -73,7 +73,7 @@
 **Inputs**: Blocked run corrections, successful execution reports
 **Outputs**:
 - Updated `patterns.json` with new learned resolutions
-- Memory entries in `~/.hermes/memories/`
+- Memory entries in `brain/patterns.md` and `automation-ideas/brain/`
 - Skill creation suggestions for recurring workflows
 - Periodic brain loop summaries
 
@@ -81,7 +81,7 @@
 
 ## 📦 Artifact Specifications
 
-###standard Artifact Files
+### Standard Artifact Files
 
 | Artifact | Location | Format | Purpose |
 |----------|----------|--------|---------|
@@ -181,17 +181,17 @@ INTAKE → DISCOVERY → BLUEPRINT → IMPLEMENTATION → UNIT_VERIFY → INTEGR
    - Save: Workflow trace → Skill (if ≥ 5 tool calls)
    - Apply: Similar future workflows
 
-3. **Pinecone Memory Updates**: New system improvement identified
-   - Save: Observation + Recommended action → Memory entry
-   - Apply: Future system design/architecture decisions
+3. **Pattern Promotion**: Repeated successful resolution of similar issues
+   - Save: Resolution pattern → PatternStore
+   - Apply: Future runs with matching error/context signatures
 
 ### Pattern Matching Algorithm
 
-1. Hash the current error/workspace state → `query_vector`
-2.Apply cosine similarity against all pattern signatures
-3. If `similarity > 0.85` AND `confidence > 0.7` → auto-apply resolution
-4. If `0.7 ≤ similarity ≤ 0.85` → suggest to user (HITL confirmation)
-5. If `similarity < 0.7` → escalate to Orchestrator for human review
+1. Hash the current error/workspace state → `query_signature`
+2. Match against pattern trigger signatures in `brain/patterns.md` / `pattern_store.py`
+3. If match confidence is HIGH → auto-apply resolution
+4. If match confidence is MEDIUM → suggest to user (HITL confirmation)
+5. If no match found → escalate to Orchestrator for human review
 
 ---
 
@@ -274,16 +274,16 @@ INTAKE → DISCOVERY → BLUEPRINT → IMPLEMENTATION → UNIT_VERIFY → INTEGR
 
 ### Unit Testing Agents
 ```bash
-# Run agent-specific tests
-pytest tests/agents/test_orchestrator.py
-pytest tests/agents/test_executor.py --cov=agents.executor
+# Run agent-related tests
+pytest tests/test_orchestrator_pipeline.py
+pytest tests/test_executor_agentic.py
 ```
 
 ### Integration Testing
 ```bash
-# Spin up full pipeline in sandbox
-docker-compose -f docker-compose.test.yml up
-pytest tests/integration/test_end_to_end_pipeline.py
+# Run integration tests
+pytest tests/test_integration_status.py
+pytest tests/test_workflow_automation.py
 ```
 
 ### Validation Checklist
@@ -306,4 +306,4 @@ pytest tests/integration/test_end_to_end_pipeline.py
 
 ---
 
-*Last Updated: June 2026 | Version: 2.0*
+*Last Updated: July 2026 | Version: 2.1*

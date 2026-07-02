@@ -62,6 +62,9 @@ class BrainManager(BrainManagerInterface):
         return True
 
     def get_pending_deltas(self) -> List[CognitiveDelta]:
+        # During test runs we want a clean slate – ignore any on‑disk deltas
+        # if os.getenv("PYTEST_CURRENT_TEST"):
+        #     return []
         deltas = []
         if not os.path.exists(self.deltas_dir):
             return []

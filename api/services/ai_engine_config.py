@@ -45,6 +45,8 @@ class AIEngineConfigService:
     def __init__(self, config_path: Optional[str] = None):
         self.config_path = config_path or self._get_default_config_path()
         self.config: AIEngineConfig = self.load_config()
+        # Load any persisted provider API keys from ~/.antikythera/.ai_env
+        self._load_persistent_env()
     
     def _get_default_config_path(self) -> str:
         """Get default config file path"""
@@ -128,6 +130,52 @@ class AIEngineConfigService:
         env_var = model_config.api_key_env
         os.environ[env_var] = api_key
         logger.info(f"Set API key for {model_id} in environment")
+        # Persist the updated key to the ~/.antikythera/.ai_env file
+        self._write_persistent_env()
+
+    def set_provider_api_key(self, provider_id: str, api_key: str) -> None:
+        """Set a single API key for *all* models belonging to ``provider_id``.
+
+        The function updates the environment variable referenced by each model's
+        ``api_key_env`` (or falls back to the conventional ``<PROVIDER>_API_KEY``
+        name if none is defined). This enables the UI to present a single input
+        field under the Providers tab while still allowing per‑model overrides
+        via the existing ``/set-api-key`` endpoint.
+        """
+        # Normalize provider identifier to match AIProvider enum values (allow aliases)
+        normalized = provider_id.lower().replace("-", "_")
+        alias_map = {
+            "nvidia": "nvidia_nim",
+            "nvidia_nim": "nvidia_nim",
+            "google": "google_gemma",
+            "google_gemma": "google_gemma",
+            "ibm": "ibm_bob",
+            "ibm_bob": "ibm_bob",
+            "ollama": "ollama",
+            "openai": "openai",
+            "openrouter": "openrouter",
+        }
+        normalized_key = alias_map.get(normalized)
+        if not normalized_key:
+            raise AIEngineConfigError(f"Invalid provider '{provider_id}'")
+        try:
+            provider_enum = AIProvider(normalized_key)
+        except ValueError as exc:
+            raise AIEngineConfigError(f"Invalid provider '{provider_id}'") from exc
+
+        for model_cfg in self.config.models.values():
+            if model_cfg.provider != provider_enum:
+                continue
+            # Determine which env var to use
+            env_var = model_cfg.api_key_env or f"{provider_enum.value.split('_')[0].upper()}_API_KEY"
+            # Update model config to store the env var name if it was missing
+            if not model_cfg.api_key_env:
+                # Mutate the stored config to remember the env var name for UI
+                model_cfg.api_key_env = env_var
+            os.environ[env_var] = api_key
+            logger.info(f"Set provider API key for {provider_id} (model {model_cfg.model_id}) via {env_var}")
+        # Persist all provider keys to the env file so they survive restarts
+        self._write_persistent_env()
     
     def get_api_key(self, model_id: str) -> Optional[str]:
         """Get API key for a model from environment"""
@@ -376,39 +424,178 @@ class AIEngineConfigService:
                 "message": f"IBM Bob test failed: {str(e)}"
             }
     
+    # ---------------------------------------------------------------------
+    # Model discovery helpers (real provider calls)
+    # ---------------------------------------------------------------------
+    def _list_ollama_models(self, model_cfg: ModelConfig) -> List[str]:
+        """Query a running Ollama instance for its available model names.
++
++        Ollama exposes ``/api/tags`` which returns a JSON object containing a
++        ``models`` array with each entry having a ``name`` field.
++        """
+        import httpx
+        base_url = model_cfg.endpoint_url or "http://localhost:11434"
+        # Normalise – remove any trailing ``/api/generate`` and trailing slash
+        if "/api/generate" in base_url:
+            base_url = base_url.replace("/api/generate", "")
+        base_url = base_url.rstrip("/")
+        try:
+            resp = httpx.get(f"{base_url}/api/tags", timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            return [m.get("name") for m in data.get("models", []) if m.get("name")]
+        except Exception as exc:
+            raise AIEngineConfigError(f"Failed to list Ollama models: {exc}")
+
+    def _list_nvidia_nim_models(self, model_cfg: ModelConfig) -> List[str]:
+        """Query NVIDIA NIM for its model catalogue.
++
++        The service uses the ``/v1/models`` endpoint with a Bearer token.
++        The response shape is ``{"data": [{"id": "..."}, ...]}``.
++        """
+        import httpx
+        api_key = os.getenv(model_cfg.api_key_env or "")
+        if not api_key:
+            raise AIEngineConfigError(
+                f"NVIDIA API key not set. Set env var {model_cfg.api_key_env or 'NVIDIA_API_KEY'}"
+            )
+        base = model_cfg.provider_config.get("base_url", "https://integrate.api.nvidia.com/v1")
+        # Remove trailing ``/v1`` if present to avoid duplication
+        if base.endswith("/v1"):
+            base = base[:-3]
+        base = base.rstrip("/")
+        try:
+            resp = httpx.get(
+                f"{base}/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return [m.get("id") for m in data.get("data", []) if m.get("id")]
+        except Exception as exc:
+            raise AIEngineConfigError(f"Failed to list NVIDIA NIM models: {exc}")
+
+    def _list_google_gemma_models(self, model_cfg: ModelConfig) -> List[str]:
+        """Query Google Gemma (Generative Language API) for available models.
++
++        The public endpoint ``/v1beta/models`` returns a list of model names in the
++        form ``models/gemma-7b``. We strip the prefix and return just the short name.
++        """
+        import httpx
+        api_key = os.getenv(model_cfg.api_key_env or "")
+        if not api_key:
+            raise AIEngineConfigError(
+                f"Google API key not set. Set env var {model_cfg.api_key_env}"
+            )
+        base = model_cfg.provider_config.get(
+            "base_url", "https://generativelanguage.googleapis.com"
+        ).rstrip("/")
+        try:
+            resp = httpx.get(
+                f"{base}/v1beta/models?key={api_key}", timeout=10
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return [m.get("name", "").split("/")[-1] for m in data.get("models", [])]
+        except Exception as exc:
+            raise AIEngineConfigError(f"Failed to list Google Gemma models: {exc}")
+
+    def _list_ibm_bob_models(self, model_cfg: ModelConfig) -> List[str]:
+        """Query IBM Bob for its model list.
++
++        Uses the ``/v1/models`` endpoint with a Bearer token.
++        The response format is assumed to contain a ``models`` array with ``model_id``.
++        """
+        import httpx
+        api_key = os.getenv(model_cfg.api_key_env or "")
+        if not api_key:
+            raise AIEngineConfigError(
+                f"IBM Bob API key not set. Set env var {model_cfg.api_key_env}"
+            )
+        base = model_cfg.provider_config.get(
+            "base_url", "https://bob-api.cloud.ibm.com"
+        ).rstrip("/")
+        try:
+            resp = httpx.get(
+                f"{base}/v1/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            return [m.get("model_id") for m in data.get("models", []) if m.get("model_id")]
+        except Exception as exc:
+            raise AIEngineConfigError(f"Failed to list IBM Bob models: {exc}")
+
+    def _list_lm_studio_models(self, model_cfg: ModelConfig) -> List[str]:
+        """Query a running LM Studio instance for its model list.
+        LM Studio provides an OpenAI‑compatible ``/v1/models`` endpoint.
+        """
+        import httpx
+        base_url = model_cfg.endpoint_url or "http://127.0.0.1:1234"
+        base_url = base_url.rstrip('/')
+        try:
+            resp = httpx.get(f"{base_url}/v1/models", timeout=5)
+            resp.raise_for_status()
+            data = resp.json()
+            # OpenAI format: {"data": [{"id": "model-name"}, ...]}
+            return [m.get("id") for m in data.get("data", []) if m.get("id")]
+        except Exception as exc:
+            raise AIEngineConfigError(f"Failed to list LM Studio models: {exc}")
+
+    def list_provider_models(self, provider: AIProvider) -> List[str]:
+        """Public helper used by the API router to obtain a *live* model list.
++
++        It picks the first configured model for the requested provider to obtain
++        the endpoint URL and any required API‑key environment variable. If there
++        is no config for that provider, an ``AIEngineConfigError`` is raised.
++        """
+        # Find any model configuration that matches the provider
+        cfg = next((c for c in self.config.models.values() if c.provider == provider), None)
+        if cfg is None:
+            raise AIEngineConfigError(f"No configuration found for provider '{provider.value}'")
+
+        if provider == AIProvider.OLLAMA:
+            return self._list_ollama_models(cfg)
+        if provider == AIProvider.NVIDIA_NIM:
+            return self._list_nvidia_nim_models(cfg)
+        if provider == AIProvider.GOOGLE_GEMMA:
+            return self._list_google_gemma_models(cfg)
+        if provider == AIProvider.IBM_BOB:
+            return self._list_ibm_bob_models(cfg)
+        if provider == AIProvider.LM_STUDIO:
+            return self._list_lm_studio_models(cfg)
+        # For providers without a list‑models implementation we fall back to the static placeholder
+        raise AIEngineConfigError(f"Model listing not implemented for provider '{provider.value}'")
+
     def list_available_models(self) -> List[Dict[str, Any]]:
-        """List all configured models with their status"""
-        models = []
-        
-        for model_id, config in self.config.models.items():
+        """List all configured models with their status (used by UI config view)."""
+        models: List[Dict[str, Any]] = []
+        for model_id, cfg in self.config.models.items():
             is_default = model_id == self.config.default_model_id
-            # Check if model requires API key and if it's set
-            needs_key = config.provider in [AIProvider.IBM_BOB, AIProvider.GOOGLE_GEMMA, AIProvider.NVIDIA_NIM]
+            needs_key = cfg.provider in [AIProvider.IBM_BOB, AIProvider.GOOGLE_GEMMA, AIProvider.NVIDIA_NIM]
             api_key_set = False
-            if config.api_key_env:
+            if cfg.api_key_env:
                 api_key_set = bool(self.get_api_key(model_id))
             elif not needs_key:
-                # Ollama doesn't need API key
                 api_key_set = True
-            
             model_info = {
                 "model_id": model_id,
-                "name": config.name,
-                "provider": config.provider.value,
+                "name": cfg.name,
+                "provider": cfg.provider.value,
                 "is_default": is_default,
                 "api_key_set": api_key_set,
-                "endpoint": config.endpoint_url,
-                "context_window": config.context_window,
-                "api_key_env": config.api_key_env,  # Include for UI to show/env var name
-                "config_note": config.config_note  # Include configuration notes
+                "endpoint": cfg.endpoint_url,
+                "context_window": cfg.context_window,
+                "api_key_env": cfg.api_key_env,
+                "config_note": cfg.config_note,
             }
-            
             models.append(model_info)
-        
         return models
-    
+
     def get_config_for_ui(self) -> Dict[str, Any]:
-        """Get configuration in a format suitable for UI display"""
+        """Get configuration in a format suitable for UI display."""
         return {
             "default_provider": self.config.default_provider.value,
             "default_model_id": self.config.default_model_id,
@@ -417,12 +604,86 @@ class AIEngineConfigService:
                 "timeout_seconds": self.config.timeout_seconds,
                 "max_retries": self.config.max_retries,
                 "enable_fallback": self.config.enable_fallback,
-                "enable_caching": self.config.enable_caching
-            }
+                "enable_caching": self.config.enable_caching,
+            },
         }
 
 
-# Global instance
+    # ---------------------------------------------------------------------
+    # Persistent env handling (~/\.antikythera/.ai_env)
+    # ---------------------------------------------------------------------
+    def _persistent_env_path(self) -> str:
+        """Return the path to the persisted env file used by Antikythera.
+
+        The file is deliberately placed under the **real** user's home directory so it
+        survives a container or VM restart but remains outside the project
+        source tree. We resolve the true home directory via the password database
+        rather than the potentially overridden ``HOME`` environment variable (which
+        may point to an Antikythera profile directory).
+        """
+        try:
+            import pwd
+            real_home = pwd.getpwuid(os.getuid()).pw_dir
+        except Exception:
+            # Fallback to Path.home() if pwd lookup fails (e.g., on non‑POSIX).
+            real_home = str(Path.home())
+        antikythera_dir = Path(real_home) / ".antikythera"
+        antikythera_dir.mkdir(exist_ok=True)
+        return str(antikythera_dir / ".ai_env")
+
+    def _load_persistent_env(self) -> None:
+        """Load key‑value pairs from ``~/.antikythera/.ai_env`` into ``os.environ``.
+
+        The file follows a simple ``KEY=VALUE`` syntax, optionally quoting the
+        value with single or double quotes. Lines starting with ``#`` are ignored.
+        Missing file is treated as no persisted keys.
+        """
+        env_path = self._persistent_env_path()
+        if not os.path.exists(env_path):
+            return
+        try:
+            with open(env_path, "r") as f:
+                for raw_line in f:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    # Strip surrounding quotes if present
+                    if (val.startswith('"') and val.endswith('"')) or (
+                        val.startswith("'") and val.endswith("'")
+                    ):
+                        val = val[1:-1]
+                    os.environ[key] = val
+        except Exception as e:
+            logger.warning(f"Failed to load persistent env from {env_path}: {e}")
+
+    def _write_persistent_env(self) -> None:
+        """Write all provider‑related env vars currently in ``os.environ`` to the
+        persistent file.
+
+        Only keys that match known provider prefixes (e.g. ``NVIDIA_``, ``GOOGLE_``,
+        ``IBM_BOB_``, ``OPENAI_``, ``ANTHROPIC_``, ``OLLAMA_``) are persisted. This
+        avoids leaking unrelated environment variables.
+        """
+        env_path = self._persistent_env_path()
+        provider_prefixes = ["NVIDIA_", "GOOGLE_", "IBM_BOB_", "OPENAI_", "ANTHROPIC_", "OLLAMA_", "OPENROUTER_"]
+        lines: List[str] = []
+        for key, val in os.environ.items():
+            if any(key.startswith(p) for p in provider_prefixes):
+                escaped = val.replace('"', '\\"')
+                lines.append(f"{key}=\"{escaped}\"")
+        try:
+            with open(env_path, "w") as f:
+                f.write("# Auto‑generated by Antikythera AI Engine Config\n")
+                for line in lines:
+                    f.write(line + "\n")
+            os.chmod(env_path, 0o600)
+        except Exception as e:
+            logger.warning(f"Failed to write persistent env to {env_path}: {e}")
+
 _ai_engine_config_service: Optional[AIEngineConfigService] = None
 
 def get_ai_engine_config() -> AIEngineConfigService:

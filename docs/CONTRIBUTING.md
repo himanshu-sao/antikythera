@@ -6,7 +6,7 @@ Antikythera is a perpetual, human-in-the-loop, asynchronous multi-agent automati
 
 Antikythera converts simple automation ideas into structured specifications, architecture, and verified tests.
 
-- **Backend**: FastAPI (Python 3.11+)
+- **Backend**: FastAPI (Python 3.9+)
 - **Frontend**: React 19, Vite, Tailwind CSS, TypeScript
 - **State Management**: File-based (`pipeline-state.json`)
 - **Interactions**: Kanban UI and Telegram notifications
@@ -29,7 +29,7 @@ pip install -r requirements.txt
 python api/main.py
 ```
 
-The API runs on `http://localhost:8000`. You can access the interactive API documentation at `http://localhost:8000/docs`.
+The API runs on `http://localhost:8006`. You can access the interactive API documentation at `http://localhost:8006/docs`.
 
 ### 2. Frontend Setup
 

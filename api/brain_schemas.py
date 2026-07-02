@@ -5,8 +5,9 @@ import uuid
 
 class ObserverEvent(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    event_type: Literal["RUN_STARTED", "STEP_START", "STEP_END", "RUN_COMPLETED", "KANBAN_TRANSITION", "USER_INTERVENTION", "TOOL_ERROR", "TASK_SUCCESS", "ARTIFACT_COMMENT", "ERROR"] = Field(...)
+    event_type: Literal["RUN_STARTED", "STEP_START", "STEP_END", "STEP_COMPLETE", "RUN_COMPLETED", "KANBAN_TRANSITION", "USER_INTERVENTION", "TOOL_ERROR", "TASK_SUCCESS", "ARTIFACT_COMMENT", "ERROR", "FAILURE", "STATE_TRANSITION"] = Field(...)
     event_data: Dict[str, Any] = Field(..., description="Detailed data related to the event (e.g., task_id, user_comment, error_msg)")
+    actor: str = Field(default="system", description="Originator of the event (system, user, agent)")
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 class CognitiveDelta(BaseModel):

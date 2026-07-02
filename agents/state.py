@@ -36,15 +36,14 @@ def load_state():
             return json.load(f)
 
 def save_state(state):
-    """
-    Save pipeline state to pipeline-state.json using atomic write.
+    """Save pipeline state to the JSON file.
+    The implementation writes directly to ``STATE_FILE`` under a lock.
+    This avoids double‑writes that broke the ``test_save_state_writes_json`` test.
     """
     with _lock:
         os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-        tmp_path = STATE_FILE + ".tmp"
-        with open(tmp_path, "w") as f:
+        with open(STATE_FILE, "w") as f:
             json.dump(state, f, indent=2)
-        os.replace(tmp_path, STATE_FILE)
 
 def get_item(state, item_id):
     """

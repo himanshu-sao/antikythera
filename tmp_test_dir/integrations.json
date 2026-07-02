@@ -1,0 +1,10 @@
+{
+  "jira_test": {
+    "type": "native",
+    "config": {
+      "adapter_module": "api.adapters.jira"
+    },
+    "created_at": "2026-06-13T04:07:20Z",
+    "status": "connected"
+  }
+}

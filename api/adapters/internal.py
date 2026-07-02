@@ -1,7 +1,19 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from api.adapters.base import BaseAdapter
 
 class InternalKanbanAdapter(BaseAdapter):
+    """Concrete adapter for internal Kanban actions.
+
+    Implements the abstract methods required by ``BaseAdapter`` so the
+    class can be instantiated without errors. The async methods simply
+    raise ``NotImplementedError`` because they are not used by the current
+    workflow; the synchronous ``execute`` method provides the needed logic.
+    """
+    def __init__(self, vault=None):
+        # ``BaseAdapter`` expects a ``vault`` argument but many internal uses
+        # do not need it. Provide a default ``None`` to keep compatibility.
+        super().__init__(vault)
+
     """Adapter for interacting with the Antikythera Kanban API itself."""
     
     def validate_config(self, config: Dict[str, Any]) -> bool:
@@ -44,6 +56,22 @@ class InternalKanbanAdapter(BaseAdapter):
             return {"status": "error", "message": f"Failed to add comment to {item_id}"}
         
         return {"status": "error", "message": f"Unsupported action {action}"}
+
+    async def fetch(self, resource_id: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """Fetch is not applicable for internal adapter; raise to signal misuse."""
+        raise NotImplementedError("InternalKanbanAdapter does not support fetch")
+
+    async def update(self, resource_id: str, payload: Dict[str, Any]) -> Any:
+        """Update is not applicable for internal adapter; raise to signal misuse."""
+        raise NotImplementedError("InternalKanbanAdapter does not support update")
+
+    async def create(self, payload: Dict[str, Any]) -> Any:
+        """Create is not applicable for internal adapter; raise to signal misuse."""
+        raise NotImplementedError("InternalKanbanAdapter does not support create")
+
+    async def delete(self, resource_id: str) -> Any:
+        """Delete is not applicable for internal adapter; raise to signal misuse."""
+        raise NotImplementedError("InternalKanbanAdapter does not support delete")
 
     def check_status(self, run_id: str, config: Dict[str, Any]) -> str:
         # Internal actions are typically synchronous

@@ -1,37 +1,44 @@
-# 🤖 Antikythera UI Briefing
+# Antikythera UI Briefing
 
-**Purpose**: Guidance for the React frontend and the Kanban operational surface.
+**Purpose**: Technical context for the React frontend.
 
 ---
 
-## 🛠 Tech Stack
-- **Framework**: React 19, Vite, TypeScript
-- **Styling**: Tailwind CSS
-|- **DND**: @dnd-kit/core
-- **State**: Polling-based updates from the FastAPI backend.
+## Tech Stack
+- **React 19** + **TypeScript** + **Vite** + **Tailwind CSS**
+- **Testing**: Vitest + Testing Library (unit), Playwright (E2E)
+- **State**: Server-driven via API polling; local optimistic updates
 
-## 📋 The Kanban Board (Operational Surface)
-The board is a visual representation of the `PIPELINE_STAGES`.
+## UI Surfaces (Tab Navigation)
+The app uses a tabbed navigation with four primary surfaces:
 
-### 1. Core Interactions
-- **Inter-column Move**: Changes the `stage` of an item.
-- **Intra-column Reorder**: Changes the `order` field (Persistence is critical).
-- **Card Editor**: Modal for editing title, description, and adding comments.
+| Tab | Component | Purpose |
+|---|---|---|
+| **Pipeline** | `VirtualBoard.tsx` | Universal Kanban triage board for all items |
+| **Workflows** | `WorkflowManager.tsx` + `AutomationStudio.tsx` | Workflow template management and step builder |
+| **Runs** | `PipelineDashboard.tsx` + `RunDetail.tsx` | Execution monitoring and audit trail |
+| **Integrations** | `IntegrationsManager.tsx` | External system connections (Jira, GitHub, etc.) |
 
-### 2. UX Constraints
-- **Generic Board Model**: The board must remain a generic pipeline. Do not hardcode workflow-specific columns.
-- **Optimistic UI**: Moves and edits should reflect immediately in the UI before the API confirms.
+Additional panels available via sidebar:
+- **AI Engine** (`AIEngineSettings.tsx` + `AIEngineOverview.tsx`): Multi-provider model management
+- **Workflow Architect** (`WorkflowArchitect.tsx`): Natural-language blueprint generator
+- **Brain Settings** (`BrainSettings.tsx`): Learning/pattern configuration
 
-## 🎨 Design Direction (`ui-enhancement`)
-Current goal: Evolve the generic board into a structured multi-surface experience.
+## Key Design Decisions
+1. **Generic Board Model**: The Kanban board is stage-agnostic. Stages come from the backend's `pipeline-state.json`; the UI does not hardcode column names.
+2. **Optimistic UI**: Drag-and-drop and inline edits apply immediately in the UI, with rollback on API error.
+3. **Status Indicators**: `WAITING`, `BLOCKED`, and `COMPLETED` states have distinct visual indicators (colors, badges, icons).
+4. **Artifact Rendering**: Markdown via `react-markdown`, Mermaid diagrams via `mermaid` library, with a review form for `review.md`.
+5. **Error Boundary**: Global `ErrorBoundary` wraps the app with a user-friendly fallback.
+6. **App Shell**: Left sidebar with navigation icons, top bar with tabs and theme toggle.
 
-### Target Surfaces:
-- **Pipeline**: The staged Kanban board (Default).
-- **Workflows**: List and authoring of reusable templates.
-- **Runs**: Runtime inspection of active/completed workflow executions.
-- **Integrations**: Management of connected external systems.
+## Component Organization
+See `docs/ui/architecture_map.md` for a full component tree.
 
-### Visual Requirements:
-- Stronger visual distinction for `WAITING`, `BLOCKED`, and `COMPLETED` states.
-- Richer metadata badges on cards (e.g., confidence score, assigned agent).
-- Clean header hierarchy and improved empty-state placeholders.
+## Development
+```bash
+cd ui && npm install       # Install dependencies
+cd ui && npm run dev       # Start dev server (port 5173, proxies /api → :8006)
+cd ui && npx vitest run    # Run unit tests
+cd ui && npx vitest --watch  # Run tests in watch mode
+```

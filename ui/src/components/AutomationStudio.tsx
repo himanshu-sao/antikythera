@@ -63,6 +63,8 @@ export function AutomationStudio() {
   // ==== State ==== //
   const [instruction, setInstruction] = useState('');
   const [selectedModel, setSelectedModel] = useState<string>(''); // AI model selector
+  const [integrations, setIntegrations] = useState<any[]>([]);
+  const [selectedIntegration, setSelectedIntegration] = useState<string>('');
   const [proposal, setProposal] = useState<any | null>(null);
   const [currentPath, setCurrentPath] = useState<PathStep[]>([]);
   const [sandboxState, setSandboxState] = useState<Record<string, any>>({});
@@ -74,22 +76,39 @@ export function AutomationStudio() {
   const [currentStepForAuth, setCurrentStepForAuth] = useState<PathStep | null>(null);
   const [proposalIdForAuth, setProposalIdForAuth] = useState<string | null>(null);
 
-  // ==== Fetch AI models for selector ==== //
+  // ==== Initialize AI model and Integrations (if previously saved) ==== //
   useEffect(() => {
-    const fetchModels = async () => {
+    const init = async () => {
+      // Load AI models
       try {
         const res = await fetch(`${apiUrl}/api/ai-engine/config`);
-        if (!res.ok) throw new Error('Failed to load AI models');
-        const data = await res.json();
-        if (Array.isArray(data.models) && data.models.length > 0) {
-          setSelectedModel(data.models[0].name);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.models) && data.models.length > 0) {
+            setSelectedModel(data.models[0].name);
+          }
         }
       } catch (e) {
-        console.error(e);
+        console.error('Failed to fetch AI models', e);
+      }
+      // Load Integrations
+      try {
+        const res = await fetch(`${apiUrl}/api/integrations/`);
+        if (res.ok) {
+          const data = await res.json();
+          const list = Array.isArray(data) ? data : data.integrations || [];
+          setIntegrations(list);
+          if (list.length > 0) {
+            setSelectedIntegration(list[0].name);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load integrations', e);
       }
     };
-    fetchModels();
+    init();
   }, []);
+
 
   // ==== Handlers ==== //
   const handlePropose = async () => {
@@ -99,12 +118,13 @@ export function AutomationStudio() {
       const res = await fetch(`${apiUrl}/api/automation/propose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instruction,
-          model: selectedModel,
-          current_state: sandboxState,
-          path_id: 'recording_session',
-        }),
+      body: JSON.stringify({
+        instruction,
+        model: selectedModel,
+        current_state: sandboxState,
+        path_id: 'recording_session',
+        integration_id: selectedIntegration,
+      }),
       });
       if (!res.ok) throw new Error('Failed to get proposal');
       const data = await res.json();
@@ -249,7 +269,7 @@ export function AutomationStudio() {
     setProposalIdForAuth(null);
     if (proposal) setProposal(proposal);
   };
-
+  
   // ==== UI Sections ==== //
   const renderStepList = () => (
     <div className="flex flex-col gap-4 p-6 bg-[#fcfbf8] border-r border-[#d8d3ca] h-full overflow-y-auto">
@@ -260,21 +280,33 @@ export function AutomationStudio() {
           <span className="font-medium text-gray-700">Compose Instruction</span>
         </div>
         <label className="block text-xs font-medium text-gray-500 mt-2 mb-1">AI Model</label>
-        <select
-          value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
-          className="w-full rounded border border-[#d8d3ca] py-1 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0b6b72]"
-        >
-          {selectedModel && <option value={selectedModel}>{selectedModel}</option>}
-        </select>
-        <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Your instruction</label>
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="w-full rounded border border-[#d8d3ca] py-1 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0b6b72]"
+          >
+            {selectedModel && <option value={selectedModel}>{selectedModel}</option>}
+          </select>
+           <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Target Integration</label>
+           <select
+             value={selectedIntegration}
+             onChange={(e) => setSelectedIntegration(e.target.value)}
+             className="w-full rounded border border-[#d8d3ca] py-1 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0b6b72]"
+           >
+             {integrations.map(int => (
+               <option key={int.name} value={int.name}>
+                 {int.name} {int.status === 'connected' ? '✅' : '❌'}
+               </option>
+             ))}
+           </select>
+           <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Your instruction</label>
         <textarea
-          value={instruction}
-          onChange={(e) => setInstruction(e.target.value)}
-          placeholder="e.g. 'Fetch all Jira tickets with status New'…"
-          className="w-full h-28 p-2 border border-[#d8d3ca] rounded resize-none focus:outline-none focus:ring-2 focus:ring-[#0b6b72] text-sm bg-white"
-        />
-        <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
+                                      value={instruction}
+                                      onChange={(e) => setInstruction(e.target.value)}
+                                      placeholder='e.g. Fetch all Jira tickets with JQL "(assignee=currentUser() AND status NOT IN (Done, Cancelled, Obsolete)) AND labels = Twistlock-Commercial"'
+                                      className="w-full h-28 p-2 border border-[#d8d3ca] rounded resize-none focus:outline-none focus:ring-2 focus:ring-[#0b6b72] text-sm bg-white"
+                                     />
+                                     <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
           <span>{instruction.length} / 2000</span>
         </div>
         <div className="flex gap-2 mt-2">

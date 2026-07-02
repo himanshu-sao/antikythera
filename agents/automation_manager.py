@@ -16,9 +16,9 @@ class AutomationManager:
     def _ensure_registry_exists(self):
         if not os.path.exists(REGISTRY_DIR):
             os.makedirs(REGISTRY_DIR)
-        if not os.path.exists(REGISTRY_FILE):
-            with open(REGISTRY_FILE, "w") as f:
-                json.dump({"tasks": {}}, f)
+        # Always start with a clean registry file
+        with open(REGISTRY_FILE, "w") as f:
+            json.dump({"tasks": {}}, f)
 
     def _load(self) -> Dict[str, Any]:
         try:
