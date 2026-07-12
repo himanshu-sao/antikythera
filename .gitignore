@@ -42,3 +42,4 @@ events/
 knowledge/
 __mocks__/fileMock.js
 /dist
+/.claude
