@@ -11,8 +11,9 @@ router = APIRouter(prefix="/api/builder", tags=["Workflow Builder"])
 # Initialize dependencies
 BASE_DIR = os.path.join(os.path.dirname(__file__), "..", "automation-ideas")
 state_manager = WorkflowStateManager(BASE_DIR)
-# Using a dummy key for simulation; in production, this comes from SecretVault
-ai_engine = AIAdapter(api_key="sk-antikythera-sim", model="gpt-4-turbo")
+# AIAdapter resolves the configured default provider/model from AIEngineConfigService
+# via the shared LLMClient; no hardcoded key or model here.
+ai_engine = AIAdapter()
 
 class GenerationRequest(BaseModel):
     prompt: str = Field(..., min_length=10)
