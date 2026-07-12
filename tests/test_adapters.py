@@ -61,8 +61,10 @@ class TestJiraAdapter:
         pytest.skip("Async HTTP mocking complex - tested via integration tests")
 
     @pytest.mark.asyncio
-    async def test_fetch_raises_auth_error_when_no_token(self, mock_vault):
+    async def test_fetch_raises_auth_error_when_no_token(self, mock_vault, monkeypatch):
         """Test fetch raises AuthError when no token available"""
+        monkeypatch.delenv("JIRA_PAT", raising=False)
+        monkeypatch.delenv("JIRA_TOKEN", raising=False)
         mock_vault.secrets = {}
         adapter = JiraAdapter(mock_vault)
 
@@ -75,8 +77,10 @@ class TestJiraAdapter:
         pytest.skip("Async HTTP mocking complex - tested via integration tests")
 
     @pytest.mark.asyncio
-    async def test_update_without_token_returns_payload(self, mock_vault):
+    async def test_update_without_token_returns_payload(self, mock_vault, monkeypatch):
         """Test update returns payload unchanged when no token (mock mode)"""
+        monkeypatch.delenv("JIRA_PAT", raising=False)
+        monkeypatch.delenv("JIRA_TOKEN", raising=False)
         mock_vault.secrets = {}
         adapter = JiraAdapter(mock_vault)
 
@@ -90,8 +94,10 @@ class TestJiraAdapter:
         pytest.skip("Async HTTP mocking complex - tested via integration tests")
 
     @pytest.mark.asyncio
-    async def test_create_raises_auth_error_when_no_token(self, mock_vault):
+    async def test_create_raises_auth_error_when_no_token(self, mock_vault, monkeypatch):
         """Test create raises AuthError when no token"""
+        monkeypatch.delenv("JIRA_PAT", raising=False)
+        monkeypatch.delenv("JIRA_TOKEN", raising=False)
         mock_vault.secrets = {}
         adapter = JiraAdapter(mock_vault)
 
@@ -104,8 +110,10 @@ class TestJiraAdapter:
         pytest.skip("Async HTTP mocking complex - tested via integration tests")
 
     @pytest.mark.asyncio
-    async def test_delete_raises_auth_error_when_no_token(self, mock_vault):
+    async def test_delete_raises_auth_error_when_no_token(self, mock_vault, monkeypatch):
         """Test delete raises AuthError when no token"""
+        monkeypatch.delenv("JIRA_PAT", raising=False)
+        monkeypatch.delenv("JIRA_TOKEN", raising=False)
         mock_vault.secrets = {}
         adapter = JiraAdapter(mock_vault)
 

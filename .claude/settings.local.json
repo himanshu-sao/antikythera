@@ -30,7 +30,12 @@
       "Skill(superpowers:subagent-driven-development)",
       "Bash(npx playwright *)",
       "Skill(superpowers:finishing-a-development-branch)",
-      "Skill(superpowers:brainstorming)"
+      "Skill(superpowers:brainstorming)",
+      "Bash(./venv/bin/python -c \"import api.main; import api.adapters.jira; import api.jira_router; import api.routers.ai_engine_config_router; import api.orchestrator_router; print\\('IMPORTS OK'\\)\")",
+      "Bash(./venv/bin/python -m pytest tests/test_adapters.py -q)",
+      "Bash(./venv/bin/python -m pytest tests/test_adapters.py tests/test_api.py tests/test_integrations_api.py tests/test_integration_router_credentials.py tests/test_credentials_resolution.py -q)",
+      "Bash(git stash *)",
+      "Bash(./venv/bin/python -m pytest tests/test_integration_router_credentials.py::TestIntegrationRouterCredentials::test_jira_test_endpoint_resolves_placeholders -q)"
     ]
   }
 }

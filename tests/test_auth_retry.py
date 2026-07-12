@@ -5,10 +5,19 @@ from api.secret_vault import SecretVault
 from api.models.automation import PathStep, ExecutionMode, ExecutionStatus
 from api.adapters.jira import JiraAdapter, AuthError
 import httpx
+import os
 
 
 class TestAuthRetryFlow(unittest.TestCase):
+    # JiraAdapter now resolves tokens from env first (mirroring the GitHub
+    # adapter), falling back to the vault. These tests exercise the vault
+    # path with a mock vault, so clear any real JIRA_* token env vars to
+    # keep the "no token → AUTH_REQUIRED" contract independent of .env.
+    _JIRA_ENV_VARS = ("JIRA_PAT", "JIRA_TOKEN")
+
     def setUp(self):
+        self._saved_env = {v: os.environ.pop(v, None) for v in self._JIRA_ENV_VARS}
+
         # Create a mock vault
         self.vault = Mock(spec=SecretVault)
         # Initially, no token is stored
@@ -37,6 +46,14 @@ class TestAuthRetryFlow(unittest.TestCase):
             input_ref=None,
             output_ref=None
         )
+
+    def tearDown(self):
+        # Restore the real JIRA_* env vars so other tests/classes aren't affected
+        for var, val in self._saved_env.items():
+            if val is not None:
+                os.environ[var] = val
+            else:
+                os.environ.pop(var, None)
 
     @patch('api.adapters.jira.httpx.AsyncClient')
     def test_auth_error_triggers_auth_required_status(self, mock_client_class):

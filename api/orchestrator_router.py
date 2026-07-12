@@ -18,9 +18,8 @@ class ProposalRequest(BaseModel):
 @router.get("/{item_id}")
 async def get_orchestrator_state(item_id: str, request: Request):
     state_manager: WorkflowStateManager = get_state_manager()
-    state = state_manager.load_state()
-    item = state.items.get(item_id)
-    
+    item = state_manager.get_item_details(item_id)
+
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     
