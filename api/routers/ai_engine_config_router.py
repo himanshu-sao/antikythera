@@ -160,6 +160,7 @@ async def test_model_connection(
     return result
 
 # POST /api/ai-engine/set-default
+@router.post("/set-default")
 async def set_default_model(
     request: SetDefaultModelRequest,
     config: AIEngineConfigService = Depends(get_ai_engine_config)

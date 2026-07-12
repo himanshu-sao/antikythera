@@ -44,11 +44,15 @@ from api.routers.ai_engine_config_router import router as ai_engine_config_route
 app = FastAPI(title="Antikythera API")
 
 
-# Enable CORS for frontend development
+# Enable CORS for frontend development.
+# allow_origins=["*"] cannot be combined with allow_credentials=True (per spec,
+# browsers reject the response), and the UI does not send cookies/credentials,
+# so credentials are left disabled here. For a production deploy, set explicit
+# origins and re-enable credentials only if actually needed.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

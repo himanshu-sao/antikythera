@@ -7,6 +7,11 @@ from api.integration_hub import IntegrationHub
 from api.secret_vault import SecretVault
 
 class TestIntegrationsAPI(unittest.TestCase):
+    # Preserved across tests so tearDown can restore the real production hub,
+    # preventing the test-only hub (backed by a temp dir this class deletes)
+    # from leaking into later test files in the same pytest session.
+    _original_hub = None
+
     def setUp(self):
         # Use a temporary directory for integrations config to avoid polluting real data
         self.test_dir = "tests/hub_test_dir_api"
@@ -15,10 +20,17 @@ class TestIntegrationsAPI(unittest.TestCase):
         self.vault = SecretVault(self.test_dir)
         self.hub = IntegrationHub(self.test_dir, self.vault)
         # Override the app's hub for the duration of the test
+        # (snapshot the real hub once so it can be restored)
+        if TestIntegrationsAPI._original_hub is None:
+            TestIntegrationsAPI._original_hub = app.state.hub
         app.state.hub = self.hub
         self.client = TestClient(app)
 
     def tearDown(self):
+        # Restore the production hub so subsequent test files don't inherit a
+        # hub backed by a now-deleted temp directory (which would 500 on writes).
+        if TestIntegrationsAPI._original_hub is not None:
+            app.state.hub = TestIntegrationsAPI._original_hub
         # Cleanup test directory
         if os.path.exists(self.test_dir):
             shutil.rmtree(self.test_dir)

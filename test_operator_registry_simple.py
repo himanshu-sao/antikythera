@@ -207,7 +207,12 @@ async def test_execute_step_condition_false():
 async def test_execute_step_condition_true():
     """Test condition evaluation - true case"""
     print("Testing true condition...")
-    
+
+    # JiraAdapter now resolves tokens from env first; clear any real JIRA_*
+    # token env vars so the empty temp vault yields the no-op (no-token) path
+    # this test expects, regardless of a developer's .env.
+    _saved_env = {v: os.environ.pop(v, None) for v in ("JIRA_PAT", "JIRA_TOKEN")}
+
     # Create a temporary directory for vault
     temp_dir = tempfile.mkdtemp()
     try:
@@ -250,6 +255,12 @@ async def test_execute_step_condition_true():
     finally:
         # Clean up
         shutil.rmtree(temp_dir, ignore_errors=True)
+        # Restore JIRA_* env vars cleared at function entry
+        for _var, _val in _saved_env.items():
+            if _val is not None:
+                os.environ[_var] = _val
+            else:
+                os.environ.pop(_var, None)
 
 async def run_all_tests():
     """Run all tests"""
