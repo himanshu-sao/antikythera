@@ -3,19 +3,11 @@ from api.main import get_state_manager
 from typing import List, Dict, Any, Optional
 import os
 
-router = APIRouter(prefix="/api", tags=["Workflows"])
+router = APIRouter(prefix="/api/workflows", tags=["Workflows"])
 
-@router.get("/state", summary="Get the current Kanban state")
-async def get_state(request: Request):
-    try:
-        state_manager = get_state_manager()
-        return state_manager.load_state()
-    except AttributeError:
-        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# NOTE: GET /api/state is served by board_router.py — do not duplicate here.
 
-@router.delete("/workflows/templates/{template_id}", summary="Delete a workflow template")
+@router.delete("/templates/{template_id}", summary="Delete a workflow template")
 async def delete_template(request: Request, template_id: str):
     try:
         state_manager = get_state_manager()
@@ -27,7 +19,7 @@ async def delete_template(request: Request, template_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/workflows/templates", summary="List all workflow templates")
+@router.get("/templates", summary="List all workflow templates")
 async def list_templates(request: Request):
     try:
         state_manager = get_state_manager()
@@ -37,7 +29,7 @@ async def list_templates(request: Request):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/workflows/templates/{template_id}", summary="Get a specific template")
+@router.get("/templates/{template_id}", summary="Get a specific template")
 async def get_template(request: Request, template_id: str):
     try:
         state_manager = get_state_manager()
@@ -50,7 +42,7 @@ async def get_template(request: Request, template_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/workflows/templates", summary="Create or update a template")
+@router.post("/templates", summary="Create or update a template")
 async def save_template(request: Request, template: Dict[str, Any]):
     template_id = template.get("template_id")
     if not template_id:
@@ -65,18 +57,18 @@ async def save_template(request: Request, template: Dict[str, Any]):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/workflows/runs/{run_id}", summary="Get run details and summary")
+@router.get("/runs/{run_id}", summary="Get run details and summary")
 async def get_run_details(request: Request, run_id: str):
     try:
         state_manager = get_state_manager()
         run = state_manager.runs.get_run(run_id)
         if not run:
             raise HTTPException(status_code=404, detail="Run not found")
-        
+
         template = state_manager.templates.get_template(run.get("template_id", ""))
         timeline = state_manager.runs.get_run_timeline(run_id)
         bindings = state_manager.bindings.get_bindings_for_run(run_id)
-        
+
         return {
             "run": run,
             "template": template,
@@ -88,7 +80,7 @@ async def get_run_details(request: Request, run_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/workflows/runs/{run_id}/timeline", summary="Get only the run timeline")
+@router.get("/runs/{run_id}/timeline", summary="Get only the run timeline")
 async def get_run_timeline(request: Request, run_id: str):
     try:
         state_manager = get_state_manager()
@@ -99,7 +91,7 @@ async def get_run_timeline(request: Request, run_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/workflows/items/{item_id}/run", summary="Find the run associated with a Kanban item")
+@router.get("/items/{item_id}/run", summary="Find the run associated with a Kanban item")
 async def get_item_run(request: Request, item_id: str):
     try:
         state_manager = get_state_manager()

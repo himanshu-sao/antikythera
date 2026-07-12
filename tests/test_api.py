@@ -10,9 +10,13 @@ class TestApi(unittest.TestCase):
     def setUp(self):
         self.test_state_path = "tests/test_state_file.json"
         self.client = TestClient(app)
-        
+
         # Mock the state manager path in api.main
         import api.main
+        # Snapshot the existing state_manager so tearDown can restore it —
+        # otherwise this test leaks a legacy StateManager into the module
+        # singleton and poisons later tests that rely on get_state_manager().
+        self._prev_state_manager = api.main.state_manager
         # We must update the state_manager instance used by the app
         api.main.state_manager = StateManager("tests")
         
@@ -37,6 +41,10 @@ class TestApi(unittest.TestCase):
     def tearDown(self):
         if os.path.exists(self.test_state_path):
             os.remove(self.test_state_path)
+        # Restore the state_manager singleton so this test's legacy
+        # StateManager substitution doesn't leak into subsequent test files.
+        import api.main
+        api.main.state_manager = self._prev_state_manager
 
     def test_get_state(self):
         response = self.client.get("/api/state")

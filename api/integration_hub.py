@@ -180,12 +180,88 @@ class IntegrationHub:
         else:
             self.update_status(name, "connected")
 
-    def _execute_native(self, integration: Dict[str, Any], action: str, params: Dict[str, Any], secrets: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    # Canonical action → adapter‑method map (mirrors OperatorRegistry.operator_map).
+    _ACTION_MAP = {
+        "fetch_resource": "fetch",
+        "update_resource": "update",
+        "create_resource": "create",
+        "delete_resource": "delete",
+        "tools/call": None,      # resolved from params["name"] at call time
+        "tools/list": "list",     # adapters have a list() convention
+    }
+
+    def _resolve_adapter_class(self, module_path: str):
+        """Dynamically import and return the adapter class from *module_path*."""
+        import importlib
+        mod = importlib.import_module(module_path)
+        # Heuristic: the adapter class is the first non‑base, non‑import class
+        # whose name ends with "Adapter".  Fall back to a known map.
+        for attr in dir(mod):
+            if attr.endswith("Adapter") and attr != "BaseAdapter":
+                return getattr(mod, attr)
+        raise ImportError(f"No *Adapter class found in {module_path}")
+
+    def _execute_native(self, integration: Dict[str, Any], action: str, params: Dict[str, Any],
+                        secrets: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         adapter_module = integration["config"].get("adapter_module")
         if not adapter_module:
             raise Exception("Native adapter missing module configuration")
-        # For native, logs are empty
-        return {"status": "success", "result": f"Native {adapter_module} executed {action}", "logs": ""}
+
+        # --- import the adapter class & instantiate --------------------------------
+        import importlib, asyncio
+
+        try:
+            adapter_cls = self._resolve_adapter_class(adapter_module)
+        except Exception as exc:
+            return {"status": "error",
+                    "result": f"Failed to load adapter {adapter_module}: {exc}",
+                    "logs": str(exc)}
+
+        try:
+            adapter_instance = adapter_cls(vault=self.vault)
+        except Exception as exc:
+            return {"status": "error",
+                    "result": f"Failed to construct {adapter_cls.__name__}: {exc}",
+                    "logs": str(exc)}
+
+        # --- map action to method name --------------------------------------------
+        # tools/call: the caller provides {"name": "<tool>", "arguments": {...}}
+        method_name = self._ACTION_MAP.get(action)
+        if method_name is None and action == "tools/call":
+            tool_name = params.get("name", "") if isinstance(params, dict) else ""
+            method_name = self._ACTION_MAP.get(tool_name, tool_name)
+
+        if not method_name or not hasattr(adapter_instance, method_name):
+            return {"status": "error",
+                    "result": f"Unsupported action '{action}' for adapter {adapter_module}",
+                    "logs": ""}
+
+        method = getattr(adapter_instance, method_name)
+
+        # --- call the adapter method (sync bridge for async methods) --------------
+        try:
+            call_args = params.get("arguments", {}) if isinstance(params, dict) else {}
+            resource_id = params.get("resource_id") if isinstance(params, dict) else None
+
+            if method_name == "fetch":
+                result = asyncio.run(method(resource_id, params=call_args))
+            elif method_name in ("update", "create", "delete"):
+                payload = call_args.copy() if call_args else {}
+                if resource_id:
+                    payload["resource_id"] = resource_id
+                result = asyncio.run(method(resource_id if method_name == "delete" else None, payload))
+            elif method_name == "execute":
+                # synchronous mock path (used by tests)
+                result = method(run_id=params.get("run_id", ""), config=call_args, context={})
+            else:
+                result = asyncio.run(method(resource_id, **call_args))
+
+            return {"status": "success", "result": result, "logs": ""}
+
+        except Exception as exc:
+            return {"status": "error",
+                    "result": f"Adapter {adapter_module}.{method_name} failed: {exc}",
+                    "logs": str(exc)}
 
     def _execute_mcp(self, integration: Dict[str, Any], action: str, params: Dict[str, Any], secrets: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """

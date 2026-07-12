@@ -5,6 +5,7 @@ from typing import Dict, Any, Optional, Tuple
 from api.workflow_state_manager import WorkflowStateManager
 from api.integration_hub import IntegrationHub
 from api.escalation_manager import EscalationManager
+from api.retry_manager import RetryManager
 from api.managers.run_manager import RunManager
 
 logger = logging.getLogger(__name__)
@@ -14,10 +15,12 @@ class ExecutionEngine:
     The core orchestration engine that executes WorkflowTemplates as WorkflowRuns.
     Implements the Step Execution Cycle defined in engine-spec.md.
     """
-    def __init__(self, state_manager: WorkflowStateManager, hub: IntegrationHub, escalator: EscalationManager):
+    def __init__(self, state_manager: WorkflowStateManager, hub: IntegrationHub,
+                 escalator: EscalationManager, retry_manager: Optional['RetryManager'] = None):
         self.state_manager = state_manager
         self.hub = hub
         self.escalator = escalator
+        self.retry_manager = retry_manager
         self.run_manager = state_manager.runs
 
     def start_run(self, template_id: str, inputs: Dict[str, Any]) -> str:
@@ -166,18 +169,34 @@ class ExecutionEngine:
     def _handle_failure(self, run_id: str, step_name: str, error: Exception):
         """
         Implements the failure classification from engine-spec.md.
+        When a RetryManager is wired in, failures are retried at 5/10/15‑minute
+        intervals before escalating to BLOCKED.
         """
         error_msg = str(error)
         logger.error(f"Run {run_id} failed at step {step_name}: {error_msg}")
-        
-        # For this implementation, we treat all unexpected exceptions as CRITICAL
-        # and escalate them to the Orchestrator.
+
+        # If a RetryManager is available, attempt the standard retry policy
+        if self.retry_manager is not None:
+            delay = self.retry_manager.should_retry(run_id)
+            if delay is not None:
+                self.retry_manager.record_failure(run_id, error_msg)
+                # Schedule a retry after the prescribed interval
+                import threading
+                timer = threading.Timer(delay * 60, self.process_next_step, args=[run_id])
+                timer.daemon = True
+                timer.start()
+                logger.info(
+                    f"Retry scheduled for run {run_id} in {delay} minutes"
+                )
+                return
+
+        # No retry manager or retries exhausted — escalate to BLOCKED
         self.run_manager.update_run(run_id, {"status": "BLOCKED"})
-        
+
         self.escalator.escalate_to_orchestrator(
             run_id=run_id,
             step_name=step_name,
             error_message=error_msg
         )
-        
+
         self.run_manager.log_event(run_id, "RUN_BLOCKED", {"error": error_msg})

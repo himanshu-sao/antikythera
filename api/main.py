@@ -28,6 +28,9 @@ from api.integration_hub import IntegrationHub
 # SecretVault removed – credentials now come from environment variables
 from api.escalation_manager import EscalationManager
 from api.execution_engine import ExecutionEngine
+from api.scheduler import AntikytheraScheduler
+from api.retry_manager import RetryManager
+from contextlib import asynccontextmanager
 from api.automation_router import router as automation_router
 from api.skill_router import router as skill_router
 from api.pipeline_router import router as pipeline_router
@@ -37,12 +40,24 @@ from api.integrations_router import router as integrations_router
 from api.jira_router import router as jira_router
 from api.orchestrator_router import router as orchestrator_router
 from api.engine_router import router as engine_router
+from api.trigger_router import router as trigger_router
+from api.builder_router import router as builder_router
+from api.workflow_router import router as workflow_router
 from api.routers.ai_engine_config_router import router as ai_engine_config_router
 
 # Assuming other routers exist, if not I'll add placeholders or just the ones I've built
 # Include Jira integration routes
-app = FastAPI(title="Antikythera API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup: boot the scheduler.  Shutdown: stop it cleanly."""
+    scheduler = app.state.scheduler
+    if scheduler is not None:
+        scheduler.start()
+    yield
+    if scheduler is not None:
+        scheduler.stop()
 
+app = FastAPI(title="Antikythera API", lifespan=lifespan)
 
 # Enable CORS for frontend development.
 # allow_origins=["*"] cannot be combined with allow_credentials=True (per spec,
@@ -63,13 +78,17 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "automa
 hub = IntegrationHub(BASE_DIR)
 state_manager = WorkflowStateManager(BASE_DIR)
 escalator = EscalationManager(state_manager)
-engine = ExecutionEngine(state_manager, hub, escalator)
+retry_manager = RetryManager(state_manager)
+engine = ExecutionEngine(state_manager, hub, escalator, retry_manager)
+scheduler = AntikytheraScheduler(BASE_DIR, state_manager, hub)
 
 # Inject core services into app.state for routers
 app.state.state_manager = state_manager
 app.state.hub = hub
 app.state.escalator = escalator
 app.state.engine = engine
+app.state.retry_manager = retry_manager
+app.state.scheduler = scheduler
 
 # Register Routers
 app.include_router(automation_router, prefix="/api/automation", tags=["Automation Compiler"])
@@ -81,6 +100,9 @@ app.include_router(integrations_router)
 app.include_router(jira_router)
 app.include_router(orchestrator_router)
 app.include_router(engine_router)
+app.include_router(trigger_router)
+app.include_router(builder_router)
+app.include_router(workflow_router)
 app.include_router(ai_engine_config_router, prefix="/api/ai-engine", tags=["AI Engine Configuration"])
 
 # Mount static files for requirements and documentation

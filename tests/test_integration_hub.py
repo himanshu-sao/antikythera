@@ -38,8 +38,13 @@ class TestIntegrationHub(unittest.TestCase):
     def test_execute_native_mock(self):
         name = "native_test"
         self.hub.add_integration(name, "native", {"adapter_module": "mock_module"})
+        # P1.1: _execute_native now does real adapter dispatch instead of
+        # returning a fixed "Native … executed …" stub.  A non-importable
+        # adapter_module is therefore a configuration error, surfaced as
+        # status="error" with the load failure in the result.
         result = self.hub.execute_action(name, "test_action", {})
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "error")
+        self.assertIn("mock_module", result["result"])
 
 if __name__ == "__main__":
     unittest.main()

@@ -5,6 +5,8 @@ import re
 from .adapters.base import BaseAdapter, AuthError
 from .adapters.jira import JiraAdapter
 from .adapters.github import GitHubAdapter
+from .adapters.bob_shell import BobShellAdapter
+from .adapters.internal import InternalKanbanAdapter
 from .executors.safe_executor import SafeExecutor, SafeExecutorError, SecurityError, DependencyRequiredError
 from .models.automation import PathStep, ExecutionLog, Condition, ConditionLogic, ExecutionMode, ExecutionStatus, ConditionType
 import uuid
@@ -27,6 +29,8 @@ class OperatorRegistry:
         self.adapters: Dict[str, BaseAdapter] = {
             "jira_adapter": JiraAdapter(vault),
             "github_adapter": GitHubAdapter(vault),
+            "bob_shell_adapter": BobShellAdapter(vault),
+            "internal_adapter": InternalKanbanAdapter(vault),
         }
 
         # Map of operator_id to the method name on the BaseAdapter

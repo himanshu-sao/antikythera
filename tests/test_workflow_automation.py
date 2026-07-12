@@ -51,15 +51,21 @@ class TestAntikytheraAutomation(unittest.TestCase):
             ]
         }
         self.wf_mgr.save_template(template_id, template_data)
-        self.main_state_mgr.create_item("E2E-ITEM", "E2E Test Item")
+        # P1.5: InternalKanbanAdapter now mutates state through the shared
+        # api.main.state_manager (reset by the autouse conftest fixture to a
+        # tmp-backed WorkflowStateManager).  Create and read the item through
+        # that same manager so the adapter's write is observable here.
+        import api.main
+        shared_state = api.main.get_state_manager()
+        shared_state.create_item("E2E-ITEM", "E2E Test Item")
 
         # Execute
         run_id = self.engine.trigger_run(template_id, {})
-        
+
         # Verify
         run = self.wf_mgr.get_run(run_id)
-        item = self.main_state_mgr.get_item_details("E2E-ITEM")
-        
+        item = shared_state.get_item_details("E2E-ITEM")
+
         self.assertEqual(run["status"], "COMPLETED")
         self.assertEqual(item["stage"], "DONE")
         
