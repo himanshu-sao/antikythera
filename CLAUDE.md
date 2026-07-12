@@ -90,13 +90,16 @@ brain/                       # Learned patterns and pending updates
 
 ## Known Gotchas
 1. **Hermes→Antikythera rename**: Formerly named "Hermes". The rename to "Antikythera" is now complete in code and docs. A few old design/spec files may still reference "Hermes" in git history.
-2. **SecretVault exists but is dead code**: `api/secret_vault.py` implements Fernet encryption but `main.py` explicitly comments it out. Credentials now come from environment variables (`~/.antikythera/.env` → project `.env` symlink).
-3. **Legacy StateManager**: `api/state_manager.py` is the old monolithic class. New code uses `WorkflowStateManager` → `managers/` hierarchy. Do not write new code against the legacy StateManager.
-4. **Router locations are inconsistent**: Most routers are flat files in `api/`, only `ai_engine_config_router.py` is in `api/routers/`. The `api/AI.md` doc has been updated to reflect this.
-5. **Empty pattern/knowledge files**: `automation-ideas/brain/patterns.md` has been cleaned (stub entries removed, real patterns preserved). `automation-ideas/knowledge/user.md` remains an empty placeholder.
+2. **SecretVault exists but is dead code**: `api/secret_vault.py` implements Fernet encryption but `main.py` explicitly comments it out. Credentials now come from environment variables (`~/.antikythera/.env` → project `.env` symlink). Note: `pipeline_router.py` and `skill_router.py` still instantiate it at import time — see P3.4 in `PROJECT_STATUS.md`.
+3. **Legacy StateManager**: `api/state_manager.py` is the old monolithic class. New code uses `WorkflowStateManager` → `managers/` hierarchy. Do not write new code against the legacy StateManager. `api/adapters/internal.py` was migrated to `api.main.get_state_manager()` in P1.5.
+4. **Router registration**: All routers are now `include_router`'d in `api/main.py` (P1.3). `workflow_router` uses `prefix="/api/workflows"` (matches UI). Only `ai_engine_config_router.py` lives in `api/routers/`; the rest are flat files in `api/`.
+5. **Learning loop writes `"stub response"`**: `automation-ideas/brain/patterns.md` contains ~17 `## Learned on …` sections whose body is literally `stub response`. The memory loop runs and persists, but the LLM returns nothing real → it learns nothing. See P3.1.
 6. **`.env` is a symlink**: Points to `~/.antikythera/.env`. The project `.env.example` documents the expected variables.
 7. **ID normalization**: All Idea IDs (e.g., `ID-001`) **MUST** be uppercase.
 8. **Atomic writes**: All JSON state writes must follow the temp-file-then-rename pattern (enforced by `BaseJSONManager._save()`).
+9. **Pending-work list lives in `PROJECT_STATUS.md`**: That doc (reconciled 2026-07-12) is the canonical backlog — it supersedes the stale `SESSION_UPDATE.md` (last entry 2026-06-06). AI agents: read `PROJECT_STATUS.md` for what's done vs. pending; do not trust `SESSION_UPDATE.md`.
+10. **`ibm_bob` is a CLI-based LLM provider**: Unlike the other 7 providers (all HTTP/OpenAI-compatible), `ibm_bob` shells out to the local `bob` binary (v1.0.6), which manages its own auth (browser SSO, 24h cache). Do not wire `ibm_bob` through the HTTP OpenAI client. See [[pending P2.6]] in `PROJECT_STATUS.md`. There are two distinct "BOB" things in this project: `ibm_bob` the LLM provider (`LLMClient`) and `bob_shell` the integration adapter (`api/adapters/bob_shell.py` / `ExecutionEngine`). They shell out to the same binary but serve different purposes.
+11. **LLM resolution chain**: `LLMClient` (in `agents/llm_client.py`) resolves provider/model from `AIEngineConfigService` (UI-selected default in `~/.antikythera/ai_config.json`) first, falling back to `config.yaml`'s `llm` block. `config.yaml` is a fallback only — the AI Engine config UI is the primary dial. Most agent/AI call sites already go through `LLMClient`; `automation_router /propose` and `skill_router /brainstorm` are the exceptions (still mock). See `PROJECT_STATUS.md` P2.4.
 
 ## Specialized Briefings
 For deep technical context, refer to these files:
@@ -107,5 +110,5 @@ For deep technical context, refer to these files:
 | Backend/API | `api/AI.md` | FastAPI, state management, adapters |
 | Workflows | `api/workflow_AI.md` | Workflow engine, triggers, automation |
 | Frontend/UI | `ui/AI.md` | React 19, Tailwind, Kanban UX |
-| Project Status | `PROJECT_STATUS.md` | Roadmap, gaps, verification strategy |
+| Project Status | `PROJECT_STATUS.md` | **Canonical pending-work doc** (P0→P3 remediation ledger, roadmap)
 | API Contract | `docs/api-spec.md` | REST endpoint schemas |
