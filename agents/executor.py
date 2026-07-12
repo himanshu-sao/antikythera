@@ -35,11 +35,22 @@ class ExecutorAgent:
             self._execution_loop(item_id)
             self._log_progress("Execution loop finished. Finalizing...")
             self._finalize_phase(item_id)
-            return True
+            # "Done" means every planned task actually completed.  A single
+            # failed task is silently skipped by _execution_loop but must not
+            # read as success -- otherwise the pipeline marks an item DONE with
+            # an incomplete execution_report.md (the empty-report bug P2.3
+            # surfaced).
+            return self._all_tasks_complete()
         except Exception as e:
             logger.error(f"Executor Agent failed for {item_id}: {str(e)}")
             self._report_failure(item_id, str(e))
             return False
+
+    def _all_tasks_complete(self) -> bool:
+        """True iff the checklist is non-empty and every task is done."""
+        if not self.checklist:
+            return False
+        return all(bool(t.get("done")) for t in self.checklist)
 
     def _analyze_phase(self, item_id: str, spec_content: str, arch_content: str):
         logger.info(f"[{item_id}] Phase: ANALYZING & PLANNING")

@@ -11,7 +11,7 @@ paths:
 
 llm:
   provider: "google"
-  model: "gemini-2.5-flash"
+  model: "gemma-4-26b-a4b-it"
   base_url: "https://generativelanguage.googleapis.com/v1beta"
   api_key_env: "GOOGLE_API_KEY_KANBAN"
   openai_api_key_env: "OPENAI_API_KEY"
