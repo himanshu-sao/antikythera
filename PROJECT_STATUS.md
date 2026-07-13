@@ -83,6 +83,12 @@ A stop-the-bleed → wiring → real-LLM pass applied over 2026-07-11/12. Tracke
 
 ---
 
+### P4 — Throughput (open)
+- [ ] **P4.1 Complexity-tier stage-skip pipeline (GateGuard)** — **DESIGN COMPLETE 2026-07-13; not yet implemented.** The 10-stage waterfall (`PIPELINE_STAGES` at `agents/constants.py:5–16`) forces every item through Refiner→Architect→Tester→Executor regardless of size, which over-engineers trivial ideas ("add a `/health` endpoint" still gets a Mermaid architecture diagram + 5-section test plan) and drives LLM hallucination (the architect invents tech-stack decisions for a single-file utility because the prompt asks for them and the confidence heuristic penalizes missing sections — `agents/refiner.py:59–93` `calculate_confidence`). The agent system prompts already carry "Proportionality"/"Strict Adherence" prose but there is no gating logic that skips stages. This item adds a `complexity` field per item and a `next_stage()` helper so the orchestrator advances through a *tier-specific subset* of stages, defaulting to today's full pipeline. The prior design doc was deleted and re-derived against the live tree; every claim below is verified against the cited `file:line`. **Full design is the final section of this file** — see "P4.1 Design — Complexity-Tier Stage-Skip Pipeline."
+  - Note for implementers: the deleted doc had six factual errors (wrong `transition_stage` call count, `VALID_STAGES` mis-attributed to `agents/constants.py`, "PATCH supports arbitrary fields" false, `transition_stage` "always next stage" false, `CreateItemModal.tsx` path off, omitted `CardEditor`); they are all corrected in the design. Re-verify `file:line` anchors at edit time — current as of HEAD 2026-07-13 on `feat/p2.4-route-llm-propose-brainstorm`.
+
+---
+
 ## ⏳ Technical Gaps & Pending Tasks
 
 ### Automation Studio
@@ -131,6 +137,178 @@ When resolving issues from this document:
 3. **Testing**: Move resolved items to a `Needs Testing` state with exact test commands and expected outputs.
 4. **Environment**: Always use the Python virtual environment and `start_antikythera.sh` / `stop_antikythera.sh`.
 5. **Verify before writing**: Claims from prior sessions may be stale. Verify a fix is still present in code (or a test still fails) before marking it, and verify before re-opening. Keep this doc accurate over comprehensive.
+
+---
+
+## P4.1 Design — Complexity-Tier Stage-Skip Pipeline
+*Status: DESIGN 2026-07-13 — see P4.1 ledger entry. Not yet implemented.*
+
+### Problem (ground-truth verified)
+- The 10 stages live in `PIPELINE_STAGES` at `agents/constants.py:5–16`. `STAGE_AGENTS` (`22–33`) maps each to an agent (`refiner`/`architect`/`tester`/`executor`) or `None`. `STAGE_HANDLERS` (`36–47`) maps each to a `StageHandler` method.
+- `Orchestrator.process_item` (`agents/orchestrator.py:58–65`) reads `item["stage"]` and calls the matching handler. The pipeline has **no notion of complexity** — every item walks every non-review stage.
+- Over-engineering + hallucination (problem-statement, above) stem from the architect/tester LLM calls being unconditional. The system prompts (`agents/refiner.py:118–131`, plus `architect.py`/`tester.py`) carry "Proportionality" prose only; nothing gates the call.
+
+### Design: complexity tiers with stage-skip
+Retain the 10-stage vocabulary and 10-column board. Introduction of per-item `complexity` controls which stages the orchestrator advances *through*; skipped columns simply stay empty for that item.
+
+| Tier | Stages actually visited | Skips |
+|------|--------------------------|-------|
+| `trivial` | INTAKE → REFINEMENT → REVIEW_SPEC → EXECUTING → DONE | ARCHITECTURE, REVIEW_ARCH, TESTING, REVIEW_TEST, APPROVED |
+| `simple` | INTAKE → REFINEMENT → REVIEW_SPEC → ARCHITECTURE → REVIEW_ARCH → EXECUTING → DONE | TESTING, REVIEW_TEST, APPROVED |
+| `complex` (default) | full 10 stages | none — current behavior |
+
+- Review gates are preserved on every review stage the tier *keeps*. Skipped review stages never trip the `get_next_actionable_items` PENDING block (`agents/orchestrator.py:25–40`) because the item is never placed there.
+
+### How complexity is set (precedence)
+1. **Human override at create-time** (highest priority): `complexity` in `CreateItemRequest` body. Stored on the item at INTAKE.
+2. **Refiner heuristic at REFINEMENT** (only if (1) is absent/`"auto"`): a deterministic keyword/word-count classifier in `agents/refiner.py`. No new LLM call — reuses the spec text already produced.
+3. **Default `"complex"`**: if neither sets it → full pipeline (backward-compatible, no migration).
+
+"Human wins, refiner fills gaps, default complex" — exactly one of the three applies.
+
+### Transition logic — `_advance()` on `StageHandler`
+Today every handler calls `self.orchestrator.transition_stage(item, "<EXPLICIT_NEXT>", state, item_id)` with a hard-coded target. **There are 14 such calls** in `agents/handlers.py` (the prior doc mis-counted "9"; verified `grep -c transition_stage handlers.py` = 14): line 19 (→REFINEMENT), 46 (→REVIEW_SPEC), 53 (→ARCHITECTURE), 56 (→REFINEMENT, NEEDS_REVISION), 84 (→REVIEW_ARCH), 91 (→TESTING), 94 (→ARCHITECTURE, NEEDS_REVISION), 122 (→REVIEW_TEST), 129 (→APPROVED), 132 (→TESTING, NEEDS_REVISION), 138 (→EXECUTING), 172 (→DONE, INLINE), 202 (→DONE), 204 (→REVIEW_TEST, failure fallback).
+
+`Orchestrator.transition_stage` (`agents/orchestrator.py:42–56`) sets `item["stage"]` + `assigned_agent` and adds history; it accepts **any** string and enforces no ordering. Add a private helper to `StageHandler`:
+
+```python
+# agents/handlers.py — new method on StageHandler
+def _advance(self, item, state, item_id):
+    """Move to the next stage for this item's complexity tier (DONE if none)."""
+    current = item.get("stage", "INTAKE")
+    nxt = next_stage(current, item.get("complexity"))
+    self.orchestrator.transition_stage(item, nxt or "DONE", state, item_id)
+```
+
+Replace the **forward** `transition_stage` calls (19, 46, 53, 84, 91, 122, 129, 138) with `self._advance(item, state, item_id)`. **Leave these untouched** — they are not forward progress:
+- `56` (REVIEW_SPEC NEEDS_REVISION → REFINEMENT), `94` (REVIEW_ARCH NEEDS_REVISION → ARCHITECTURE), `132` (REVIEW_TEST NEEDS_REVISION → TESTING): intentional backwards loops; `_advance` would re-skip.
+- `172` (INLINE success → DONE), `202` (executor success → DONE), `204` (executor failure → REVIEW_TEST): executor outcome logic — handled separately below.
+
+`next_stage(stage, complexity)` (new, in `agents/constants.py`) returns the next stage name for the tier, or `None` for terminal/unknown:
+
+```python
+TIER_STAGES = {
+    "trivial": ["INTAKE","REFINEMENT","REVIEW_SPEC","EXECUTING","DONE"],
+    "simple":  ["INTAKE","REFINEMENT","REVIEW_SPEC","ARCHITECTURE","REVIEW_ARCH","EXECUTING","DONE"],
+    "complex":  PIPELINE_STAGES,  # the current 10
+}
+DEFAULT_COMPLEXITY = "complex"
+def next_stage(current, complexity):
+    path = TIER_STAGES.get(complexity or DEFAULT_COMPLEXITY, TIER_STAGES[DEFAULT_COMPLEXITY])
+    try: return path[path.index(current)+1]
+    except (ValueError, IndexError): return None
+```
+
+### Refiner — keep `int` return; add `estimate_complexity()` (NO signature change)
+**Design decision (corrects prior doc):** the previous design proposed changing `refine_idea()` return from `int` to `tuple[int, str]`. That is a wide-blast change — `.tests/test_refiner.py:18,21,28` assert `isinstance(confidence, int)` / `>= 70`, `tests/test_orchestrator_pipeline.py:71` patches `return_value=85`, and `handlers.py:28` unpacks the int. Instead:
+
+- `refine_idea()` (`agents/refiner.py:96–144`) **keeps returning `int`**. No caller/tour breakage.
+- Add a sibling deterministic function:
+```python
+# agents/refiner.py
+COMPLEXITY_KEYWORDS = {"trivial": ["health","ping","rename","typo","one-line","log line"],
+                       "simple":  ["endpoint","script","cli","helper","migration"],
+                       "complex": ["service","microservice","auth","distributed","migration of","security-critical"]}
+def estimate_complexity(spec_content, title="") -> str:
+    text = (spec_content + " " + title).lower()
+    if len(spec_content) < 400: return "trivial"
+    hits = {t: sum(text.count(k) for k in kws) for t,kws in COMPLEXITY_KEYWORDS.items()}
+    if hits["trivial"] and not hits["complex"]: return "trivial"
+    if hits["simple"] and not hits["complex"]: return "simple"
+    return "complex"
+```
+- In `handle_refinement` (`handlers.py:21–46`), after `confidence = refiner.refine_idea(...)` (line 28), set complexity **only if unset by the human**:
+```python
+if not item.get("complexity") or item.get("complexity") == "auto":
+    from pathlib import Path
+    spec = Path(refiner.REQUIREMENTS_DIR, item_id, "spec.md").read_text()
+    item["complexity"] = refiner.estimate_complexity(spec, title)
+```
+
+### Executor failure/retry path — tier-aware fallback
+`handle_executing` (`handlers.py:140–204`) ends:
+```python
+if confidence > 0:
+    self.orchestrator.transition_stage(item, "DONE", state, item_id)      # line 202
+else:
+    self.orchestrator.transition_stage(item, "REVIEW_TEST", state, item_id)  # line 204
+```
+Line 204 is unreachable for `trivial`/`simple` (no REVIEW_TEST in tier). Replace line 204's target with a tier-aware value:
+```python
+else:
+    fallback = "REVIEW_TEST" if next_stage("REVIEW_TEST", item.get("complexity")) else "REVIEW_SPEC"
+    self.orchestrator.transition_stage(item, fallback, state, item_id)
+```
+REVIEW_SPEC is the universal gate present in all three tiers; REVIEW_TEST is used only when the tier keeps it. Lines 172/202 (→DONE) stay.
+
+### Manual drag-and-drop bypass — the `POST /api/move` hole (NEW constraint the prior doc missed)
+`POST /api/move` (`api/board_router.py:89–98` → `MoveRequest` `api/schemas.py:44–54` → `STATE_MANAGER.update_item`) sets `item["stage"]` to **any** `VALID_STAGES` value the user drags to. It does **not** consult `next_stage()` or the tier. So a user dragging a `trivial` card onto the ARCHITECTURE column would land it in a skipped stage.
+
+Two acceptable policies; (**A recommended**):
+- **(A) Allow the manual move but let the next pipeline run self-correct.** On the next `process_item`, the item is at a stage whose handler advances via `_advance()` — `next_stage(current, complexity)` from a skipped stage returns the stage-after-it in the full list if the skipped stage happens to be a prefix, or `None`→DONE if terminal. Simpler: clamp in `MoveRequest.validate_stage` — if `item.complexity` is set and the target isn't in `TIER_STAGES[complexity]`, reject with 422 *unless* the user is also setting `complexity` in the same move. This keeps the invariant without fighting the UI.
+- **(B) Do nothing** — treat manual drag as explicit human override ("the user knows best"). Lower safety; a one-correctness-bug risk if a skipped stage's handler then runs an agent.
+
+Decision deferred to implementer; **A** is the conservative choice.
+
+### `VALID_STAGES` duplication (prior doc error #2)
+`VALID_STAGES` lives in **`api/constants.py:8–11`** (re-declared), **not** `agents/constants.py`. `api/constants.py` imports nothing from `agents/`. The new `VALID_COMPLEXITIES`/`COMPLEXITY_TIERS` vocabulary therefore needs **parallel definition** — add `VALID_COMPLEXITIES = ["trivial","simple","complex"]` to `api/constants.py` for schema validation, and `TIER_STAGES` + `next_stage` to `agents/constants.py` for orchestration. (Single-source import would be cleaner but is a larger refactor; out of scope here.)
+
+### Touchpoints (11 files — verified paths)
+| Layer | File:line | Change |
+|-------|-----------|--------|
+| Agents/constants | `agents/constants.py` (after line 47) | Add `TIER_STAGES`, `DEFAULT_COMPLEXITY`, `next_stage()` |
+| Agents/refiner | `agents/refiner.py` (after line 93, sibling to `calculate_confidence`) | Add `estimate_complexity()`; **do not** change `refine_idea()` signature |
+| Agents/handlers | `agents/handlers.py:21–46` | `handle_refinement`: set `item["complexity"]` if unset |
+| Agents/handlers | `agents/handlers.py` | Add `_advance()`; replace forward calls at **8 lines**: 19, 46, 53, 84, 91, 122, 129, 138 |
+| Agents/handlers | `agents/handlers.py:204` | Tier-aware executor failure fallback |
+| API/constants | `api/constants.py:14` area | Add `VALID_COMPLEXITIES` (parallel to `VALID_PRIORITIES`) |
+| API/schemas | `api/schemas.py:6–42` (`CreateItemRequest`) + `:67–98` (`UpdateItemRequest`) | Add optional `complexity: Optional[str]` field + `field_validator` against `VALID_COMPLEXITIES` (note: these are **closed Pydantic models** — prior doc's "arbitrary field updates" claim was false; the field MUST be added for `PATCH /api/item/{id}` `model_dump(exclude_unset=True)` at `board_router.py:45` to forward it) |
+| API/manager | `api/managers/kanban_state_manager.py:27,33–45` | Add `complexity=None` param to `create_item`; add `"complexity": complexity` to the item dict literal |
+| API/router | `api/board_router.py:27–34` | Pass `complexity=item_request.complexity` into `create_item` |
+| API/router | `api/board_router.py:90` (`/move`) | **(A)** optional 422 guard if target ∉ `TIER_STAGES[item.complexity]` |
+| UI | `ui/src/components/modals/CreateItemModal.tsx` (lines 10–19 state, 141–154 Pri/Source grid) | Add Complexity `<select>` (options Auto/Trivial/Simple/Complex; default Auto); state key `complexity: 'auto'` |
+| UI | `ui/src/hooks/usePipelineState.ts:97–106` (POST body) | Add `complexity: itemData.complexity` to the create-item body |
+| UI | `ui/src/components/KanbanColumn.tsx:99–113` (`KanbanCardContent` destructures `priority`,`confidence`) | Add a complexity badge (e.g. a small uppercase pill near the priority badge at line 159–172) |
+| UI | `ui/src/components/CardEditor.tsx` *(exists; prior doc omitted it)* | Add the same `<select>` so the human can override complexity post-REVIEW_SPEC (the "refiner under-estimates → human overrides" edge case routes here) — verify path at edit time |
+
+### What does NOT change
+- `PIPELINE_STAGES`, `STAGE_AGENTS`, `STAGE_HANDLERS` (`agents/constants.py`) — fully intact. The board still renders 10 columns (`KanbanColumn.tsx` `STAGE_CONFIG`).
+- `Orchestrator.transition_stage` (`orchestrator.py:42`) — untouched; only the call sites change.
+- `Orchestrator.run_pipeline`, `get_next_actionable_items`, the scheduler, retry manager, execution engine, workflow router, trigger router — zero changes.
+- Existing items without `complexity` → `"complex"` via the `or DEFAULT_COMPLEXITY` in `next_stage()` and the schema default. No migration.
+
+### Edge cases
+| Case | Resolution |
+|------|------------|
+| Refiner under-estimates (trivial → actually complex) | Human sees classification at REVIEW_SPEC; overrides via `CardEditor.tsx` or drag; `PATCH /api/item/{id}` (now with `complexity` field) stores it. |
+| Refiner over-estimates (simple → complex) | Unnecessary stages run (= today's behavior) — harmless; heuristic tunable later. |
+| Review-gate approved on a review stage the tier keeps | `_advance()` → next tier stage; skipped review stages are never entered. |
+| Review-gate NEEDS_REVISION | Existing backwards loops (lines 56/94/132) are explicitly left on direct `transition_stage` calls — `_advance()` is **not** used for revision routing. |
+| Executor failure, `confidence <= 0`, tier lacks REVIEW_TEST | Fall back to `REVIEW_SPEC` (universal). |
+| Manual drag to a skipped stage | Policy A guards in `MoveRequest` validator; or policy B lets it self-correct on next run. |
+| `complexity: "auto"` persisted from UI | `next_stage` and `estimate_complexity` both treat `"auto"` as unset → refiner fills it at REFINEMENT. |
+| Unknown/typo complexity string | `next_stage` falls back to `DEFAULT_COMPLEXITY` (complex); schema validator rejects unknowns at the API boundary. |
+
+### Implementation order
+1. `agents/constants.py` — `TIER_STAGES`, `DEFAULT_COMPLEXITY`, `next_stage()`. Pure, unit-testable.
+2. `agents/refiner.py` — `estimate_complexity()` (plus `COMPLEXITY_KEYWORDS`). `refine_idea` unchanged.
+3. `agents/handlers.py` — `_advance()`; 8 forward call rewrites; `handle_refinement` complexity-set; `handle_executing` fallback fix.
+4. `api/constants.py` — `VALID_COMPLEXITIES`.
+5. `api/schemas.py` — `complexity` field + validator on both requests.
+6. `api/managers/kanban_state_manager.py` + `api/board_router.py` — store on create.
+7. *(optional)* `api/schemas.py` `MoveRequest` + `board_router.py:90` — drag guard (policy A).
+8. UI: `CreateItemModal.tsx` dropdown → `usePipelineState.ts` body → `KanbanColumn.tsx` badge → `CardEditor.tsx` override.
+
+### Test plan (new `tests/test_complexity_tiers.py` + updates)
+- **`next_stage` unit table:** for each `(current, tier)` ∈ cartesian product, assert correct successor; `None` for `DONE`/unknown/terminal; `DEFAULT_COMPLEXITY` fallback for `None`/`""`/`"auto"`/typo complexity.
+- **`estimate_complexity` unit:** known-trivial spec (short, health/ping keywords) → `"trivial"`; known-simple → `"simple"`; long multi-service → `"complex"`.
+- **`handle_refinement` integration:** human sets `complexity="trivial"` → refiner does NOT overwrite; human omits (`"auto"`/absent) → refiner sets it; both leave `confidence_score` an `int` (guards against the tuple-regression).
+- **Pipeline tier traversal:** a `trivial` item never visits ARCHITECTURE/TESTING/APPROVED (assert via `process_item` driving a mock state through REFINEMENT→REVIEW_SPEC approved→EXECUTING→DONE, checking `item["stage"]` history never equals a skipped stage).
+- **Executor failure fallback:** `confidence<=0` on a `trivial` item → stage becomes `REVIEW_SPEC`, not `REVIEW_TEST`.
+- **Schema/manager:** `POST /api/items` with `complexity:"simple"` persists it; `PATCH` updates it; unknown value → 422.
+- **Manual move guard (policy A):** move to a skipped stage → 422 (or 200 if also setting complexity).
+- **Regression updates:** `tests/test_refiner.py` — **no change needed** (signature preserved; assert `estimate_complexity` is separate). `tests/test_orchestrator_pipeline.py:71` `return_value=85` patch — **no change** (still an int). Both prior concerns are avoided by the keep-`int` design decision.
+- **Command:** `source venv/bin/activate && pytest tests/test_complexity_tiers.py tests/test_refiner.py tests/test_orchestrator_pipeline.py tests/test_api.py tests/test_managers.py -q` → expect green. Run full suite after.
 
 ---
 
