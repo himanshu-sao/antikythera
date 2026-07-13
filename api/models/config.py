@@ -1,7 +1,18 @@
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, Dict, Any, Literal
 from enum import Enum
 from datetime import datetime
+
+# Allowlist for ``model_id`` values supplied as the ``-m`` argument to the
+# ``bob`` CLI subprocess (ibm_bob provider). The adapter/service splice
+# ``model_id`` directly into argv, so a value beginning with ``-`` would be
+# reinterpreted as another ``bob`` option and must be rejected here at the
+# configuration boundary — not only at the subprocess call site. This is
+# defense-in-depth: today the only writer of ai_config.json is the authenticated
+# AI Engine Config UI, but this stops a bad value regardless of how it arrives.
+_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]*$")
+
 
 class AIProvider(str, Enum):
     OLLAMA = "ollama"
@@ -17,6 +28,22 @@ class ModelConfig(BaseModel):
     """Configuration for a specific AI model"""
     model_id: str
     provider: AIProvider
+
+    @field_validator("model_id")
+    @classmethod
+    def _validate_model_id(cls, v: str) -> str:
+        """Reject model ids that could masquerade as a CLI flag when spliced
+        into the ``bob`` subprocess argv (ibm_bob provider). A leading ``-``
+        would be reinterpreted as a ``bob`` option; empty/garbled ids would
+        either crash the binary or be a latent argv-injection vector. Allowed
+        shape mirrors real ids like ``meta/llama-3.1-405b-instruct``.
+        """
+        if not v or not _MODEL_ID_RE.match(v):
+            raise ValueError(
+                "model_id must be non-empty and not start with '-'; "
+                "allowed chars: letters, digits, and . _ / : -"
+            )
+        return v
     name: str
     endpoint_url: Optional[str] = None  # Custom endpoint if needed
     api_key_env: Optional[str] = None  # Environment variable name for API key (optional, user-customizable)

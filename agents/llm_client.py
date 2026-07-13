@@ -20,6 +20,7 @@ Supported providers (all 8 from ``AIProvider``):
 
 import os
 import logging
+import re
 import subprocess
 import yaml
 from typing import Optional, Dict, Any
@@ -64,6 +65,13 @@ _OPENAI_COMPAT = {
 _IBM_BOB_CLI = "ibm_bob"
 _BOB_BINARY = "bob"
 _BOB_TIMEOUT = 60  # seconds — bob can be slow on first-run auth
+
+# A model id is spliced into the ``bob`` argv as the value of ``-m``. Reject any
+# value that could masquerade as another option (leading ``-``) so a malformed
+# model string — e.g. one supplied via the ``config.yaml`` fallback that bypasses
+# ``ModelConfig``'s boundary validator — cannot perform argv injection. This
+# mirrors ``ModelConfig._validate_model_id`` as defense-in-depth at the call site.
+_BOB_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/:-]*$")
 
 # Ollama's local OpenAI-compatible server. The key value is ignored by Ollama
 # but the OpenAI SDK requires a non-empty string.
@@ -346,8 +354,9 @@ class LLMClient:
             reaches stdout;
           * ``-o text`` — raw completion text (choices: text|json|stream-json).
 
-        On a non-zero exit we raise ``RuntimeError`` carrying stderr, which
-        ``chat()``'s try/except degrades to the stub string.
+        On a non-zero exit we raise ``RuntimeError`` (without stderr in the
+        message — stderr is logged server-side only, see ``chat()``'s except),
+        which ``chat()``'s try/except degrades to the stub string.
         """
         prompt = f"{system_prompt}\n\n{user_prompt}"
         command = [
@@ -358,8 +367,19 @@ class LLMClient:
             "-o", "text",
         ]
         if self.model:
+            # Defense-in-depth: ``ModelConfig._validate_model_id`` screens this
+            # at the config boundary, but ``self.model`` may also come from the
+            # ``config.yaml`` fallback, which bypasses Pydantic. Reject any id
+            # that could masquerade as another ``bob`` option (leading ``-``).
+            if not _BOB_MODEL_ID_RE.match(self.model):
+                raise RuntimeError(
+                    "ibm_bob model id failed allowlist validation"
+                )
             command += ["-m", self.model]
-        command.append(prompt)                  # positional query (not -p)
+        # ``--`` terminates option parsing so neither the model value (above)
+        # nor the positional prompt — which may legitimately begin with ``-`` —
+        # can be reinterpreted as a ``bob`` flag.
+        command += ["--", prompt]
 
         result = subprocess.run(
             command,
@@ -370,9 +390,14 @@ class LLMClient:
             check=False,
         )
         if result.returncode != 0:
-            raise RuntimeError(
-                f"bob CLI exited {result.returncode}: {result.stderr.strip()}"
+            # Log full stderr server-side only; do NOT surface it in the
+            # exception message (chat() turns it into the stub string that can
+            # reach callers/logs). Keep the rc for triage.
+            logger.warning(
+                "bob CLI exited %s; stderr=%r stdout=%r",
+                result.returncode, result.stderr, result.stdout,
             )
+            raise RuntimeError(f"bob CLI exited {result.returncode}")
         return result.stdout.strip()
 
     def generate_structured_content(self, system_prompt: str, user_prompt: str) -> str:

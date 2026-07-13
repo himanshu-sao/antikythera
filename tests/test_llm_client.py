@@ -112,6 +112,8 @@ def test_ibm_bob_chat_invokes_bob_cli_with_verified_flags(tmp_path, monkeypatch)
     """_chat_bob must shell out to ``bob`` with the flags verified against
     ``bob --help`` (positional prompt, --chat-mode ask, empty MCP allow-list,
     --hide-intermediary-output, -o text) and must NOT use the deprecated -p.
+    A ``--`` terminator must precede the positional prompt so a leading-dash
+    prompt can't be reinterpreted as a flag (P2.6 security review).
     """
     lc_mod, client = _make_bob_client(tmp_path, monkeypatch, model="some-model")
     captured = {}
@@ -135,8 +137,14 @@ def test_ibm_bob_chat_invokes_bob_cli_with_verified_flags(tmp_path, monkeypatch)
     assert "-m" in cmd and "some-model" in cmd
     # Deprecated -p must NOT be used.
     assert "-p" not in cmd
-    # The positional prompt is last and contains both system+user.
+    # A `--` terminator guards the positional prompt (no flag reinterpretation).
+    assert "--" in cmd
+    terminator_idx = cmd.index("--")
+    # The prompt is the element right after `--` (no user-controlled data between).
     assert cmd[-1] == "SYS\n\nUSR"
+    assert cmd[terminator_idx + 1] == "SYS\n\nUSR"
+    # Nothing user-controlled sits between the model and the terminator.
+    assert cmd[cmd.index("-m") + 2] == "--"
     # stdout is returned (stripped).
     assert out == "real completion"
 
@@ -156,17 +164,34 @@ def test_ibm_bob_chat_omits_m_when_no_model(tmp_path, monkeypatch):
     assert "-m" not in captured["cmd"]
 
 
+def test_ibm_bob_chat_rejects_model_id_starting_with_dash(tmp_path, monkeypatch):
+    """Security (P2.6 review): a model id that could masquerade as a bob
+    option (leading ``-``) must be rejected by _chat_bob before shelling out,
+    even though config.yaml bypasses ModelConfig's boundary validator. The
+    rejection degrades to the stub string (pipeline never breaks)."""
+    lc_mod, client = _make_bob_client(tmp_path, monkeypatch, model="--yolo")
+    monkeypatch.setattr(
+        lc_mod.subprocess, "run",
+        lambda *a, **k: pytest.fail("must not shell out"),
+    )
+    out = client.chat("s", "u")
+    assert "stub" in out.lower()
+
+
 def test_ibm_bob_chat_nonzero_exit_degrades_to_stub(tmp_path, monkeypatch):
     """A bob CLI failure (rc != 0) must raise RuntimeError out of _chat_bob,
-    which chat() catches and degrades to a stub string (pipeline never breaks)."""
+    which chat() catches and degrades to a stub string (pipeline never breaks).
+    P2.6 security review: stderr is logged server-side only, NOT included in
+    the stub/exception message returned to callers."""
     lc_mod, client = _make_bob_client(tmp_path, monkeypatch, model="m")
     monkeypatch.setattr(
         lc_mod.subprocess, "run",
-        lambda *a, **k: _FakeCompleted(returncode=1, stderr="boom"),
+        lambda *a, **k: _FakeCompleted(returncode=1, stderr="secret-auth-trail"),
     )
     out = client.chat("s", "u")
     assert isinstance(out, str)
     assert "stub" in out.lower()
-    assert "boom" in out  # the underlying error is surfaced for debugging
+    # Raw subprocess stderr must NOT leak into the caller-visible message.
+    assert "secret-auth-trail" not in out
 
 

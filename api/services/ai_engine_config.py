@@ -18,10 +18,11 @@ from pathlib import Path
 from datetime import datetime
 
 from ..models.config import (
-    AIEngineConfig, 
-    ModelConfig, 
+    AIEngineConfig,
+    ModelConfig,
     AIProvider,
-    DEFAULT_AI_ENGINE_CONFIG
+    DEFAULT_AI_ENGINE_CONFIG,
+    _MODEL_ID_RE,
 )
 
 logger = logging.getLogger(__name__)
@@ -398,7 +399,16 @@ class AIEngineConfigService:
         on v1.0.6): ``--chat-mode ask`` for a plain Q&A, ``--allowed-mcp-server-
         names ""`` to skip MCP-server discovery at startup, ``--hide-intermediary-
         output`` and ``-o text`` for a clean stdout, ``-m`` only when a model id
-        is configured (a fabricated id crashes the binary).
+        is configured (a fabricated id crashes the binary). A ``--`` terminator
+        guards the positional "ping" prompt.
+
+        Security notes:
+          * ``model_config.model_id`` is screened by ``ModelConfig``'s boundary
+            validator, but we re-check it here (call-site defense-in-depth)
+            and never splice it in unchecked.
+          * Raw subprocess stderr/stdout is NOT returned to API callers (it
+            may contain auth hints or an MCP-discovery trail); known exit codes
+            map to static messages and the full stderr is logged server-side.
         """
         import subprocess
 
@@ -406,8 +416,13 @@ class AIEngineConfigService:
                    "--allowed-mcp-server-names", "",
                    "--hide-intermediary-output", "-o", "text"]
         if model_config.model_id:
+            if not _MODEL_ID_RE.match(model_config.model_id):
+                return {
+                    "success": False,
+                    "message": "Invalid ibm_bob model_id — must not start with '-' and use only A–Z a–z 0–9 . _ / : -",
+                }
             command += ["-m", model_config.model_id]
-        command += ["-p", "ping"]
+        command += ["--", "ping"]   # positional smoke prompt, terminator guards it
 
         try:
             result = subprocess.run(
@@ -435,9 +450,19 @@ class AIEngineConfigService:
                 "message": "IBM Bob connection successful (bob CLI responsive)",
                 "details": {"model_id": model_config.model_id},
             }
+        # Map known failure modes to static messages; log raw stderr server-side.
+        logger.warning(
+            "bob CLI smoke test exited %s; stderr=%r stdout=%r",
+            result.returncode, result.stderr, result.stdout,
+        )
+        if result.returncode == 1:
+            return {
+                "success": False,
+                "message": "bob CLI reported an error — likely an unrecognized model_id or expired auth; re-check the model id or re-run Bob SSO login",
+            }
         return {
             "success": False,
-            "message": f"bob CLI exited {result.returncode}: {result.stderr.strip() or result.stdout.strip()}",
+            "message": f"bob CLI connectivity check failed (exit {result.returncode}). See server logs for details.",
         }
 
     # ---------------------------------------------------------------------

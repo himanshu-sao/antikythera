@@ -65,18 +65,20 @@ def test_test_ibm_bob_success_shells_out(tmp_path):
     assert "ping" in argv
 
 
-def test_test_ibm_bob_failure_reports_stderr(tmp_path):
-    """A non-zero exit surfaces the stderr in the message (no exception)."""
+def test_test_ibm_bob_failure_uses_static_message_not_raw_stderr(tmp_path):
+    """P2.6 security review: a non-zero exit must return a static message
+    mapped from the exit code — raw subprocess stderr (which may contain
+    auth hints or an MCP-discovery trail) must NOT reach the API caller."""
     svc = _make_service(tmp_path)
     cfg = svc.get_model_config("test-bob-model")
 
-    fake = MagicMock(returncode=2, stdout="", stderr="auth expired")
+    fake = MagicMock(returncode=2, stdout="", stderr="secret-auth-trail")
     with patch("subprocess.run", return_value=fake):
         result = svc._test_ibm_bob(cfg)
 
     assert result["success"] is False
-    assert "exited 2" in result["message"]
-    assert "auth expired" in result["message"]
+    assert "failed" in result["message"]  # static, code-mapped message
+    assert "secret-auth-trail" not in result["message"]
 
 
 def test_test_ibm_bob_missing_binary(tmp_path):

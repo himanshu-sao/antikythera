@@ -156,7 +156,7 @@ class TestBobShellAdapter:
             with patch.dict(os.environ, {"BOB_API_KEY": "test_key"}):
                 result = adapter.execute("run_123", {
                     "prompt": "test prompt",
-                    "args": ["--flag"]
+                    "args": ["--yolo"]
                 }, {})
 
             assert result["status"] == "success"
@@ -179,7 +179,7 @@ class TestBobShellAdapter:
                 }, {})
 
             assert result["status"] == "error"
-            assert "Bob Shell failed: Error message from Bob" in result["message"]
+            assert "Bob Shell command failed" in result["message"]
 
     def test_execute_timeout(self, adapter):
         """Test execution timeout handling"""
@@ -245,6 +245,33 @@ class TestBobShellAdapter:
         assert cmd == ["bob", "-p", "hello bob", "--yolo", "-s"]
         # No key/auth tokens appear anywhere in the argv.
         assert not any("key" in c.lower() for c in cmd)
+
+    def test_build_command_rejects_disallowed_args(self):
+        """Security (P2.6 review): _build_command must reject any arg not on
+        the allowlist fail-closed, so untrusted workflow-template ``args``
+        cannot perform argv injection (e.g. ``-m <foreign-id>``, a leading-
+        dash value, or an arbitrary path)."""
+        from api.adapters.bob_shell import BobShellAdapter
+        with pytest.raises(ValueError, match="Disallowed bob argument"):
+            BobShellAdapter._build_command("p", ["-m", "attacker-model"])
+        with pytest.raises(ValueError, match="Disallowed bob argument"):
+            BobShellAdapter._build_command("p", ["--allowed-tools", "evil"])
+        with pytest.raises(ValueError, match="Disallowed bob argument"):
+            BobShellAdapter._build_command("p", ["--yolo", "--logout"])
+        with pytest.raises(ValueError, match="prompt must be"):
+            BobShellAdapter._build_command("", [])
+
+    def test_execute_rejects_disallowed_args_without_shelling(self, adapter):
+        """Security: execute() must surface the allowlist violation as an
+        error result and never reach subprocess.run."""
+        with patch('subprocess.run') as mock_run:
+            result = adapter.execute("run_123", {
+                "prompt": "p",
+                "args": ["-m", "attacker-model"],
+            }, {})
+        assert result["status"] == "error"
+        assert "Disallowed bob argument" in result["message"]
+        mock_run.assert_not_called()
 
     def test_execute_custom_api_key_env(self, adapter):
         """Test execution with custom API key env var name"""
