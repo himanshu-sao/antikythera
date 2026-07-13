@@ -78,3 +78,95 @@ def test_llm_client_falls_back_to_config_when_service_unusable(tmp_path, monkeyp
     # google stub path still yields a stub string.
     assert "stub" in client.chat("s", "u").lower()
 
+
+def _make_bob_client(tmp_path, monkeypatch, model=None, config_service_disabled=True):
+    """Build an LLMClient pointed at the ibm_bob provider via config.yaml."""
+    from agents import llm_client as lc_mod
+    if config_service_disabled:
+        monkeypatch.setattr(lc_mod, "_resolve_from_config_service", lambda: None)
+    config_path = tmp_path / "config.yaml"
+    llm_cfg = {"provider": "ibm_bob"}
+    if model is not None:
+        llm_cfg["model"] = model
+    with open(config_path, "w") as f:
+        yaml.safe_dump({"llm": llm_cfg}, f)
+    return lc_mod, lc_mod.LLMClient(config_path=str(config_path))
+
+
+class _FakeCompleted:
+    def __init__(self, returncode=0, stdout="answer\n", stderr=""):
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def test_ibm_bob_does_not_build_openai_client(tmp_path, monkeypatch):
+    """ibm_bob is CLI-based: no OpenAI HTTP client should ever be constructed."""
+    lc_mod, client = _make_bob_client(tmp_path, monkeypatch)
+    assert client.provider == "ibm_bob"
+    assert client.client is None
+    assert not client.model  # None / "" — we do not fabricate a default model id
+
+
+def test_ibm_bob_chat_invokes_bob_cli_with_verified_flags(tmp_path, monkeypatch):
+    """_chat_bob must shell out to ``bob`` with the flags verified against
+    ``bob --help`` (positional prompt, --chat-mode ask, empty MCP allow-list,
+    --hide-intermediary-output, -o text) and must NOT use the deprecated -p.
+    """
+    lc_mod, client = _make_bob_client(tmp_path, monkeypatch, model="some-model")
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = cmd
+        return _FakeCompleted(stdout="\nreal completion\n")
+
+    monkeypatch.setattr(lc_mod.subprocess, "run", fake_run)
+    out = client.chat("SYS", "USR")
+
+    cmd = captured["cmd"]
+    assert cmd[0] == "bob"
+    # Verified-good flags are all present.
+    assert "--chat-mode" in cmd and "ask" in cmd
+    assert "--allowed-mcp-server-names" in cmd
+    assert "" in cmd  # empty allow-list value suppresses MCP discovery
+    assert "--hide-intermediary-output" in cmd
+    assert "-o" in cmd and "text" in cmd
+    # Model is passed only when configured.
+    assert "-m" in cmd and "some-model" in cmd
+    # Deprecated -p must NOT be used.
+    assert "-p" not in cmd
+    # The positional prompt is last and contains both system+user.
+    assert cmd[-1] == "SYS\n\nUSR"
+    # stdout is returned (stripped).
+    assert out == "real completion"
+
+
+def test_ibm_bob_chat_omits_m_when_no_model(tmp_path, monkeypatch):
+    """With no model configured we omit -m so bob uses its own default —
+    passing a fabricated id crashes the binary (rc 1, 'critical error')."""
+    lc_mod, client = _make_bob_client(tmp_path, monkeypatch)  # model=None
+    captured = {}
+
+    def fake_run(cmd, *args, **kwargs):
+        captured["cmd"] = cmd
+        return _FakeCompleted(stdout="ok\n")
+
+    monkeypatch.setattr(lc_mod.subprocess, "run", fake_run)
+    client.chat("s", "u")
+    assert "-m" not in captured["cmd"]
+
+
+def test_ibm_bob_chat_nonzero_exit_degrades_to_stub(tmp_path, monkeypatch):
+    """A bob CLI failure (rc != 0) must raise RuntimeError out of _chat_bob,
+    which chat() catches and degrades to a stub string (pipeline never breaks)."""
+    lc_mod, client = _make_bob_client(tmp_path, monkeypatch, model="m")
+    monkeypatch.setattr(
+        lc_mod.subprocess, "run",
+        lambda *a, **k: _FakeCompleted(returncode=1, stderr="boom"),
+    )
+    out = client.chat("s", "u")
+    assert isinstance(out, str)
+    assert "stub" in out.lower()
+    assert "boom" in out  # the underlying error is surfaced for debugging
+
+

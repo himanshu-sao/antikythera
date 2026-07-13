@@ -7,11 +7,28 @@ from api.adapters.base import BaseAdapter
 class BobShellAdapter(BaseAdapter):
     """Adapter to interact with IBM Bob Shell via CLI.
 
-    Executes Bob Shell in non‑interactive mode using the ``bob -p`` command.
-    The caller provides a prompt and optional arguments. Authentication is
-    performed via an API key supplied in an environment variable (default
-    ``BOB_API_KEY``) or retrieved from a secret vault if one is configured.
+    Executes Bob Shell in non-interactive mode using the ``bob -p`` command.
+    The caller provides a prompt and optional extra CLI arguments (e.g.
+    ``["--yolo"]``).
+
+    Authentication is handled entirely by the ``bob`` binary itself: on first
+    run it opens a browser for SSO login, then caches credentials for ~24 hours
+    (see CLAUDE.md gotcha #10). No API key is managed here — the legacy
+    ``api_key_env`` / vault config keys are accepted for backward compatibility
+    but ignored, since ``bob`` does not read them.
     """
+
+    @staticmethod
+    def _build_command(prompt: str, args) -> list:
+        """Build the ``bob`` command line.
+
+        Kept as a static method so tests can assert the exact argv shape
+        without shelling out. We use the ``-p`` prompt form (still supported
+        on bob v1.0.6; ``bob --help`` marks it deprecated but functional) for
+        parity with the existing integration-test contract. Extra ``args``
+        (options like ``--yolo``) are appended.
+        """
+        return ["bob", "-p", prompt, *args]
 
     def __init__(self, vault=None):
         super().__init__(vault)
@@ -21,32 +38,23 @@ class BobShellAdapter(BaseAdapter):
 
         Expected ``config`` keys:
             - ``prompt`` (str): Prompt to send to Bob.
-            - ``args`` (list[str], optional): Additional CLI arguments (e.g. ``[\"--yolo\"]``).
-            - ``api_key_env`` (str, optional): Name of the env var holding the Bob API key.
-        Returns a dict with ``status`` and either ``output`` on success or ``message`` on error.
+            - ``args`` (list[str], optional): Additional CLI arguments
+              (e.g. ``["--yolo"]``).
+            - ``api_key_env`` (str, optional): IGNORED — kept for backward
+              compatibility. ``bob`` manages its own auth (browser SSO + 24h
+              cache), so no key is required to invoke the binary.
+        Returns a dict with ``status`` and either ``output`` on success or
+        ``message`` on error.
         """
         prompt = config.get("prompt")
         if not prompt:
             return {"status": "error", "message": "Missing 'prompt' in config"}
 
-        args = config.get("args", [])
-        api_key_env = config.get("api_key_env", "BOB_API_KEY")
+        args = config.get("args", []) or []
 
-        # Resolve API key from environment or vault
-        api_key = os.getenv(api_key_env)
-        if not api_key and self.vault:
-            secret = self.vault.get_secret("bob")
-            if secret:
-                api_key = secret.get("api_key")
-        if not api_key:
-            return {"status": "error", "message": f"Bob API key not found in env var {api_key_env}"}
-
-        # Build the command line
-        command = ["bob", "-p", prompt] + args
-
-        # Prepare environment with the API key
-        env = os.environ.copy()
-        env[api_key_env] = api_key
+        # Build the command line. ``bob`` manages its own auth, so no API key
+        # is injected into the environment.
+        command = self._build_command(prompt, args)
 
         try:
             result = subprocess.run(
@@ -54,7 +62,7 @@ class BobShellAdapter(BaseAdapter):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
-                env=env,
+                env=os.environ.copy(),
                 timeout=30,
                 check=False,
             )
@@ -63,6 +71,8 @@ class BobShellAdapter(BaseAdapter):
             return {"status": "success", "output": result.stdout.strip()}
         except subprocess.TimeoutExpired:
             return {"status": "error", "message": "Bob Shell command timed out"}
+        except FileNotFoundError:
+            return {"status": "error", "message": "bob CLI not found on PATH"}
         except Exception as e:
             return {"status": "error", "message": str(e)}
 

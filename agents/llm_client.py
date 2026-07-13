@@ -20,6 +20,7 @@ Supported providers (all 8 from ``AIProvider``):
 
 import os
 import logging
+import subprocess
 import yaml
 from typing import Optional, Dict, Any
 from openai import OpenAI
@@ -50,10 +51,19 @@ logger = logging.getLogger(__name__)
 
 # Providers that speak the OpenAI-compatible Chat Completions API. Routed
 # through a single ``OpenAI`` client with a per-provider base_url.
+# NOTE: ``ibm_bob`` is NOT here — it shells out to the local ``bob`` CLI binary
+# which manages its own auth (browser SSO, 24h cache). See ``_chat_bob``.
 _OPENAI_COMPAT = {
-    "openai", "nvidia_nim", "ibm_bob", "openrouter",
+    "openai", "nvidia_nim", "openrouter",
     "lm_studio", "anthropic", "ollama",
 }
+
+# ``ibm_bob`` is reached via the local ``bob`` CLI binary (subprocess), not
+# over HTTP. The binary handles its own authentication, so no API key is
+# managed by the LLMClient.
+_IBM_BOB_CLI = "ibm_bob"
+_BOB_BINARY = "bob"
+_BOB_TIMEOUT = 60  # seconds — bob can be slow on first-run auth
 
 # Ollama's local OpenAI-compatible server. The key value is ignored by Ollama
 # but the OpenAI SDK requires a non-empty string.
@@ -168,7 +178,22 @@ class LLMClient:
                 self.client = None
             return
 
-        # OpenAI-compatible Chat Completions — covers 7 providers.
+        # ibm_bob is CLI-based, not HTTP — no OpenAI client to construct.
+        # The ``bob`` binary manages its own auth (browser SSO, 24h cache).
+        # We just record the resolved model id; the actual subprocess call
+        # happens in ``_chat_bob``. If the binary isn't on PATH, ``chat()``
+        # degrades gracefully to the stub string (the FileNotFoundError is
+        # caught by the chat() try/except).
+        if prov == _IBM_BOB_CLI:
+            # Do NOT fabricate a default model id — an id the ``bob`` binary
+            # doesn't recognize crashes it with "An unexpected critical error
+            # occurred: [object Object]" (rc 1). If none is configured we
+            # leave ``self.model`` empty and ``_chat_bob`` omits ``-m`` so
+            # ``bob`` uses its own default model.
+            self.client = None
+            return
+
+        # OpenAI-compatible Chat Completions — covers 6 providers.
         if prov in _OPENAI_COMPAT:
             api_key = self._resolved_api_key
             base_url = self.base_url
@@ -199,7 +224,7 @@ class LLMClient:
                     logger.warning("No API key provided for Anthropic. Requests will likely fail.")
 
             else:
-                # nvidia_nim, ibm_bob, openrouter, lm_studio — model id is the
+                # nvidia_nim, openrouter, lm_studio — model id is the
                 # preconfigured model_id string; base_url from the service.
                 if not api_key and prov != "lm_studio":
                     logger.warning(f"No API key for provider {prov}. Requests will likely fail.")
@@ -233,6 +258,9 @@ class LLMClient:
         try:
             if self.provider in ("google", "google_gemma"):
                 return self._chat_google(system_prompt, user_prompt, temperature)
+
+            if self.provider == _IBM_BOB_CLI:
+                return self._chat_bob(system_prompt, user_prompt, temperature)
 
             if self.provider in _OPENAI_COMPAT:
                 return self._chat_openai(system_prompt, user_prompt, temperature)
@@ -288,6 +316,64 @@ class LLMClient:
             config=config,
         )
         return response.text
+
+    def _chat_bob(self, system_prompt: str, user_prompt: str,
+                  temperature: float) -> str:
+        """Route a chat through the local ``bob`` CLI binary (ibm_bob provider).
+
+        ``ibm_bob`` is the only non-HTTP provider: it shells out to the
+        ``bob`` binary, which manages its own authentication (first-run
+        browser SSO, then cached credentials valid ~24 hours). No API key
+        is managed here.
+
+        The ``bob`` CLI takes a single prompt string (no separate
+        system/user split), so the system prompt is prepended to the user
+        prompt and passed as the positional ``query`` argument. Flags
+        chosen against ``bob --help`` and verified empirically on v1.0.6:
+
+          * positional prompt — ``-p``/``--prompt`` is deprecated and will
+            be removed in a future ``bob`` version;
+          * ``-m`` only when a model is configured — passing an id the binary
+            doesn't recognize crashes it ("An unexpected critical error
+            occurred: [object Object]"). With no ``-m``, ``bob`` uses its
+            own default model;
+          * ``--chat-mode ask`` — plain Q&A; without it ``bob`` returns the
+            full ``<thinking>`` agentic trace instead of just the answer;
+          * ``--allowed-mcp-server-names ""`` — empty allow-list skips
+            MCP-server discovery at startup (otherwise ``bob`` emits
+            connection errors for unreachable servers on stderr);
+          * ``--hide-intermediary-output`` — only the final completion
+            reaches stdout;
+          * ``-o text`` — raw completion text (choices: text|json|stream-json).
+
+        On a non-zero exit we raise ``RuntimeError`` carrying stderr, which
+        ``chat()``'s try/except degrades to the stub string.
+        """
+        prompt = f"{system_prompt}\n\n{user_prompt}"
+        command = [
+            _BOB_BINARY,
+            "--chat-mode", "ask",
+            "--allowed-mcp-server-names", "",   # [] -> skip MCP discovery
+            "--hide-intermediary-output",
+            "-o", "text",
+        ]
+        if self.model:
+            command += ["-m", self.model]
+        command.append(prompt)                  # positional query (not -p)
+
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=_BOB_TIMEOUT,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"bob CLI exited {result.returncode}: {result.stderr.strip()}"
+            )
+        return result.stdout.strip()
 
     def generate_structured_content(self, system_prompt: str, user_prompt: str) -> str:
         """

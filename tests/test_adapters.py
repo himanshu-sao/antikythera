@@ -213,18 +213,38 @@ class TestBobShellAdapter:
             assert result["status"] == "success"
             assert result["output"] == "Output from vault key"
 
-    def test_execute_fails_when_no_key(self, adapter, mock_vault):
-        """Test execution fails when no API key available"""
+    def test_execute_succeeds_without_api_key(self, adapter, mock_vault):
+        """P2.6: bob manages its own auth (browser SSO + 24h cache), so
+        execute() must NOT require an API key — it proceeds straight to the
+        subprocess even with an empty vault and no env var set."""
         mock_vault.secrets = {}
 
-        with patch.dict(os.environ, {}, clear=True):
-            result = adapter.execute("run_123", {
-                "prompt": "test prompt",
-                "args": []
-            }, {})
+        with patch('subprocess.run') as mock_run:
+            mock_result = MagicMock()
+            mock_result.returncode = 0
+            mock_result.stdout = "Bob ran without any key"
+            mock_result.stderr = ""
+            mock_run.return_value = mock_result
 
-        assert result["status"] == "error"
-        assert "Bob API key not found" in result["message"]
+            with patch.dict(os.environ, {}, clear=True):
+                result = adapter.execute("run_123", {
+                    "prompt": "test prompt",
+                    "args": []
+                }, {})
+
+        assert result["status"] == "success"
+        assert result["output"] == "Bob ran without any key"
+        mock_run.assert_called_once()
+
+    def test_build_command_shape(self):
+        """P2.6: _build_command must produce the verified CLI pattern —
+        ``bob -p <prompt>`` followed by any extra option args. No API-key
+        flag is ever passed (bob manages its own auth)."""
+        from api.adapters.bob_shell import BobShellAdapter
+        cmd = BobShellAdapter._build_command("hello bob", ["--yolo", "-s"])
+        assert cmd == ["bob", "-p", "hello bob", "--yolo", "-s"]
+        # No key/auth tokens appear anywhere in the argv.
+        assert not any("key" in c.lower() for c in cmd)
 
     def test_execute_custom_api_key_env(self, adapter):
         """Test execution with custom API key env var name"""

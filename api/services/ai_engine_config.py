@@ -222,7 +222,8 @@ class AIEngineConfigService:
         try:
             # Check if API key is set (only if api_key_env is defined)
             api_key = self.get_api_key(model_id)
-            needs_api_key = model_config.provider in [AIProvider.IBM_BOB, AIProvider.GOOGLE_GEMMA, AIProvider.NVIDIA_NIM]
+            # ibm_bob is CLI-based — bob manages its own auth, so no API key is required.
+            needs_api_key = model_config.provider in [AIProvider.GOOGLE_GEMMA, AIProvider.NVIDIA_NIM]
             if needs_api_key and model_config.api_key_env and not api_key:
                 return {
                     "success": False,
@@ -385,45 +386,60 @@ class AIEngineConfigService:
             }
     
     def _test_ibm_bob(self, model_config: ModelConfig) -> Dict[str, Any]:
-        """Test IBM Bob connection"""
-        import httpx
-        import os
-        
-        api_key = os.environ.get(model_config.api_key_env)
-        if not api_key:
-            return {
-                "success": False,
-                "message": f"IBM Bob API key not set. Set {model_config.api_key_env}"
-            }
-        
+        """Test IBM Bob connectivity via the local ``bob`` CLI binary.
+
+        ``ibm_bob`` is a *CLI-based* provider (see CLAUDE.md gotcha #10): there is
+        no HTTP endpoint to probe. The ``bob`` binary manages its own auth
+        (first-run browser SSO, cached credentials valid ~24 hours), so this
+        smoke test just shells out a trivial "ping" prompt and checks the exit
+        code. No API key is inspected.
+
+        Flags mirror ``LLMClient._chat_bob`` (verified against ``bob --help``
+        on v1.0.6): ``--chat-mode ask`` for a plain Q&A, ``--allowed-mcp-server-
+        names ""`` to skip MCP-server discovery at startup, ``--hide-intermediary-
+        output`` and ``-o text`` for a clean stdout, ``-m`` only when a model id
+        is configured (a fabricated id crashes the binary).
+        """
+        import subprocess
+
+        command = ["bob", "--chat-mode", "ask",
+                   "--allowed-mcp-server-names", "",
+                   "--hide-intermediary-output", "-o", "text"]
+        if model_config.model_id:
+            command += ["-m", model_config.model_id]
+        command += ["-p", "ping"]
+
         try:
-            # IBM Bob typically uses a models endpoint
-            url = f"{model_config.provider_config.get('base_url', 'https://bob-api.cloud.ibm.com')}/v1/models"
-            
-            with httpx.Client(timeout=10) as client:
-                response = client.get(
-                    url,
-                    headers={"Authorization": f"Bearer {api_key}"}
-                )
-            
-            if response.status_code == 200:
-                return {
-                    "success": True,
-                    "message": "IBM Bob connection successful",
-                    "details": {"endpoint": model_config.endpoint_url}
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": f"IBM Bob returned status {response.status_code}"
-                }
-        
-        except Exception as e:
+            result = subprocess.run(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except FileNotFoundError:
             return {
                 "success": False,
-                "message": f"IBM Bob test failed: {str(e)}"
+                "message": "bob CLI not found on PATH — install the bob binary and retry",
             }
-    
+        except subprocess.TimeoutExpired:
+            return {
+                "success": False,
+                "message": "bob CLI test timed out (30s) — check first-run browser SSO auth",
+            }
+
+        if result.returncode == 0:
+            return {
+                "success": True,
+                "message": "IBM Bob connection successful (bob CLI responsive)",
+                "details": {"model_id": model_config.model_id},
+            }
+        return {
+            "success": False,
+            "message": f"bob CLI exited {result.returncode}: {result.stderr.strip() or result.stdout.strip()}",
+        }
+
     # ---------------------------------------------------------------------
     # Model discovery helpers (real provider calls)
     # ---------------------------------------------------------------------
@@ -502,31 +518,21 @@ class AIEngineConfigService:
             raise AIEngineConfigError(f"Failed to list Google Gemma models: {exc}")
 
     def _list_ibm_bob_models(self, model_cfg: ModelConfig) -> List[str]:
-        """Query IBM Bob for its model list.
-+
-+        Uses the ``/v1/models`` endpoint with a Bearer token.
-+        The response format is assumed to contain a ``models`` array with ``model_id``.
-+        """
-        import httpx
-        api_key = os.getenv(model_cfg.api_key_env or "")
-        if not api_key:
-            raise AIEngineConfigError(
-                f"IBM Bob API key not set. Set env var {model_cfg.api_key_env}"
-            )
-        base = model_cfg.provider_config.get(
-            "base_url", "https://bob-api.cloud.ibm.com"
-        ).rstrip("/")
-        try:
-            resp = httpx.get(
-                f"{base}/v1/models",
-                headers={"Authorization": f"Bearer {api_key}"},
-                timeout=10,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return [m.get("model_id") for m in data.get("models", []) if m.get("model_id")]
-        except Exception as exc:
-            raise AIEngineConfigError(f"Failed to list IBM Bob models: {exc}")
+        """Return the statically-configured ``ibm_bob`` model id(s).
+
+        ``ibm_bob`` is a *CLI-based* provider (see CLAUDE.md gotcha #10): the
+        ``bob`` binary has no ``--list-models`` command (confirmed via
+        ``bob --help``), and no HTTP model-catalogue endpoint. So unlike the
+        HTTP providers, the only "available model" we can report is the one
+        configured in ``ai_config.json`` itself. We return it as a single-element
+        list so the public ``list_provider_models`` contract (``List[str]``) is
+        preserved and the UI can show it.
+        """
+        if model_cfg.model_id:
+            return [model_cfg.model_id]
+        raise AIEngineConfigError(
+            "No ibm_bob model_id configured — set a model_id in ai_config.json"
+        )
 
     def _list_lm_studio_models(self, model_cfg: ModelConfig) -> List[str]:
         """Query a running LM Studio instance for its model list.
@@ -574,7 +580,8 @@ class AIEngineConfigService:
         models: List[Dict[str, Any]] = []
         for model_id, cfg in self.config.models.items():
             is_default = model_id == self.config.default_model_id
-            needs_key = cfg.provider in [AIProvider.IBM_BOB, AIProvider.GOOGLE_GEMMA, AIProvider.NVIDIA_NIM]
+            # ibm_bob is CLI-based — bob manages its own auth, so no API key is required.
+            needs_key = cfg.provider in [AIProvider.GOOGLE_GEMMA, AIProvider.NVIDIA_NIM]
             api_key_set = False
             if cfg.api_key_env:
                 api_key_set = bool(self.get_api_key(model_id))
