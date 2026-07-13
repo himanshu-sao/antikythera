@@ -143,6 +143,21 @@ class TestTemplateManager:
             assert "trigger" in t
             assert "id" in t
 
+    def test_committed_templates_have_nonempty_steps(self):
+        """P3.7 regression guard: no persisted template should have steps: []."""
+        import os, json
+        from pathlib import Path
+
+        repo_root = Path(__file__).resolve().parents[1]
+        tpl_path = repo_root / "automation-ideas" / "workflow_templates.json"
+        if not tpl_path.exists():
+            pytest.skip("workflow_templates.json not present in this checkout")
+
+        data = json.loads(tpl_path.read_text())
+        assert len(data) > 0, "template file is empty"
+        empty = [tid for tid, tpl in data.items() if isinstance(tpl.get("steps"), list) and len(tpl["steps"]) == 0]
+        assert empty == [], f"Templates with empty steps found: {empty}"
+
 
 class TestRunManager:
     """Tests for RunManager - manages workflow_runs.json"""
