@@ -5,7 +5,8 @@ These test the new state management layer that replaces the legacy StateManager.
 import os
 import tempfile
 import shutil
-from datetime import datetime
+import json
+from datetime import datetime, timezone, timedelta
 import pytest
 
 from api.managers.template_manager import TemplateManager
@@ -13,6 +14,11 @@ from api.managers.run_manager import RunManager
 from api.managers.binding_manager import BindingManager
 from api.managers.kanban_state_manager import KanbanStateManager
 from api.workflow_state_manager import WorkflowStateManager
+
+
+def _iso(ts: datetime) -> str:
+    """Format a datetime the way RunManager writes started_at (UTC, trailing Z)."""
+    return ts.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class TestTemplateManager:
@@ -256,6 +262,132 @@ class TestRunManager:
         """Test that timeline is empty for non-existent run"""
         timeline = manager.get_run_timeline("nonexistent")
         assert timeline == []
+
+    # --- P3.3: orphaned run reaping on startup ---
+
+    def test_reap_marks_stale_running_run_as_failed(self, manager):
+        """A RUNNING run older than the threshold is reaped to FAILED."""
+        now = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
+        runs = {
+            "run_old": {
+                "template_id": "T",
+                "status": "RUNNING",
+                "started_at": _iso(now - timedelta(hours=2)),  # 2h old -> stale
+            }
+        }
+        with open(manager.path, "w") as f:
+            json.dump(runs, f)
+
+        reaped = manager.reap_stale_runs(max_age_seconds=3600, now=now)
+
+        assert reaped == ["run_old"]
+        run = manager.get_run("run_old")
+        assert run["status"] == "FAILED"
+        assert run["reap_reason"] == "orphaned: server restart"
+        assert run["reaped_at"].endswith("Z")
+        # Audit trail: a RUN_REAPED event was logged.
+        assert manager.get_run_timeline("run_old")[0]["event_type"] == "RUN_REAPED"
+
+    def test_reap_preserves_fresh_running_run(self, manager):
+        """A RUNNING run younger than the threshold is left alone."""
+        now = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
+        runs = {
+            "run_fresh": {
+                "template_id": "T",
+                "status": "RUNNING",
+                "started_at": _iso(now - timedelta(minutes=5)),  # 5min -> not stale
+            }
+        }
+        with open(manager.path, "w") as f:
+            json.dump(runs, f)
+
+        reaped = manager.reap_stale_runs(max_age_seconds=3600, now=now)
+
+        assert reaped == []
+        assert manager.get_run("run_fresh")["status"] == "RUNNING"
+
+    def test_reap_handles_lowercase_executing_status(self, manager):
+        """The lowercase ``executing`` status leaked by pipeline runs is also reaped."""
+        now = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
+        runs = {
+            "P2-3-deadbeef": {
+                "item_id": "E2E-TEST-002-RETRY",
+                "status": "executing",
+                "steps": [],
+                "started_at": _iso(now - timedelta(days=1)),
+            }
+        }
+        with open(manager.path, "w") as f:
+            json.dump(runs, f)
+
+        reaped = manager.reap_stale_runs(max_age_seconds=3600, now=now)
+
+        assert reaped == ["P2-3-deadbeef"]
+        assert manager.get_run("P2-3-deadbeef")["status"] == "FAILED"
+
+    def test_reap_preserves_terminal_runs(self, manager):
+        """COMPLETED / BLOCKED / FAILED runs are never reaped, however old."""
+        now = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
+        runs = {
+            "r_completed": {"status": "COMPLETED", "started_at": _iso(now - timedelta(days=30))},
+            "r_blocked": {"status": "BLOCKED", "started_at": _iso(now - timedelta(days=30))},
+            "r_failed": {"status": "FAILED", "started_at": _iso(now - timedelta(days=30))},
+        }
+        with open(manager.path, "w") as f:
+            json.dump(runs, f)
+
+        reaped = manager.reap_stale_runs(max_age_seconds=3600, now=now)
+
+        assert reaped == []
+        assert manager.get_run("r_completed")["status"] == "COMPLETED"
+        assert manager.get_run("r_blocked")["status"] == "BLOCKED"
+        assert manager.get_run("r_failed")["status"] == "FAILED"
+
+    def test_reap_treats_unparseable_started_at_as_stale(self, manager):
+        """A RUNNING run with no usable started_at is assumed ancient and reaped."""
+        runs = {
+            "run_bad": {"status": "RUNNING", "started_at": "not-a-timestamp"},
+            "run_missing": {"status": "RUNNING"},  # no started_at at all
+        }
+        with open(manager.path, "w") as f:
+            json.dump(runs, f)
+
+        reaped = manager.reap_stale_runs(max_age_seconds=3600)
+
+        assert sorted(reaped) == ["run_bad", "run_missing"]
+        assert manager.get_run("run_bad")["status"] == "FAILED"
+        assert manager.get_run("run_missing")["status"] == "FAILED"
+
+    def test_reap_mixed_set_only_reaps_stale_active(self, manager):
+        """A realistic mix: only stale in-flight runs are reaped."""
+        now = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
+        runs = {
+            "stale_running": {"status": "RUNNING", "started_at": _iso(now - timedelta(hours=5))},
+            "stale_executing": {"status": "executing", "started_at": _iso(now - timedelta(hours=5))},
+            "fresh_running": {"status": "RUNNING", "started_at": _iso(now - timedelta(minutes=10))},
+            "old_completed": {"status": "COMPLETED", "started_at": _iso(now - timedelta(days=5))},
+            "old_blocked": {"status": "BLOCKED", "started_at": _iso(now - timedelta(days=5))},
+        }
+        with open(manager.path, "w") as f:
+            json.dump(runs, f)
+
+        reaped = manager.reap_stale_runs(max_age_seconds=3600, now=now)
+
+        assert sorted(reaped) == ["stale_executing", "stale_running"]
+        assert manager.get_run("fresh_running")["status"] == "RUNNING"
+        assert manager.get_run("old_completed")["status"] == "COMPLETED"
+        assert manager.get_run("old_blocked")["status"] == "BLOCKED"
+
+    def test_reap_returns_empty_when_no_runs(self, manager):
+        """Reaping an empty store is a no-op that returns []."""
+        assert manager.reap_stale_runs() == []
+
+    def test_get_all_returns_every_run(self, manager):
+        """get_all_runs() returns the full run_id->run_data mapping."""
+        for rid in ("a", "b", "c"):
+            manager.create_run(rid, {"template_id": "T", "status": "RUNNING"})
+        all_runs = manager.get_all_runs()
+        assert set(all_runs.keys()) == {"a", "b", "c"}
 
 
 class TestBindingManager:
@@ -508,6 +640,42 @@ class TestWorkflowStateManager:
         run_id = manager.get_run_id_for_item("ID-101")
         assert run_id == "run_xyz"
 
+
+class TestLifespanReaping:
+    """P3.3: the FastAPI lifespan startup must reap orphaned in-flight runs.
+
+    Entering ``TestClient(app)`` as a context manager fires lifespan startup,
+    which calls ``get_state_manager().runs.reap_stale_runs()``. The autouse
+    ``reset_state_manager`` conftest fixture points ``api.main.state_manager``
+    at a per-test ``tmp_path/automation-ideas`` dir, so we write a stale run
+    there and assert it flips to FAILED on startup.
+    """
+
+    def test_lifespan_reaps_stale_run_on_startup(self):
+        import api.main
+        from fastapi.testclient import TestClient
+
+        # The autouse reset_state_manager conftest fixture already swapped
+        # api.main.state_manager to a fresh temp dir for this test, and the
+        # lifespan reads via get_state_manager() — so we just plant a stale
+        # run in its runs file and enter the client to fire startup.
+        sm = api.main.get_state_manager()
+        runs_path = sm.runs.path  # a plain str
+
+        with open(runs_path, "w") as f:
+            json.dump({
+                "run_zombie": {
+                    "template_id": "T",
+                    "status": "RUNNING",
+                    "started_at": "2026-05-24T05:55:48.802179Z",  # ~2 months old -> stale
+                }
+            }, f)
+
+        with TestClient(api.main.app):
+            # Startup has now run; the zombie should have been reaped.
+            run = sm.runs.get_run("run_zombie")
+            assert run["status"] == "FAILED"
+            assert run["reap_reason"] == "orphaned: server restart"
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

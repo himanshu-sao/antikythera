@@ -49,7 +49,20 @@ from api.routers.ai_engine_config_router import router as ai_engine_config_route
 # Include Jira integration routes
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: boot the scheduler.  Shutdown: stop it cleanly."""
+    """Startup: reap orphaned runs, then boot the scheduler.  Shutdown: stop it cleanly."""
+    # P3.3: any run left in an in-flight status (RUNNING/executing/...) from a
+    # previous process is an orphan — nothing is driving it. Mark it FAILED on
+    # boot so the board doesn't show ghost "in progress" runs forever. Safe to
+    # call before the scheduler starts since it only touches workflow_runs.json.
+    # Uses get_state_manager() so tests that swap the module-level state_manager
+    # (per conftest.reset_state_manager) also redirect this reap to their temp dir.
+    try:
+        get_state_manager().runs.reap_stale_runs()
+    except Exception:
+        # Reaping is best-effort; never block app startup on it.
+        import logging
+        logging.getLogger("antikythera.lifespan").exception("Startup run reap failed")
+
     scheduler = app.state.scheduler
     if scheduler is not None:
         scheduler.start()
