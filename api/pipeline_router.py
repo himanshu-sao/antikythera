@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 from .models.automation import Pipeline, Path, PathStep, PipelineRun
-from .secret_vault import SecretVault
 import uuid
 from datetime import datetime
 import os
@@ -10,7 +9,8 @@ import os
 # Use the same base directory as main.py
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "automation-ideas"))
 os.makedirs(BASE_DIR, exist_ok=True)
-vault = SecretVault(BASE_DIR)
+# P3.4: removed dead `from .secret_vault import SecretVault` + `vault = SecretVault(BASE_DIR)`
+# instantiation here — unused, and they created `.vault.key`/`secrets.vault` on disk at import.
 
 router = APIRouter()
 

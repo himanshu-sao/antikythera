@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from api.brain_api import app
+from api.main import app
 from api.brain_schemas import ObserverEvent
 import os
 import json

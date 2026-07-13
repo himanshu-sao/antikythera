@@ -131,6 +131,6 @@ async def ingest_event(request: Request, event: ObserverEvent = Body(...)):
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-from fastapi import FastAPI
-app = FastAPI()
-app.include_router(router)
+
+# P3.5: removed the dead second `app = FastAPI()` / `app.include_router(router)` instance that
+# lived here — main.py imports `router` and mounts it on the real app; tests use api.main.app.

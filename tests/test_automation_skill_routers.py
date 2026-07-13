@@ -249,3 +249,88 @@ def test_skill_router_no_longer_instantiates_secret_vault(tmp_path):
         # Restore the real imported module for the rest of the suite.
         sys.modules.pop("api.skill_router", None)
         importlib.import_module("api.skill_router")
+
+
+# --------------------------------------------------------------------------
+# P3.4 regression guard: pipeline_router must not instantiate SecretVault at import
+# (the half of P3.4 the skill guard does not cover)
+# --------------------------------------------------------------------------
+def test_pipeline_router_no_longer_instantiates_secret_vault(tmp_path):
+    cwd = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        sys.modules.pop("api.pipeline_router", None)
+        importlib.import_module("api.pipeline_router")
+
+        assert not (tmp_path / ".vault.key").exists(), (
+            "pipeline_router created .vault.key at import — SecretVault re-introduced?"
+        )
+        assert not (tmp_path / "secrets.vault").exists(), (
+            "pipeline_router created secrets.vault at import — SecretVault re-introduced?"
+        )
+    finally:
+        os.chdir(cwd)
+        sys.modules.pop("api.pipeline_router", None)
+        importlib.import_module("api.pipeline_router")
+
+
+# --------------------------------------------------------------------------
+# P2.5: POST /api/workflows/trigger — UI (WorkflowManager.tsx) calls this with
+# {template_id, inputs} and expects {status, run_id, message}.
+# --------------------------------------------------------------------------
+def test_trigger_workflow_404_for_missing_template(client, tmp_path):
+    resp = client.post("/api/workflows/trigger", json={
+        "template_id": "definitely_not_a_real_template_xyz",
+        "inputs": {},
+    })
+    assert resp.status_code == 404, resp.text
+    assert "not found" in resp.json()["detail"].lower()
+
+
+def test_trigger_workflow_creates_run_for_known_template(client, tmp_path):
+    # Seed a template through the app's own state manager so the run is resolvable.
+    from api.main import get_state_manager
+    sm = get_state_manager()
+    template_id = "test_trigger_tpl"
+    sm.templates.save_template(template_id, {"name": "Trigger Test", "steps": []})
+    try:
+        resp = client.post("/api/workflows/trigger", json={
+            "template_id": template_id,
+            "inputs": {},
+        })
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data["status"] == "success"
+        assert data["run_id"].startswith("run_")
+        assert "message" in data
+        # The run must actually exist in state.
+        assert sm.runs.get_run(data["run_id"]) is not None
+        assert sm.runs.get_run(data["run_id"])["template_id"] == template_id
+    finally:
+        # Clean up the seeded template + run so other tests stay isolated.
+        try:
+            sm.templates.delete_template(template_id)
+        except Exception:
+            pass
+
+
+def test_trigger_workflow_accepts_inputs_with_item_id(client, tmp_path):
+    """inputs.item_id, if provided, should bind the new run to that board item."""
+    from api.main import get_state_manager
+    sm = get_state_manager()
+    template_id = "test_trigger_bind_tpl"
+    sm.templates.save_template(template_id, {"name": "Bind Test", "steps": []})
+    try:
+        resp = client.post("/api/workflows/trigger", json={
+            "template_id": template_id,
+            "inputs": {"item_id": "ID-TRIG-1"},
+        })
+        assert resp.status_code == 200, resp.text
+        run_id = resp.json()["run_id"]
+        # The binding should be recorded for that item.
+        assert sm.bindings.get_run_id_for_item("ID-TRIG-1") == run_id
+    finally:
+        try:
+            sm.templates.delete_template(template_id)
+        except Exception:
+            pass
