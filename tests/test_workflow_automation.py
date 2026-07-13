@@ -8,15 +8,22 @@ from api.state_manager import StateManager
 class TestAntikytheraAutomation(unittest.TestCase):
     def setUp(self):
         self.test_dir = "./automation-ideas/test_suite"
-        self.state_file = "./automation-ideas/pipeline-state.json"
+        # Isolate the "main_state_mgr" from the live pipeline-state.json —
+        # pointing it at the checkout's data file leaks test items (e.g.
+        # FAIL-ITEM) into the real state and breaks backfill guards. Use a
+        # dedicated tmp state file inside the test_dir, cleaned in tearDown.
+        self.test_state_dir = "./automation-ideas/test_suite_state"
+        self.state_file = os.path.join(self.test_state_dir, "pipeline-state.json")
         os.makedirs(self.test_dir, exist_ok=True)
+        os.makedirs(self.test_state_dir, exist_ok=True)
         self.wf_mgr = WorkflowStateManager(self.test_dir)
         self.engine = WorkflowEngine(self.test_dir)
-        self.main_state_mgr = StateManager(self.state_file)
+        self.main_state_mgr = StateManager(self.test_state_dir)
 
     def tearDown(self):
-        if os.path.exists(self.test_dir):
-            shutil.rmtree(self.test_dir)
+        for d in (self.test_dir, self.test_state_dir):
+            if os.path.exists(d):
+                shutil.rmtree(d)
 
     def test_end_to_end_multi_integration_success(self):
         """Verify that a run using multiple adapters completes and updates the board."""

@@ -20,13 +20,16 @@ class TestApi(unittest.TestCase):
         # We must update the state_manager instance used by the app
         api.main.state_manager = StateManager("tests")
         
-        # Initial state
+        # Initial state (well-formed: every item carries a real ISO created_at,
+        # so P3.6's load-time sanitizer leaves it untouched and the strict-
+        # equality assertion below stays meaningful).
         self.initial_state = {
             "items": {
                 "ID-001": {
                     "title": "Test Item 1",
                     "priority": "High",
                     "stage": "INTAKE",
+                    "created_at": "2026-05-15T00:00:00Z",
                     "updated_at": "2026-05-15T00:00:00Z",
                     "comments": []
                 }

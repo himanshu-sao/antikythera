@@ -1,16 +1,28 @@
+import json
 import os
 import pytest
-from importlib import reload
+
+from agents import state as state_mod
+from filelock import FileLock
+
 
 def test_state_crud(tmp_path, monkeypatch):
-    import agents.state as state_mod
-    # Override STATE_FILE and LOCK_FILE to temporary locations
+    """Exercise agents.state helpers with an isolated temporary state file.
+
+    P3.6 NOTE: ``save_state`` / ``load_state`` read/write ``STATE_FILE``
+    directly, so we monkeypatch those module-level constants *and* the
+    FileLock imported at module scope. We do NOT use ``reload()`` because
+    it re-executes the ``from api.managers._timestamps import sanitize_state``
+    import, which drags in api managers that may already have a reference
+    to the live ``pipeline-state.json`` path — causing writes to leak to
+    the real file when the full test suite runs.
+    """
     state_file = tmp_path / "pipeline-state.json"
     lock_file = tmp_path / "pipeline-state.json.lock"
+
     monkeypatch.setattr(state_mod, "STATE_FILE", str(state_file))
     monkeypatch.setattr(state_mod, "LOCK_FILE", str(lock_file))
-    # reload to recreate the FileLock with new path
-    reload(state_mod)
+    monkeypatch.setattr(state_mod, "_lock", FileLock(str(lock_file)))
 
     # Start with default state, then save and load
     default = state_mod._default_state()
@@ -18,9 +30,12 @@ def test_state_crud(tmp_path, monkeypatch):
     loaded = state_mod.load_state()
     assert loaded == default
 
-    # Add a sample item
+    # Add a sample item — use a real ISO timestamp, not "now"
     item_id = "ID-001"
-    loaded["items"][item_id] = {"name": "test", "created_at": "now"}
+    loaded["items"][item_id] = {
+        "name": "test",
+        "created_at": "2026-07-13T19:40:12.464956Z",
+    }
     state_mod.save_state(loaded)
     reloaded = state_mod.load_state()
     assert reloaded["items"][item_id]["name"] == "test"
