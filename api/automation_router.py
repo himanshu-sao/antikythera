@@ -80,7 +80,7 @@ def _propose_via_llm(request: "ProposalRequest") -> Optional["ProposalResponse"]
         logger.debug(f"propose LLM call raised, falling back: {e}")
         return None
 
-    if not isinstance(raw, str) or "stub response" in raw.lower():
+    if LLMClient.is_stub(raw):
         return None
 
     try:

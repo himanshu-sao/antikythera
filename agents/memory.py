@@ -17,27 +17,15 @@ HISTORY_DIR = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "history")
 
 
 def _is_stub_response(text: Any) -> bool:
-    """Detect unusable LLM output the way the routers/AIAdapter do (P3.1 guard).
+    """Detect unusable LLM output (delegates to ``LLMClient.is_stub``).
 
-    ``LLMClient.chat()`` degrades to a deterministic stub string when no real
-    provider is reachable (missing API key, non-zero subprocess exit, network
-    error). The stub always contains the literal ``stub response`` (see
-    ``agents/llm_client.py``'s ``chat()`` except branch), so the same substring
-    contract used by ``api/automation_router.py``, ``api/skill_router.py`` and
-    ``api/ai_adapter.py`` is reused here.
+    Centralized contract — ``LLMClient.is_stub()`` is the single source of
+    truth for stub detection. ``api/automation_router.py``,
+    ``api/skill_router.py``, and ``api/ai_adapter.py`` also call it directly.
 
-    Empty / whitespace-only returns are treated as stubs too: the
-    ``_analyze_patterns`` prompt explicitly lets the model "return an empty
-    string" when there are no new patterns, and we must never persist that as a
-    ``## Learned on …`` section (that is exactly what polluted patterns.md with
-    ~20 ``stub response`` bodies before P3.1). Returning ``True`` means
-    "skip the write".
+    Returning ``True`` means "skip the write".
     """
-    if not isinstance(text, str):
-        return True
-    if not text.strip():
-        return True
-    return "stub response" in text.lower()
+    return LLMClient.is_stub(text)
 
 
 class MemoryAgent:

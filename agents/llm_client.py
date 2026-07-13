@@ -146,6 +146,31 @@ class LLMClient:
 
         self._initialize_client()
 
+    @staticmethod
+    def is_stub(text) -> bool:
+        """Single-source-of-truth stub-response detector.
+
+        Every degraded response path in ``chat()`` returns a string containing
+        the literal ``stub response`` (the except block at line ~282 prefixes it
+        with ``[stub response — …]``). When no real provider is reachable
+        (missing key, network error, non-zero subprocess exit), the response is
+        always a stub.
+
+        Empty/whitespace-only and non-string values are also treated as stubs
+        because the memory agent's prompt explicitly allows an empty reply for
+        "no new patterns found", and both routers use the same contract.
+
+        Use ``LLMClient.is_stub(raw)`` instead of inlining
+        ``"stub response" in raw.lower()`` — this keeps the contract in one
+        place so if the stub phrase ever changes, all downstream guards pick
+        it up without a multi-file hunt.
+        """
+        if not isinstance(text, str):
+            return True
+        if not text.strip():
+            return True
+        return "stub response" in text.lower()
+
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         if not os.path.exists(config_path):
             logger.error(f"Configuration file not found: {config_path}")

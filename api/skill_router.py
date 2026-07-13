@@ -71,7 +71,7 @@ def _brainstorm_via_llm(request: "SkillProposalRequest") -> Optional["SkillPropo
         logger.debug(f"brainstorm LLM call raised, falling back: {e}")
         return None
 
-    if not isinstance(raw, str) or "stub response" in raw.lower():
+    if LLMClient.is_stub(raw):
         return None
 
     try:

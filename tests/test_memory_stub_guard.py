@@ -16,8 +16,8 @@ and drive the three write-paths (the periodic loop's
              reply, and it must never become a Learned-on section);
   * real   → appended verbatim.
 
-Mirrors the ``"stub response" in raw.lower()`` contract used by
-``api/automation_router.py`` / ``api/skill_router.py`` / ``api/ai_adapter.py``.
+All stub-detection now flows through ``LLMClient.is_stub()`` — the single source of
+truth shared by ``automation_router``, ``skill_router``, ``ai_adapter``, and here.
 """
 import importlib
 import os
@@ -49,7 +49,7 @@ class _FakeChat:
 
 
 # ---------------------------------------------------------------------------
-# Unit-level: the detector itself
+# Unit-level: the detector itself (LLMClient.is_stub is the single source of truth)
 # ---------------------------------------------------------------------------
 @pytest.mark.parametrize("text, expected", [
     ("stub response", True),
@@ -65,7 +65,63 @@ class _FakeChat:
     ("Some genuinely fuzzy but non-empty prose with no s-t-u-b substring.", False),
 ])
 def test_is_stub_response_matches_routers_contract(text, expected):
+    # All detection flows through LLMClient.is_stub; _is_stub_response delegates.
+    # We assert on the helper (not the class method directly) so this contract
+    # stays robust even if another test has globally mocked LLMClient.is_stub.
     assert _is_stub_response(text) is expected
+
+
+def _fresh_real_llm_client():
+    """Reload the genuine ``agents.llm_client`` module from source.
+
+    Another test (``tests/test_executor_agentic.py``) replaces
+    ``sys.modules['agents.llm_client']`` with a ``MagicMock``-filled
+    ``ModuleType`` and never restores it — a latent isolation leak. The
+    ``agents/__init__.py`` guard reloads the real module once at package import
+    time, but that runs *before* the offending test pollutes ``sys.modules``.
+    Tests that need to exercise the *real* ``LLMClient.is_stub`` must reload it
+    fresh so they don't observe the leaked mock.
+    """
+    import importlib.util
+    file_path = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "agents", "llm_client.py"
+    )
+    spec = importlib.util.spec_from_file_location("_real_llm_client", file_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.LLMClient
+
+
+def test_llm_client_is_stub_is_the_source_of_truth():
+    """LLMClient.is_stub is the real detector; the helper just delegates to it.
+    Anyone calling LLMClient.is_stub directly (routers, ai_adapter) gets the
+    same answer as the memory helper."""
+    RealLLMClient = _fresh_real_llm_client()
+    # Synthetic inputs that don't depend on any ambient provider state.
+    assert RealLLMClient.is_stub("[stub response — anything]") is True
+    assert RealLLMClient.is_stub("") is True
+    assert RealLLMClient.is_stub("A real learned pattern line.") is False
+
+
+def test_is_stub_response_delegates_to_llm_client(monkeypatch):
+    """_is_stub_response must call LLMClient.is_stub, not own its own check.
+
+    We patch ``is_stub`` on the *real* LLMClient (reloaded fresh so we don't
+    observe a leaked MagicMock from another test) and then point
+    ``agents.memory``'s view of the module at it, so the helper's delegation
+    hits our spy.
+    """
+    import agents.memory as mem_mod
+    from unittest.mock import MagicMock
+
+    RealLLMClient = _fresh_real_llm_client()
+    spy = MagicMock(return_value=False)
+    monkeypatch.setattr(RealLLMClient, "is_stub", spy)
+    monkeypatch.setattr(mem_mod, "LLMClient", RealLLMClient)
+
+    result = mem_mod._is_stub_response("any text")
+    assert spy.called is True
+    assert result is False
 
 
 # ---------------------------------------------------------------------------
