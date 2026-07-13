@@ -10,6 +10,13 @@ def test_llm_client_chat(tmp_path, monkeypatch):
         yaml.safe_dump(config_content, f)
     # Import LLMClient after creating config
     from agents.llm_client import LLMClient
+    import agents.llm_client as lc_mod
+    # Force the config-service resolver to return None so this exercises the
+    # config.yaml google stub path deterministically — independent of the
+    # ambient ~/.antikythera/ai_config.json default (which may point at a
+    # reachable, keyed provider and so skip the stub). Same seam the sibling
+    # tests below use (lines ~73/~86).
+    monkeypatch.setattr(lc_mod, "_resolve_from_config_service", lambda: None)
     client = LLMClient(config_path=str(config_path))
     # The stub client returns "stub response"
     response = client.chat("system", "user")
