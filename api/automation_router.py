@@ -1,22 +1,109 @@
+import json
+import logging
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 from typing import Any, Dict, Optional, List
 from .models.automation import PathStep, Path, Pipeline, ExecutionMode
 from .operator_registry import OperatorRegistry
 from .session_state_manager import SessionStateManager
+from agents.llm_client import LLMClient
 # SecretVault removed – not used in this simplified flow
 import os
 from functools import lru_cache
+
+logger = logging.getLogger(__name__)
 
 # Use the same base directory as main.py
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "automation-ideas"))
 # No vault – OperatorRegistry instantiated without it
 registry = OperatorRegistry(None)
-# For simplicity in this prototype, we use a global state manager. 
+# Shared LLM client. Resolves the UI-selected default provider/model from
+# AIEngineConfigService (falling back to config.yaml) — no hardcoded key/model.
+# Tests monkeypatch this module global with a fake LLMClient.
+llm_client = LLMClient()
+# For simplicity in this prototype, we use a global state manager.
 # In production, this would be keyed by session_id.
 session_state = SessionStateManager()
 
 router = APIRouter()
+
+# System prompt for the /propose LLM call. Phrased as standalone instructions
+# so it works even for ibm_bob, which concatenates system+user into one query.
+_PROPOSE_SYSTEM = (
+    "You are the Antikythera Automation Architect. Translate the user's "
+    "natural-language instruction into a single deterministic PathStep that the "
+    "execution engine can run.\n"
+    "Valid operator_id values: fetch_resource, update_resource, create_resource, "
+    "delete_resource (mode ADAPTER); run_script (mode SCRIPT only).\n"
+    "Valid mode values: ADAPTER, SCRIPT.\n"
+    "Return a JSON object with keys: step_id (use \"step_new\"), operator_id, "
+    "adapter_id, config (a JSON object), and optionally input_ref, output_ref, "
+    "mode, condition, loop_over. Use the adapter_id hint provided in the user "
+    "message unless the instruction clearly targets a different integration. "
+    "Do not include any prose outside the JSON."
+)
+
+
+def _strip_code_fence(text: str) -> str:
+    """Tolerate a fenced ```json block returned by the LLM."""
+    text = text.strip()
+    if text.startswith("```"):
+        parts = text.split("```")
+        text = parts[1] if len(parts) > 1 else parts[0]
+        if text.lstrip().lower().startswith("json"):
+            text = text.lstrip()[4:]
+        text = text.strip("`").strip()
+    return text
+
+
+def _propose_via_llm(request: "ProposalRequest") -> Optional["ProposalResponse"]:
+    """Try to build the proposal from the shared LLM.
+
+    Returns a ProposalResponse on success, or None when the LLM is unavailable
+    / returns a stub / emits unparseable or invalid JSON — signaling the caller
+    to fall back to the deterministic keyword logic.
+    """
+    instruction = request.instruction
+    target_adapter = request.integration_id or (
+        "jira_adapter" if "jira" in instruction.lower() else "github_adapter"
+    )
+    user_prompt = (
+        f"Instruction: {instruction}\n"
+        f"adapter_id hint: {target_adapter}\n"
+        f"current_state: {json.dumps(request.current_state, default=str)}\n"
+        "Produce the single best PathStep for this instruction as the JSON object "
+        "described in the system instructions."
+    )
+    try:
+        raw = llm_client.chat(_PROPOSE_SYSTEM, user_prompt)
+    except Exception as e:  # LLMClient.chat never raises, but be defensive
+        logger.debug(f"propose LLM call raised, falling back: {e}")
+        return None
+
+    if not isinstance(raw, str) or "stub response" in raw.lower():
+        return None
+
+    try:
+        data = json.loads(_strip_code_fence(raw))
+        if not isinstance(data, dict):
+            return None
+        # Require the PathStep mandatory fields.
+        if not {"operator_id", "adapter_id", "config"}.issubset(data):
+            return None
+        data.setdefault("step_id", "step_new")
+        data.setdefault("adapter_id", target_adapter)
+        data.setdefault("mode", ExecutionMode.ADAPTER.value)
+        step = PathStep(**data)
+    except Exception as e:
+        logger.debug(f"propose LLM JSON invalid, falling back: {e}")
+        return None
+
+    reasoning = data.get("reasoning") or f"LLM-proposed {step.operator_id} step."
+    return ProposalResponse(
+        proposal_id=f"prop_{len(request.current_state)}",
+        suggested_step=step,
+        reasoning=reasoning,
+    )
 
 @router.get("/templates")
 async def get_templates():
@@ -34,6 +121,12 @@ class ProposalRequest(BaseModel):
     current_state: Dict[str, Any]
     path_id: Optional[str] = None
     integration_id: Optional[str] = None
+    # The UI (AutomationStudio.tsx) already sends `model` in the request body;
+    # Pydantic previously dropped it. Accepted now for forward-compat. NOTE: it
+    # is not yet spliced into the chat call — the shared LLMClient owns model
+    # selection (resolving the UI default / config.yaml). Reserved for a future
+    # per-call override.
+    model: Optional[str] = None
 
 class ProposalResponse(BaseModel):
     proposal_id: str
@@ -51,17 +144,23 @@ class TokenStorageRequest(BaseModel):
 @router.post("/propose", response_model=ProposalResponse)
 async def propose_step(request: ProposalRequest):
     """
-    AI-driven proposal loop. 
+    AI-driven proposal loop.
     Translates natural language to a deterministic PathStep.
     """
-    # In a real implementation, this calls an LLM with a system prompt 
-    # describing the OperatorRegistry and current state.
-    
+    # Try the shared LLMClient first (UI-default provider/model). When no LLM
+    # is configured / reachable / parseable, _propose_via_llm returns None and
+    # we fall through to the deterministic keyword logic below so the UI keeps
+    # working offline. See agents/llm_client.py LLMClient.chat for degradation.
+    llm_proposal = _propose_via_llm(request)
+    if llm_proposal is not None:
+        return llm_proposal
+
+    # Deterministic fallback — keyword/regex matching against the instruction.
     # MOCK AI LOGIC for demonstration of the flow:
     instruction = request.instruction.lower()
     current_state = request.current_state
     integration_id = request.integration_id
-    
+
     # Use provided integration_id or guess from instruction
     target_adapter = integration_id if integration_id else ("jira_adapter" if "jira" in instruction else "github_adapter")
     
