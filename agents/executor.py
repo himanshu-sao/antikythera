@@ -31,6 +31,20 @@ class ExecutorAgent:
         try:
             self._log_progress("Starting analysis and planning phase...")
             self._analyze_phase(item_id, spec_content, arch_content)
+            # Fail loud on an empty plan.  An empty checklist means the planner
+            # LLM call produced no usable tasks (empty/unparseable output — the
+            # planner now returns [] instead of a stub 3-task placeholder, see
+            # agents/executor_planner.py).  Running _execution_loop over [] is a
+            # silent no-op that _finalize_phase would write up as a SUCCESS-style
+            # "## Implementation Summary" with zero COMPLETED entries — exactly the
+            # fake-success empty-report bug P3.2/P3.2.3 is killing.  Raise here so
+            # the surrounding except calls _report_failure (a FAILURE report with
+            # no COMPLETED entries) and execute() returns False -> executor_idea 0.
+            if not self.checklist:
+                raise RuntimeError(
+                    "Planner produced an empty checklist; refusing to execute "
+                    "an empty/stub plan (no real tasks to perform)."
+                )
             self._log_progress("Planning complete. Starting execution loop...")
             self._execution_loop(item_id)
             self._log_progress("Execution loop finished. Finalizing...")

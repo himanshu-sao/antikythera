@@ -58,7 +58,7 @@ Based on the following Specification and Architecture, generate a detailed imple
                 system_prompt=system_prompt,
                 user_prompt=user_prompt
             )
-            
+
             # Ensure response is a string before cleaning
             if not isinstance(response_text, str):
                 raise ValueError(f"Expected string from LLM, got {type(response_text)}")
@@ -70,15 +70,30 @@ Based on the following Specification and Architecture, generate a detailed imple
                 clean_response = clean_response.split("```json")[1].split("```")[0].strip()
             elif clean_response.startswith("```"):
                 clean_response = clean_response.split("```")[1].split("```")[0].strip()
-            
+
             checklist = json.loads(clean_response)
+            # An empty/unusable-but-valid JSON (e.g. ``[]``) is NOT a plan.
+            # Returning a placeholder checklist here (the old behaviour) let a
+            # bad LLM call masquerade as a real plan, so the executor "succeeded"
+            # on placeholders and wrote a stub execution_report.md (the P3.2
+            # empty-report bug).  Fail loud instead: return [] and let
+            # ExecutorAgent.execute() abort so executor_idea() -> 0 with a
+            # FAILURE report (see agents/executor.py).
+            if not isinstance(checklist, list) or not checklist:
+                logger.error(
+                    "Planner returned an empty/unusable checklist "
+                    f"(parsed type={type(checklist).__name__}, len="
+                    f"{len(checklist) if isinstance(checklist, list) else 'n/a'}); "
+                    "refusing to substitute a stub plan — executor will abort."
+                )
+                return []
             logger.info(f"Successfully generated checklist with {len(checklist)} tasks.")
             return checklist
         except Exception as e:
+            # Parser/LLM failure is also a fail-loud [] (NOT a stub checklist).
             logger.error(f"Failed to generate checklist: {str(e)}")
-            # Fallback to a very minimal checklist if LLM fails
-            return [
-                {"task": "Initialize workspace", "type": "file_creation"},
-                {"task": "Implement core logic", "type": "code_implementation"},
-                {"task": "Run verification tests", "type": "verification"}
-            ]
+            logger.error(
+                "Refusing to substitute a stub checklist after planner failure; "
+                "executor will abort and write a FAILURE report."
+            )
+            return []
