@@ -8,17 +8,70 @@ logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
-def get_workspace_files() -> List[str]:
+# Hard cap on how many workspace file entries get baked into an executor prompt.
+# A multi-hundred-line file list (the old os.walk behaviour) ballooned every
+# ``_perform_task_multi_turn`` prompt and is the most likely cause of the
+# 60–120s ``bob`` timeouts/hangs observed during P3.2.  Keep this bounded.
+WORKSPACE_FILES_CAP = 60
+
+# Directories that are never useful workspace context for the executor —
+# build/cache/dependency trees that only bloat the prompt.
+_EXCLUDED_DIRS = {
+    "venv", "node_modules", ".git", ".ui",
+    "__pycache__", ".pytest_cache", ".mypy_cache",
+    "dist", "build", "playwright-report", "test-results",
+    ".cache", ".tox", ".nox",
+}
+
+
+def get_workspace_files(root: str = None) -> List[str]:
     """
-    Scans the current working directory for files, excluding common ignore patterns.
+    Return a bounded, relevant set of workspace file paths for the executor
+    prompt — top-level files plus the ``api/`` source tree, sorted and
+    capped at :data:`WORKSPACE_FILES_CAP` entries.
+
+    The old implementation ``os.walk``-ed the whole repo (minus
+    venv/node_modules/.git), baking a multi-hundred-line file list into every
+    ``_perform_task_multi_turn`` turn.  That giant per-turn context is the
+    most plausible cause of the 60–120s ``bob`` timeouts/hangs seen during
+    P3.2, so this returns a small, predictable set instead.
+
+    ``root`` defaults to ``os.getcwd()`` so the existing call site
+    (``agents/executor.py``) is unchanged; passing an explicit ``root`` makes
+    the function testable without depending on the process cwd.
+
+    Exclude ``venv/``, ``node_modules/``, ``.git/``, ``.ui/`` and other
+    build/cache dirs (see :data:`_EXCLUDED_DIRS`).  The result is sorted and
+    truncated to :data:`WORKSPACE_FILES_CAP`.
     """
-    workspace_files = []
-    for root, dirs, files in os.walk(os.getcwd()):
-        if any(x in root for x in ["venv", "node_modules", ".git"]):
-            continue
-        for f in files:
-            workspace_files.append(os.path.relpath(os.path.join(root, f), os.getcwd()))
-    return workspace_files
+    root = os.path.abspath(root or os.getcwd())
+    selected: List[str] = []
+
+    def _rel(path: str) -> str:
+        return os.path.relpath(path, root)
+
+    def _excluded(entry: str) -> bool:
+        return entry in _EXCLUDED_DIRS or os.path.basename(entry) in _EXCLUDED_DIRS
+
+    # 1. Non-directory files at the top level (VERSION, README, Makefile, …).
+    for entry in sorted(os.listdir(root)):
+        full = os.path.join(root, entry)
+        if os.path.isfile(full) and not _excluded(entry):
+            selected.append(_rel(full))
+
+    # 2. The api/ source tree — the executor's primary surface.  Prune
+    #    excluded dirs from the descent so os.walk never enters them.
+    api_root = os.path.join(root, "api")
+    if os.path.isdir(api_root):
+        for dirpath, dirs, files in os.walk(api_root):
+            dirs[:] = sorted(d for d in dirs if d not in _EXCLUDED_DIRS)
+            for f in sorted(files):
+                if not _excluded(f):
+                    selected.append(_rel(os.path.join(dirpath, f)))
+
+    # 3. Dedup, sort, and cap.
+    unique_sorted = sorted(set(selected))
+    return unique_sorted[:WORKSPACE_FILES_CAP]
 
 def get_tools_description() -> str:
     """
