@@ -100,6 +100,7 @@ export function usePipelineState() {
           goal: itemData.goal,
           description: itemData.description,
           priority: itemData.priority,
+          complexity: itemData.complexity,
           source_type: itemData.source_type,
           source_value: itemData.source_value,
           due_date: itemData.due_date

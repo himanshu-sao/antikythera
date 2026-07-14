@@ -13,6 +13,9 @@ VALID_STAGES = [
 # Valid priority levels
 VALID_PRIORITIES = ["low", "medium", "high", "critical"]
 
+# Valid complexity tiers (P4.1 — matches agents.constants.TIER_STAGES keys)
+VALID_COMPLEXITIES = ["trivial", "simple", "complex"]
+
 # Valid artifacts for items
 VALID_ARTIFACTS = [
     "spec.md", "architecture.md", "tests.md", 

@@ -16,6 +16,7 @@ export function apiToBoardModel(state: PipelineState): BoardColumn[] {
         status: item.stage,
         order: item.order || 0,
         priority: item.priority || 'Medium',
+        complexity: item.complexity || 'complex',
         confidence_score: item.confidence_score || 0,
         comments: item.comments || [],
         history: item.history || [],

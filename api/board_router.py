@@ -31,7 +31,8 @@ async def create_item(request: Request, item_request: CreateItemRequest):
         description=item_request.description,
         source_type=item_request.source_type,
         source_value=item_request.source_value,
-        due_date=item_request.due_date
+        due_date=item_request.due_date,
+        complexity=item_request.complexity
     )
     if not success:
         raise HTTPException(status_code=400, detail="Item already exists")

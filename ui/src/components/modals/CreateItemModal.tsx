@@ -7,12 +7,13 @@ interface CreateItemModalProps {
 }
 
 export const CreateItemModal = ({ isOpen, onClose, onCreate }: CreateItemModalProps) => {
-  const [newItem, setNewItem] = useState({ 
+  const [newItem, setNewItem] = useState({
       id: '',
       title: '',
       goal: '',
       description: '',
       priority: 'medium',
+      complexity: 'auto',
       source_type: 'directory',
       source_value: '',
       due_date: ''
@@ -166,6 +167,22 @@ export const CreateItemModal = ({ isOpen, onClose, onCreate }: CreateItemModalPr
               </select>
               {errors.source_type && <p className="text-red-500 text-xs mt-1">{errors.source_type}</p>}
             </div>
+          </div>
+
+          {/* P4.1 — complexity tier: controls which pipeline stages run. */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Complexity</label>
+            <select
+              className="w-full p-2 border rounded text-sm"
+              value={newItem.complexity}
+              onChange={e => handleChange('complexity', e.target.value)}
+            >
+              <option value="auto">Auto (let refiner decide)</option>
+              <option value="trivial">Trivial</option>
+              <option value="simple">Simple</option>
+              <option value="complex">Complex</option>
+            </select>
+            <p className="text-[10px] text-gray-500 mt-0.5">Lower tiers skip later review/architecture/test stages.</p>
           </div>
 
           <div>

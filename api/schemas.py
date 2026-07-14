@@ -1,7 +1,7 @@
 from typing import Optional, List
 from pydantic import BaseModel, Field, field_validator
 import re
-from api.constants import VALID_STAGES, VALID_PRIORITIES
+from api.constants import VALID_STAGES, VALID_PRIORITIES, VALID_COMPLEXITIES
 
 class CreateItemRequest(BaseModel):
     item_id: str = Field(..., min_length=1, max_length=50, pattern=r'^[A-Za-z0-9_-]+$')
@@ -9,6 +9,7 @@ class CreateItemRequest(BaseModel):
     goal: Optional[str] = Field(default=None, max_length=2000)
     description: Optional[str] = Field(default=None, max_length=2000)
     priority: Optional[str] = Field(default="medium")
+    complexity: Optional[str] = Field(default=None)
     source_type: Optional[str] = Field(default=None)
     source_value: Optional[str] = Field(default=None)
     due_date: Optional[str] = Field(default=None)
@@ -33,6 +34,19 @@ class CreateItemRequest(BaseModel):
         if v and v.lower() not in VALID_PRIORITIES:
             raise ValueError(f'priority must be one of {VALID_PRIORITIES}')
         return v.lower() if v else "medium"
+
+    @field_validator('complexity')
+    @classmethod
+    def validate_complexity(cls, v: Optional[str]) -> Optional[str]:
+        """Accept ``None`` (default / let refiner decide), ``"auto"`` (UI
+        sentinel), or one of ``VALID_COMPLEXITIES``.  Return lowercased."""
+        if v is None:
+            return None
+        if v.lower() == "auto":
+            return "auto"
+        if v.lower() not in VALID_COMPLEXITIES:
+            raise ValueError(f'complexity must be one of {VALID_COMPLEXITIES} or "auto"')
+        return v.lower()
 
     @field_validator('source_type')
     @classmethod
@@ -68,6 +82,7 @@ class UpdateItemRequest(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
     priority: Optional[str] = Field(default=None)
+    complexity: Optional[str] = Field(default=None)
     confidence_score: Optional[int] = Field(default=None, ge=0, le=100)
     source_type: Optional[str] = Field(default=None)
     source_value: Optional[str] = Field(default=None)
@@ -89,7 +104,16 @@ class UpdateItemRequest(BaseModel):
         if v is not None and v.lower() not in VALID_PRIORITIES:
             raise ValueError(f'Invalid priority. Must be one of: {VALID_PRIORITIES}')
         return v
-    
+
+    @field_validator('complexity')
+    @classmethod
+    def validate_complexity(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v.lower() == "auto":
+            return v
+        if v.lower() not in VALID_COMPLEXITIES:
+            raise ValueError(f'complexity must be one of {VALID_COMPLEXITIES} or "auto"')
+        return v.lower()
+
     @field_validator('source_type')
     @classmethod
     def validate_source_type(cls, v: Optional[str]) -> Optional[str]:

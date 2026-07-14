@@ -101,6 +101,7 @@ export function KanbanCardContent({
   title,
   stage,
   priority,
+  complexity,
   description,
   updatedAt,
   confidence,
@@ -167,6 +168,20 @@ export function KanbanCardContent({
           return (
             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase ${classes}`}>\
               {priority}
+            </span>
+          );
+        })()}
+        {/* P4.1 — complexity-tier badge. Only render when the item carries a
+            concrete tier (trivial/simple/complex); items with no complexity
+            (legacy or "auto" pending refiner) show no badge. Existing test
+            mocks omit the field entirely so this stays assertion-stable. */}
+        {(() => {
+          const c = complexity?.toLowerCase();
+          if (!c || c === 'auto') return null;
+          const classes = c === 'trivial' ? 'bg-blue-100 text-blue-700' : c === 'simple' ? 'bg-amber-100 text-amber-700' : 'bg-indigo-100 text-indigo-700';
+          return (
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase ${classes}`}>
+              {c}
             </span>
           );
         })()}

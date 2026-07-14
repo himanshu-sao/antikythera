@@ -41,8 +41,8 @@ class WorkflowStateManager:
     def load_state(self) -> Dict[str, Any]:
         return self.kanban.load_state()
 
-    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
-        success = self.kanban.create_item(item_id, title, goal, description, source_type, source_value, due_date)
+    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None, complexity: Optional[str] = None) -> bool:
+        success = self.kanban.create_item(item_id, title, goal, description, source_type, source_value, due_date, complexity)
         if success:
             self.notify_observer("KANBAN_TRANSITION", {"item_id": item_id, "body": f"Created item: {title}"})
         return success
