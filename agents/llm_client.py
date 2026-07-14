@@ -388,7 +388,25 @@ class LLMClient:
         On a non-zero exit we raise ``RuntimeError`` (without stderr in the
         message — stderr is logged server-side only, see ``chat()``'s except),
         which ``chat()``'s try/except degrades to the stub string.
+
+        Opt-in stub seam (P3.2.4): when the environment variable
+        ``ANTIKYTHERA_BOB_STUB`` is set to a truthy value, ``_chat_bob``
+        returns a deterministic response and **never spawns the ``bob``
+        subprocess**. This lets the test suite (and CI) exercise the full
+        ibm_bob code path without spending bob quota or risking the 8–15s
+        per-call / hang behaviour. Default (unset or ``0``) = real ``bob``,
+        so the P3.2.6 live-bob proof stays intact. A test that wants the
+        *real* binary within a normally-stubbed session can force it with
+        ``ANTIKYTHERA_BOB_STUB=0``.
         """
+        bob_stub = os.environ.get("ANTIKYTHERA_BOB_STUB", "").strip().lower()
+        if bob_stub and bob_stub not in ("0", "false", "no", "off"):
+            logger.info(
+                "ANTIKYTHERA_BOB_STUB is set — returning deterministic bob "
+                "stub response (no subprocess spawn)."
+            )
+            return self._bob_stub_response(system_prompt, user_prompt)
+
         prompt = f"{system_prompt}\n\n{user_prompt}"
         command = [
             _BOB_BINARY,
@@ -432,6 +450,41 @@ class LLMClient:
             )
             raise RuntimeError(f"bob CLI exited {result.returncode}")
         return result.stdout.strip()
+
+    # ------------------------------------------------------------------
+    # Deterministic bob stub (used only when ANTIKYTHERA_BOB_STUB is set)
+    # ------------------------------------------------------------------
+    def _bob_stub_response(self, system_prompt: str, user_prompt: str) -> str:
+        """Deterministic stand-in for ``_chat_bob`` (P3.2.4 stub seam).
+
+        Returns a stable, parseable string based on the caller's role so that
+        the planner (expects a JSON array) and the executor (expects a
+        JSON tool-call object) each get something they can route through their
+        existing parsers without hitting the ``bob`` subprocess.
+
+        This is intentionally generic — the live ``bob`` proof (P3.2.6) uses
+        the real binary; the dedicated P3.2.4 verification harness
+        (``tools/verify_executor_p3_2.py``) swaps ``LLMClient.chat`` directly
+        for a precise ``write_file``/``api/health_router.py`` responder, so
+        the green CI run is pinned to *that* deterministic script, not to
+        this fallback.
+        """
+        # Executor agent calls return a tool-call JSON object.  Detect that
+        # context by the system prompt mentioning "Executor Agent".
+        if "Executor Agent" in (system_prompt or ""):
+            return (
+                '{"tool": "read_file", "args": {"path": "VERSION"}}'
+            )
+        # Planner calls (system prompt mentions "Implementation Planner")
+        # return a minimal 1-task checklist array so the planner accepts it.
+        if "Planner" in (system_prompt or ""):
+            return (
+                '[{"task": "stub: no-op", "type": "verification"}]'
+            )
+        # Diagnostics / generic: an explicit stub marker (NOT the real
+        # "[stub response …]" degradation string, so is_stub() / consumers
+        # can distinguish opt-in-stub from genuine failure).
+        return "[bob-stub] deterministic response (ANTIKYTHERA_BOB_STUB)"
 
     def generate_structured_content(self, system_prompt: str, user_prompt: str) -> str:
         """

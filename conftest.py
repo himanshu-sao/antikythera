@@ -9,6 +9,23 @@ import pytest
 
 
 # ----------------------------------------------------------------------
+# 0. Stub the ``ibm_bob`` (``bob`` CLI) path for the whole test session by
+#    default, so the suite never shells out to the real ``bob`` binary
+#    (8–15s per call, can hang, spends bob quota).  ``LLMClient._chat_bob``
+#    checks ``ANTIKYTHERA_BOB_STUB`` and short-circuits to a deterministic
+#    response when it's truthy (see agents/llm_client.py).  We only set it
+#    if the user did NOT already export it, so:
+#      * default ``pytest``        -> bob stubbed on (no bob tokens spent)
+#      * ``ANTIKYTHERA_BOB_STUB=0 pytest ...`` -> real bob (for the P3.2.6
+#        live-bob proof / any test that needs the genuine binary)
+#    Non-bob providers (OpenAI/Google/etc.) are NOT mocked here — only the
+#    ``ibm_bob`` subprocess path.
+# ----------------------------------------------------------------------
+if "ANTIKYTHERA_BOB_STUB" not in os.environ:
+    os.environ["ANTIKYTHERA_BOB_STUB"] = "1"
+
+
+# ----------------------------------------------------------------------
 # 1. Ensure a default asyncio event loop exists for any code that calls
 #    asyncio.get_event_loop() outside of a test context.
 # ----------------------------------------------------------------------

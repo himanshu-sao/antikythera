@@ -11,24 +11,30 @@ a synthetic requirement tree under ``tmp_path``.
 """
 import os
 import sys
-from types import ModuleType
 from unittest.mock import MagicMock
 
 import pytest
 
 
 def _install_mock_llm(monkeypatch, chat_return: str):
-    """Install a mock ``agents.llm_client.LLMClient`` in sys.modules.
+    """Install a mock ``LLMClient`` the executor/planner will actually use.
 
     The planner calls ``self.llm.chat(...)`` once; we drive it via
-    ``chat_return`` (empty string or non-JSON).  Restored by monkeypatch
-    teardown.
+    ``chat_return`` (empty string or non-JSON).  ``executor_idea`` constructs
+    ``LLMClient(config_path=...)`` fresh, so we patch the *bound name* in both
+    consumer modules (``agents.executor`` and ``agents.executor_planner``) —
+    not just ``sys.modules`` — otherwise an already-imported
+    ``agents.llm_client`` would shadow the mock and the test would become
+    order-dependent.  Restored by monkeypatch teardown.
     """
-    mock_mod = ModuleType("agents.llm_client")
     mock_client = MagicMock()
     mock_client.chat.return_value = chat_return
-    mock_mod.LLMClient = MagicMock(return_value=mock_client)
-    monkeypatch.setitem(sys.modules, "agents.llm_client", mock_mod)
+    mock_llm_cls = MagicMock(return_value=mock_client)
+
+    import agents.executor as exec_mod
+    import agents.executor_planner as planner_mod
+    monkeypatch.setattr(exec_mod, "LLMClient", mock_llm_cls, raising=False)
+    monkeypatch.setattr(planner_mod, "LLMClient", mock_llm_cls, raising=False)
     return mock_client
 
 
@@ -49,7 +55,7 @@ def _run_executor_idea(tmp_path, monkeypatch, item_id: str, chat_return: str):
     monkeypatch.chdir(tmp_path)
     req_dir = _build_requirement_tree(str(tmp_path), item_id)
     mock_client = _install_mock_llm(monkeypatch, chat_return)
-    from agents.executor import executor_idea  # imports mocked LLMClient
+    from agents.executor import executor_idea  # uses patched LLMClient
 
     run_manager = MagicMock()
     run_manager.log_event.return_value = True

@@ -87,8 +87,14 @@ def test_llm_client_falls_back_to_config_when_service_unusable(tmp_path, monkeyp
 
 
 def _make_bob_client(tmp_path, monkeypatch, model=None, config_service_disabled=True):
-    """Build an LLMClient pointed at the ibm_bob provider via config.yaml."""
+    """Build an LLMClient pointed at the ibm_bob provider via config.yaml.
+
+    These tests assert the *real* ``bob`` subprocess path (flags, stdin, rc),
+    so opt out of the session-wide ``ANTIKYTHERA_BOB_STUB=1`` default here.
+    (The stub seam is unit-tested separately in test_bob_stub_seam.py.)
+    """
     from agents import llm_client as lc_mod
+    monkeypatch.setenv("ANTIKYTHERA_BOB_STUB", "0")
     if config_service_disabled:
         monkeypatch.setattr(lc_mod, "_resolve_from_config_service", lambda: None)
     config_path = tmp_path / "config.yaml"
