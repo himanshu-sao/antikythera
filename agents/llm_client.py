@@ -64,7 +64,10 @@ _OPENAI_COMPAT = {
 # managed by the LLMClient.
 _IBM_BOB_CLI = "ibm_bob"
 _BOB_BINARY = "bob"
-_BOB_TIMEOUT = 60  # seconds — bob can be slow on first-run auth
+_BOB_TIMEOUT = 120  # seconds — bob can be slow on first-run auth and on
+                     # large structured-output prompts (planner JSON). A cold
+                     # bob daemon has been observed to exceed 60s on the first
+                     # call; 120s leaves headroom without hanging forever.
 
 # A model id is spliced into the ``bob`` argv as the value of ``-m``. Reject any
 # value that could masquerade as another option (leading ``-``) so a malformed
@@ -361,11 +364,14 @@ class LLMClient:
 
         The ``bob`` CLI takes a single prompt string (no separate
         system/user split), so the system prompt is prepended to the user
-        prompt and passed as the positional ``query`` argument. Flags
-        chosen against ``bob --help`` and verified empirically on v1.0.6:
+        prompt. Flags chosen against ``bob --help`` and verified empirically
+        on v1.0.6:
 
-          * positional prompt — ``-p``/``--prompt`` is deprecated and will
-            be removed in a future ``bob`` version;
+          * prompt via **stdin** — piping the prompt is the robust path:
+            a leading-dash prompt can't be reinterpreted as a ``bob`` flag
+            (the legacy ``--`` terminator does NOT work on v1.0.6 — the
+            positional after ``--`` is read as "no stdin provided" and the
+            binary exits 1). ``-p``/``--prompt`` also works but is deprecated;
           * ``-m`` only when a model is configured — passing an id the binary
             doesn't recognize crashes it ("An unexpected critical error
             occurred: [object Object]"). With no ``-m``, ``bob`` uses its
@@ -401,13 +407,15 @@ class LLMClient:
                     "ibm_bob model id failed allowlist validation"
                 )
             command += ["-m", self.model]
-        # ``--`` terminates option parsing so neither the model value (above)
-        # nor the positional prompt — which may legitimately begin with ``-`` —
-        # can be reinterpreted as a ``bob`` flag.
-        command += ["--", prompt]
+        # The prompt is piped via stdin (supplied as ``input`` to subprocess.run
+        # below). Passing it as a positional after a ``--`` terminator does NOT
+        # work on bob v1.0.6: the positional following ``--`` is ignored and the
+        # binary exits 1 ("No input provided ... use the --prompt option"). Stdin
+        # avoids yargs parsing entirely, so a leading-dash prompt is safe here too.
 
         result = subprocess.run(
             command,
+            input=prompt,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

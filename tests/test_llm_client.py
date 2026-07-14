@@ -117,16 +117,20 @@ def test_ibm_bob_does_not_build_openai_client(tmp_path, monkeypatch):
 
 def test_ibm_bob_chat_invokes_bob_cli_with_verified_flags(tmp_path, monkeypatch):
     """_chat_bob must shell out to ``bob`` with the flags verified against
-    ``bob --help`` (positional prompt, --chat-mode ask, empty MCP allow-list,
+    ``bob --help`` (--chat-mode ask, empty MCP allow-list,
     --hide-intermediary-output, -o text) and must NOT use the deprecated -p.
-    A ``--`` terminator must precede the positional prompt so a leading-dash
-    prompt can't be reinterpreted as a flag (P2.6 security review).
+    The prompt is piped via stdin (subprocess ``input=``) rather than passed
+    as a positional after a ``--`` terminator: the terminator does NOT work on
+    bob v1.0.6 (the positional after ``--`` is ignored and the binary exits 1
+    "No input provided ... use the --prompt option"). Stdin also keeps a
+    leading-dash prompt from being reinterpreted as a flag (P2.6 security review).
     """
     lc_mod, client = _make_bob_client(tmp_path, monkeypatch, model="some-model")
     captured = {}
 
     def fake_run(cmd, *args, **kwargs):
         captured["cmd"] = cmd
+        captured["input"] = kwargs.get("input")
         return _FakeCompleted(stdout="\nreal completion\n")
 
     monkeypatch.setattr(lc_mod.subprocess, "run", fake_run)
@@ -144,14 +148,15 @@ def test_ibm_bob_chat_invokes_bob_cli_with_verified_flags(tmp_path, monkeypatch)
     assert "-m" in cmd and "some-model" in cmd
     # Deprecated -p must NOT be used.
     assert "-p" not in cmd
-    # A `--` terminator guards the positional prompt (no flag reinterpretation).
-    assert "--" in cmd
-    terminator_idx = cmd.index("--")
-    # The prompt is the element right after `--` (no user-controlled data between).
-    assert cmd[-1] == "SYS\n\nUSR"
-    assert cmd[terminator_idx + 1] == "SYS\n\nUSR"
-    # Nothing user-controlled sits between the model and the terminator.
-    assert cmd[cmd.index("-m") + 2] == "--"
+    # The prompt is NOT passed as a positional: bob v1.0.6 misreads a positional
+    # after ``--`` and exits 1. It must be piped via stdin instead.
+    assert "--" not in cmd
+    assert "SYS\n\nUSR" not in cmd
+    assert captured["input"] == "SYS\n\nUSR"
+    # The model value is the last argv element — no user-controlled positional
+    # trails ``-m some-model`` (the prompt only travels via stdin).
+    assert cmd[-1] == "some-model"
+    assert cmd.index("some-model") == len(cmd) - 1
     # stdout is returned (stripped).
     assert out == "real completion"
 
