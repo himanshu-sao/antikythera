@@ -15,17 +15,33 @@ logger = logging.getLogger(__name__)
 # not a stub/placeholder".  These markers and the size floor gate that
 # assertion so a model can't false-complete a task by writing an obvious
 # stand-in.  Deterministic and inspectable — not an LLM judgement.
+# P3.2.6 Fix #1 — the executor judges "done" by (a) a stub-marker scan and
+# (b) an on-disk read-back, NOT by a content byte floor.  An earlier
+# ``_MIN_ARTIFACT_BYTES = 30`` floor rejected legitimate *small* artifacts
+# (a 6-byte ``VERSION`` file, a one-line ``.gitignore``) as "stubs", which is
+# what made the live gate's "Create VERSION file" task loop to exhaustion —
+# the model kept emitting the correct (small) content, the tool kept rejecting
+# it, and diagnostics kept suggesting a ``terminal echo`` (which can never
+# complete a task either).  The right anti-stub axis is the substring scan
+# below (genuine stand-ins) plus a trivial non-empty check, not a byte count.
 _STUB_MARKERS = ("stub response", "# TODO", "placeholder", "notimplementederror")
-_MIN_ARTIFACT_BYTES = 30
 
 
 def _is_stub_content(content: str) -> bool:
-    """True if ``content`` is empty, too small, or carries a stub/placeholder."""
+    """True if ``content`` is empty/whitespace or carries a stub/placeholder
+    marker.  A small-but-real artifact (e.g. ``"0.1.0\\n"``) is NOT a stub.
+
+    Fix #1 removed the blanket byte floor: a ``VERSION`` / one-line config
+    *should* be small, and rejecting it on size alone produced the
+    guaranteed-unwinnable loop seen in the 2026-07-15 live gate.  Marker
+    matching is case-insensitive (markers lowered once here against the
+    lowered content) so a ``"# TODO fill this in"`` comment is flagged
+    regardless of the capitalisation of the marker constant.
+    """
     if not content or not content.strip():
         return True
-    if len(content.strip()) < _MIN_ARTIFACT_BYTES:
-        return True
-    return any(m in content.lower() for m in _STUB_MARKERS)
+    lowered = content.lower()
+    return any(m.lower() in lowered for m in _STUB_MARKERS)
 
 # Hard cap on how many workspace file entries get baked into an executor prompt.
 # A multi-hundred-line file list (the old os.walk behaviour) ballooned every
@@ -122,9 +138,11 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
     Verification of correctness is Phase 2 (a real verifier runs the spec's
     own tests, out of scope here).  Completion semantics per tool:
 
-    * ``write_file``  -> done when the write succeeds AND the content is
-      non-empty, ≥ ``_MIN_ARTIFACT_BYTES``, and free of ``_STUB_MARKERS``.
-      (A model can't false-complete by writing a stand-in.)
+    * ``write_file``  -> done when the write succeeds, the content passes the
+      ``_is_stub_content`` scan (non-empty + free of ``_STUB_MARKERS``), AND a
+      read-back confirms the bytes round-tripped to disk.  Small-but-real
+      artifacts (a 6-byte ``VERSION`` file) complete — Fix #1 dropped the old
+      ``_MIN_ARTIFACT_BYTES`` byte floor that wrongly rejected them.
     * ``patch``       -> done when the patch lands (old_string found and
       replaced).
     * ``terminal``    -> **never** ``is_done``.  A shell command, even a
@@ -162,9 +180,9 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
 
             if _is_stub_content(content):
                 return False, (
-                    "ERROR: write_file content is empty, too small, or a "
-                    "stub/placeholder. Write the full intended file contents "
-                    f"(got {len((content or '').strip())} bytes)."
+                    "ERROR: write_file content is empty or a stub/placeholder. "
+                    "Write the full intended file contents (a small but real "
+                    f"artifact is fine; got {len((content or '').strip())} non-empty bytes)."
                 )
 
             # os.path.dirname("") == "" and makedirs("") raises; guard it.
@@ -173,6 +191,25 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
                 os.makedirs(parent, exist_ok=True)
             with open(path, 'w', encoding='utf-8') as f:
                 f.write(content)
+
+            # P3.2.6 Fix #1 — self-verify by read-back.  "Done" is observable
+            # from the filesystem, not a content-size heuristic.  A model
+            # false-completing by writing a stand-in is already blocked by the
+            # ``_is_stub_content`` scan above; this read-back proves the bytes
+            # we intended actually round-tripped to disk (catches a path that
+            # silently failed to write / a filesystem race).  A small REAL file
+            # — the case the old byte floor wrongly rejected — now completes
+            # because the stub scan no longer size-gates it.
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    landed = f.read()
+            except OSError as exc:
+                return False, f"ERROR: wrote {path} but could not read it back: {exc}"
+            if landed != content:
+                return False, (
+                    f"ERROR: write to {path} did not round-trip "
+                    f"(wrote {len(content)} bytes, read back {len(landed)})."
+                )
             return True, f"SUCCESS: Wrote to {path}"
 
         elif tool_name == "patch":

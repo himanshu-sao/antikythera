@@ -34,23 +34,31 @@ class ExecutorPlanner:
 Your goal is to decompose a technical specification and architecture into a granular, atomic, and sequential implementation checklist.
 
 ### OBJECTIVE
-Break down the implementation into a SMALL number of actionable tasks. Aim for no more than 6 tasks; merge closely-related work into a single task rather than splitting exhaustively. Each task must be a concrete action one of the executor tools can perform (write/create a file, edit existing content, install a dependency, or run a verification command).
+Break down the implementation into a SMALL number of actionable tasks. Aim for no more than 6 tasks; merge closely-related work into a single task rather than splitting exhaustively. Each task MUST be one that lands a concrete artifact: write/create a file, edit existing content, or install a dependency.
+
+### DO NOT EMIT VERIFICATION TASKS
+The executor cannot complete a verification-only task. Its only run-command tool is `terminal`, and a `terminal` (or `read_file`) call NEVER marks a task complete — only a non-stub `write_file` or a completed `patch` does. So a task like "Run pytest", "Run ls", "Verify the handler returns JSON", or "Check no db imports" is guaranteed to loop forever and fail the run. OMIT every such task entirely:
+  - No abstract property-check ("Ensure the handler is read-only", "Verify no external imports", "Confirm the response is under N ms") — the spec captures those properties, not the plan.
+  - No terminal-only check ("Run pytest ...", "Run ls ...", "Run python -c ...") even if phrased as a concrete command — there is no tool that can complete it.
+  - No final "verification run" task. Verification of landed artifacts is the executor's own job, not a planner task.
+
+Just emit the artifact-producing tasks and STOP. The executor self-verifies that each artifact it was asked to write actually landed; it does not need a verifier task to do that.
 
 ### GUIDELINES
 1. **Bound the size**: Prefer fewer, slightly larger tasks over many micro-steps. Do NOT enumerate "create the directory", then "create the file", then "add the first line", then "add the second line" — those collapse into one "Create file X with <contents>" task.
-2. **Concrete action, not abstract property**: Every task must map to a tool action. Tasks like "Ensure the handler returns JSON" or "Verify no db imports" are abstract property-checks with no concrete tool action — OMIT them entirely; the spec itself captures required properties. Phrase tasks as concrete ops: "Create file X with content Y", "Implement function Z in file F", "Install dependency D", "Run pytest tests/test_foo.py".
-3. **Sequence**: Tasks in logical order (models -> utilities -> core logic -> API endpoints -> one final verification run).
+2. **Concrete artifact action only**: Every task maps to a tool that CAN complete it. Phrase tasks as concrete artifact ops: "Create file X with content Y", "Implement function Z in file F", "Install dependency D".
+3. **Sequence**: Tasks in logical order (models -> utilities -> core logic -> API endpoints).
 4. **Atomicity**: Each task focuses on one responsibility.
-5. **Final task only**: At most ONE verification task at the end (e.g., "Run pytest tests/test_foo.py"), phrased as the concrete command to run — never an abstract "verify the code is correct".
-6. **Format**: Return the checklist as a valid JSON array of objects, each:
-   {"task": "Concrete action description", "type": "file_creation | code_implementation | dependency_install | verification"}
+5. **Format**: Return the checklist as a valid JSON array of objects, each:
+   {"task": "Concrete action description", "type": "file_creation | code_implementation | dependency_install"}
+   The "verification" type is REMOVED — never emit it.
 
 ### OUTPUT FORMAT
 Return ONLY a valid JSON array. No preamble, no markdown blocks. No trailing commentary.
 Example:
 [
   {"task": "Create api/models/user.py with the User model and fields", "type": "code_implementation"},
-  {"task": "Run pytest tests/test_user.py", "type": "verification"}
+  {"task": "Implement POST /users handler in api/user_router.py", "type": "code_implementation"}
 ]
 """
         user_prompt = f"""

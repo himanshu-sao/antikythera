@@ -5,9 +5,13 @@
   deterministic under a controlled temp tree.
 * P3.2.6 Phase 1 — ``execute_tool`` done-semantics: the executor no longer
   self-verifies.  Only ``write_file``/``patch`` can mark ``is_done``; a
-  ``write_file`` of empty/tiny/stub content is rejected; ``terminal`` and
+  ``write_file`` of empty/stub-marker content is rejected; ``terminal`` and
   ``read_file`` are NEVER done.  These guard the live-bug fix (no ``ls``-loop
   false-greens; no ``echo`` completion).
+* P3.2.6 Fix #1 — a small-but-real artifact (e.g. a 6-byte ``VERSION`` file)
+  now completes; the old byte floor that wrongly rejected it is dropped, and
+  ``write_file`` self-verifies via a read-back.  See
+  ``test_write_file_small_real_content_is_done``.
 """
 import os
 
@@ -107,19 +111,35 @@ def test_get_workspace_files_cap_is_a_real_bound(tmp_path):
 # ---------------------------------------------------------------------------
 
 _GOOD_CONTENT = "def health():\n    return {'status': 'ok'}\n# real handler\n"
-# Exactly 30 bytes stripped would be the boundary; pick comfortably above and below.
-_TINY_CONTENT = "hi"  # 2 bytes -> below the _MIN_ARTIFACT_BYTES floor
+# P3.2.6 Fix #1 dropped the byte floor.  A small-but-real artifact is now a
+# legitimate file, NOT a stub — this was the exact cause of the live gate's
+# "Create VERSION file" loop (the old 30-byte floor rejected "0.1.0\n").
+_SMALL_REAL_CONTENT = "0.1.0\n"  # 6 bytes — a legitimate single-line VERSION file
 _STUB_CONTENT = "stub response\n" * 3  # carries the literal stub marker
 
 
-def test_is_stub_content_flags_empty_tiny_and_markers():
+def test_is_stub_content_flags_empty_and_markers():
+    # Empty / whitespace-only content is a stub.
     assert _is_stub_content("") is True
     assert _is_stub_content("   ") is True
-    assert _is_stub_content(_TINY_CONTENT) is True
+    # Stub-marker content is a stub.
     assert _is_stub_content(_STUB_CONTENT) is True
     assert _is_stub_content("# TODO fill this in") is True
     assert _is_stub_content("placeholder") is True
+    # Fix #1: a small-but-real artifact is NOT a stub anymore.
+    assert _is_stub_content(_SMALL_REAL_CONTENT) is False
     assert _is_stub_content(_GOOD_CONTENT) is False
+
+
+def test_write_file_small_real_content_is_done(tmp_path):
+    """Fix #1: a legitimate small artefact (a VERSION file) completes the
+    task.  The old byte floor wrongly rejected this and made the live gate's
+    "Create VERSION file" task loop to exhaustion."""
+    path = str(tmp_path / "VERSION")
+    done, msg = execute_tool("write_file", {"path": path, "content": _SMALL_REAL_CONTENT}, "X")
+    assert done is True, msg
+    assert os.path.isfile(path)
+    assert open(path).read() == _SMALL_REAL_CONTENT
 
 
 def test_write_file_good_content_is_done(tmp_path):
@@ -139,14 +159,6 @@ def test_write_file_stub_content_is_not_done(tmp_path):
     assert "stub" in msg.lower() or "stub" in msg
     # And the file must NOT be left on disk as a fake artifact.
     assert not os.path.isfile(path), "stub content was written to disk despite rejection"
-
-
-def test_write_file_tiny_content_is_not_done(tmp_path):
-    """Too-small content (below the artifact byte floor) must not complete."""
-    path = str(tmp_path / "tiny.txt")
-    done, msg = execute_tool("write_file", {"path": path, "content": _TINY_CONTENT}, "X")
-    assert done is False, "tiny content must not complete a task"
-    assert not os.path.isfile(path)
 
 
 def test_terminal_exit_zero_is_never_done():
