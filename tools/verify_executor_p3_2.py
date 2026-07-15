@@ -168,13 +168,20 @@ def _stub_chat(real_chat):
         sp = system_prompt or ""
         if "Planner" in sp:
             # Non-empty checklist → bypass the fail-loud empty-plan guard.
+            #
+            # Phase 1 designed the ``verification`` task *out* of the executor's
+            # self-assertion surface: ``terminal`` can no longer complete a task
+            # (``_is_verification_command`` is gone; ``terminal`` / ``read_file``
+            # never return ``is_done``).  So an abstract "verify files exist on
+            # disk" task would loop 5 turns and fail the run — the executor now
+            # asserts only "the artifact I was asked to write landed", and the
+            # *harness* (read-back assertions below) does the existence check.
+            # The plan is therefore just the two concrete ``write_file`` tasks.
             return json.dumps([
                 {"task": "Create api/health_router.py with GET /health",
                  "type": "file_creation"},
                 {"task": "Write VERSION file at repo root",
                  "type": "file_creation"},
-                {"task": "Verify api/health_router.py and VERSION exist on disk",
-                 "type": "verification"},
             ])
         if "Executor Agent" in sp:
             n = state["executor_turn"]
@@ -191,17 +198,15 @@ def _stub_chat(real_chat):
                     "args": {"path": VERSION_PATH,
                              "content": VERSION_CONTENT},
                 })
-            # Remaining turns (the verification task, or any retries): a command
-            # that ``_is_verification_command`` recognises AND that exits 0, so
-            # ``execute_tool``'s terminal branch returns is_done=True.  ``test -f``
-            # exits 0 but is NOT a recognised test runner, so it never completes
-            # the task (is_done=False in a loop → 5 retries → run marked failed).
-            # ``pytest --co`` only *collects* (no test bodies run), is classified
-            # as a verification step, and exits 0 against an existing test module.
+            # Remaining turns (any retry of a completed task): under Phase 1 a
+            # ``terminal`` never completes a task, so we must NOT emit one here
+            # or the loop retries it 5× and fails the run.  Re-issue the last
+            # concrete ``write_file`` instead — it is an ``is_done`` tool and is idempotent,
+            # so a retry either no-ops (file already present) or re-lands the artifact.
             return json.dumps({
-                "tool": "terminal",
-                "args": {"command":
-                         "python3 -m pytest --co -q tests/test_bob_stub_seam.py >/dev/null"},
+                "tool": "write_file",
+                "args": {"path": VERSION_PATH,
+                         "content": VERSION_CONTENT},
             })
         # Generic / diagnostics — explicitly labelled so it can never be
         # mistaken for the real "[… stub response …]" degradation string.
@@ -283,7 +288,14 @@ def main() -> int:
         else:
             report = open(REPORT_PATH, encoding="utf-8").read()
             report_size_before = len(report)
-            if len(report) <= 200:
+            # Anti-stub size floor.  The byte count is only a coarse backstop for
+            # an *empty* report (zero COMPLETED: entries ≈ 55 bytes); the real
+            # anti-stub check is the ``COMPLETED:`` + "health" reference asserts
+            # below.  Phase 1 dropped the (unverifiable) verification task, so a
+            # valid 2-task plan now yields a ~165-byte report — keep the floor
+            # well under that (100) so a real but small plan still passes while
+            # a near-empty stub report still fails.
+            if len(report) <= 100:
                 failures.append(f"report too short ({len(report)} chars)")
             if "stub response" in report:
                 failures.append("report contains 'stub response'")

@@ -1,12 +1,22 @@
-"""Unit tests for ``agents.executor_tools.get_workspace_files`` (P3.2.2).
+"""Unit tests for ``agents.executor_tools``.
 
-Verifies the function returns a *bounded, relevant* file set (<= the cap),
-excludes build/cache/dependency dirs, is sorted, and stays deterministic
-under a controlled temp tree instead of depending on the real repo layout.
+* P3.2.2 — ``get_workspace_files`` returns a *bounded, relevant* file set
+  (<= the cap), excludes build/cache/dependency dirs, sorts, and stays
+  deterministic under a controlled temp tree.
+* P3.2.6 Phase 1 — ``execute_tool`` done-semantics: the executor no longer
+  self-verifies.  Only ``write_file``/``patch`` can mark ``is_done``; a
+  ``write_file`` of empty/tiny/stub content is rejected; ``terminal`` and
+  ``read_file`` are NEVER done.  These guard the live-bug fix (no ``ls``-loop
+  false-greens; no ``echo`` completion).
 """
 import os
 
-from agents.executor_tools import get_workspace_files, WORKSPACE_FILES_CAP
+from agents.executor_tools import (
+    get_workspace_files,
+    WORKSPACE_FILES_CAP,
+    execute_tool,
+    _is_stub_content,
+)
 
 
 def _make_tree(base) -> None:
@@ -90,3 +100,105 @@ def test_get_workspace_files_cap_is_a_real_bound(tmp_path):
     all_sorted = sorted(f.name for f in api.iterdir())
     kept_names = [os.path.basename(p) for p in result]
     assert kept_names == all_sorted[:WORKSPACE_FILES_CAP]
+
+
+# ---------------------------------------------------------------------------
+# P3.2.6 Phase 1 — execute_tool done-semantics (no self-verify)
+# ---------------------------------------------------------------------------
+
+_GOOD_CONTENT = "def health():\n    return {'status': 'ok'}\n# real handler\n"
+# Exactly 30 bytes stripped would be the boundary; pick comfortably above and below.
+_TINY_CONTENT = "hi"  # 2 bytes -> below the _MIN_ARTIFACT_BYTES floor
+_STUB_CONTENT = "stub response\n" * 3  # carries the literal stub marker
+
+
+def test_is_stub_content_flags_empty_tiny_and_markers():
+    assert _is_stub_content("") is True
+    assert _is_stub_content("   ") is True
+    assert _is_stub_content(_TINY_CONTENT) is True
+    assert _is_stub_content(_STUB_CONTENT) is True
+    assert _is_stub_content("# TODO fill this in") is True
+    assert _is_stub_content("placeholder") is True
+    assert _is_stub_content(_GOOD_CONTENT) is False
+
+
+def test_write_file_good_content_is_done(tmp_path):
+    """A write of full, non-stub content completes the task."""
+    path = str(tmp_path / "out.py")
+    done, msg = execute_tool("write_file", {"path": path, "content": _GOOD_CONTENT}, "X")
+    assert done is True, msg
+    assert os.path.isfile(path)
+    assert open(path).read() == _GOOD_CONTENT
+
+
+def test_write_file_stub_content_is_not_done(tmp_path):
+    """The live-bug guard: writing a stub/placeholder must NOT mark done."""
+    path = str(tmp_path / "stub.py")
+    done, msg = execute_tool("write_file", {"path": path, "content": _STUB_CONTENT}, "X")
+    assert done is False, "stub content must not complete a task"
+    assert "stub" in msg.lower() or "stub" in msg
+    # And the file must NOT be left on disk as a fake artifact.
+    assert not os.path.isfile(path), "stub content was written to disk despite rejection"
+
+
+def test_write_file_tiny_content_is_not_done(tmp_path):
+    """Too-small content (below the artifact byte floor) must not complete."""
+    path = str(tmp_path / "tiny.txt")
+    done, msg = execute_tool("write_file", {"path": path, "content": _TINY_CONTENT}, "X")
+    assert done is False, "tiny content must not complete a task"
+    assert not os.path.isfile(path)
+
+
+def test_terminal_exit_zero_is_never_done():
+    """The Phase 1 core change: a successful shell command is recon, not
+    proof of completion.  (Old behaviour credited pytest-shape commands and
+    looped 20× on unrecognised ``ls``.)  Even ``true`` (exit 0) must not
+    mark done — if it did, a model could false-green with a vacuous command.
+    """
+    done, _ = execute_tool("terminal", {"command": "true"}, "X")
+    assert done is False, "terminal must never assert is_done (Phase 1)"
+
+
+def test_terminal_failing_command_reports_error_not_done():
+    """A non-zero exit returns an ERROR result, still not done."""
+    done, msg = execute_tool("terminal", {"command": "false"}, "X")
+    assert done is False
+    assert "ERROR" in msg
+
+
+def test_read_file_is_never_done(tmp_path):
+    """``read_file`` is information-gathering; it never completes a task."""
+    path = str(tmp_path / "f.py")
+    with open(path, "w") as f:
+        f.write(_GOOD_CONTENT)
+    done, msg = execute_tool("read_file", {"path": path}, "X")
+    assert done is False
+    assert "FILE CONTENT" in msg
+
+
+def test_patch_lands_is_done(tmp_path):
+    """``patch`` of an existing file that finds old_string is done (unchanged
+    Phase 1 contract)."""
+    path = str(tmp_path / "p.py")
+    with open(path, "w") as f:
+        f.write("a = 1\n")
+    done, msg = execute_tool(
+        "patch",
+        {"path": path, "old_string": "a = 1", "new_string": "a = 2"},
+        "X",
+    )
+    assert done is True, msg
+    assert open(path).read() == "a = 2\n"
+
+
+def test_patch_missing_old_string_is_not_done(tmp_path):
+    path = str(tmp_path / "p.py")
+    with open(path, "w") as f:
+        f.write("a = 1\n")
+    done, msg = execute_tool(
+        "patch",
+        {"path": path, "old_string": "not-here", "new_string": "x"},
+        "X",
+    )
+    assert done is False
+    assert "not found" in msg.lower() or "ERROR" in msg

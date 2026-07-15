@@ -8,6 +8,25 @@ logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
+# P3.2.6 Phase 1 — the executor no longer verifies its own work.  Verification
+# of *correctness* is a separate concern (Phase 2 will run the spec's own
+# tests against what the executor built).  In Phase 1 the executor's only
+# honest assertion is "the artifact I was asked to write landed on disk and is
+# not a stub/placeholder".  These markers and the size floor gate that
+# assertion so a model can't false-complete a task by writing an obvious
+# stand-in.  Deterministic and inspectable — not an LLM judgement.
+_STUB_MARKERS = ("stub response", "# TODO", "placeholder", "notimplementederror")
+_MIN_ARTIFACT_BYTES = 30
+
+
+def _is_stub_content(content: str) -> bool:
+    """True if ``content`` is empty, too small, or carries a stub/placeholder."""
+    if not content or not content.strip():
+        return True
+    if len(content.strip()) < _MIN_ARTIFACT_BYTES:
+        return True
+    return any(m in content.lower() for m in _STUB_MARKERS)
+
 # Hard cap on how many workspace file entries get baked into an executor prompt.
 # A multi-hundred-line file list (the old os.walk behaviour) ballooned every
 # ``_perform_task_multi_turn`` prompt and is the most likely cause of the
@@ -89,50 +108,37 @@ Example response:
 {"tool": "terminal", "args": {"command": "ls -la"}}
 """
 
-def _is_verification_command(cmd: str) -> bool:
-    """
-    Heuristic: does this shell command look like an actual verification step
-    (run the tests / lint the code) rather than an incidental use of the words
-    "test" or "verify"?  We look at the leading program / well-known test
-    runners rather than substring-matching anywhere in the command, so e.g.
-    ``echo "running test"`` does NOT count as a verification.
-    """
-    import re
-
-    cmd = (cmd or "").strip()
-    if not cmd:
-        return False
-    body = re.split(r"(?:&&|\|\||;)", cmd)[-1].strip()  # last chain segment
-    body = re.sub(r"^[A-Za-z_][A-Za-z0-9_]*=\S+\s+", "", body)  # drop VAR=val prefix
-    tokens = body.split()
-    program = tokens[0] if tokens else ""
-    known_test_runners = {
-        "pytest", "unittest", "npm", "yarn", "pnpm",
-        "vitest", "jest", "playwright", "tox", "nox", "go", "cargo",
-        "mvn", "gradle", "make", "rake", "rspec", "minitest",
-    }
-    # `python -m pytest` / `python -m unittest` style invocation
-    if program in {"python", "python3"}:
-        if "-m" in tokens and len(tokens) > 2 and tokens[tokens.index("-m") + 1] in known_test_runners:
-            return True
-        return False
-    return program in known_test_runners
-
-
 def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bool, str]:
     """
     Executes a specific tool using native Python system calls.
 
     Returns ``(is_done, result_text)``.  ``is_done=True`` signals the executor
     loop that the current task is complete (a COMPLETED entry is logged and we
-    move to the next planned task).  Completion semantics per tool:
+    move to the next planned task).
 
-    * ``write_file``  -> done when the file is written successfully.
-    * ``patch``       -> done when the file is patched successfully.
-    * ``terminal``    -> done when the command is a real verification step
-      (a recognised test runner) AND it exits 0.
-    * ``read_file``   -> never done on its own; it's an information-gathering
-      step that feeds the next turn.
+    P3.2.6 Phase 1 — the executor does **not** verify its own work.  These
+    done-semantics assert only "the artifact I was asked to write landed on
+    disk and is not a stub/placeholder", never "the work is correct".
+    Verification of correctness is Phase 2 (a real verifier runs the spec's
+    own tests, out of scope here).  Completion semantics per tool:
+
+    * ``write_file``  -> done when the write succeeds AND the content is
+      non-empty, ≥ ``_MIN_ARTIFACT_BYTES``, and free of ``_STUB_MARKERS``.
+      (A model can't false-complete by writing a stand-in.)
+    * ``patch``       -> done when the patch lands (old_string found and
+      replaced).
+    * ``terminal``    -> **never** ``is_done``.  A shell command, even a
+      successful one, is recon / a side-effect that feeds the next turn —
+      it is NOT proof the task is complete.  (Old behaviour ran ``pytest``-
+      shape commands as a self-verifier and looped on ``ls``; removed.)
+    * ``read_file``   -> never done on its own; information-gathering for the
+      next turn.
+
+    ⚠ Security note (parked, not Phase 1 scope): the ``terminal`` branch runs
+    ``subprocess.run(cmd, shell=True, timeout=300)`` on LLM-controlled
+    ``args["command"]`` — shell injection if the executor is ever pointed at
+    untrusted input.  Now less load-bearing than before (``terminal`` can no
+    longer *manufacture a false completion*), but still a hardening follow-up.
     """
     try:
         if tool_name == "terminal":
@@ -145,16 +151,21 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
             if process.returncode != 0:
                 return False, f"ERROR: {error or output}"
 
-            # A passing verification command means the task is genuinely done.
-            if _is_verification_command(cmd):
-                return True, f"Verification successful:\n{output}"
-
+            # Never assert done from a shell command (see docstring).  Feed the
+            # output back as recon for the next turn.
             return False, f"TOOL RESULT (terminal):\n{output}"
 
         elif tool_name == "write_file":
             path = args.get("path")
             content = args.get("content", "")
             if not path: return False, "ERROR: No path provided"
+
+            if _is_stub_content(content):
+                return False, (
+                    "ERROR: write_file content is empty, too small, or a "
+                    "stub/placeholder. Write the full intended file contents "
+                    f"(got {len((content or '').strip())} bytes)."
+                )
 
             # os.path.dirname("") == "" and makedirs("") raises; guard it.
             parent = os.path.dirname(path)
