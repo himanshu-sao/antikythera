@@ -20,6 +20,7 @@ from agents.executor_tools import (
     WORKSPACE_FILES_CAP,
     execute_tool,
     _is_stub_content,
+    _resolve_item_path,
 )
 
 
@@ -214,3 +215,67 @@ def test_patch_missing_old_string_is_not_done(tmp_path):
     )
     assert done is False
     assert "not found" in msg.lower() or "ERROR" in msg
+
+
+# ---------------------------------------------------------------------------
+# P3.2.7 follow-up — relative tool paths anchor at requirements/<item_id>/
+# ---------------------------------------------------------------------------
+
+def test_resolve_item_path_absolute_is_unchanged():
+    """An ABSOLUTE path is returned verbatim — the executor must still be able
+    to write a real repo-root source file when an absolute path is emitted
+    (the CI fixture deliberately feeds absolute paths)."""
+    abs_path = os.path.join(os.sep, "tmp", "whatever", "VERSION")
+    assert _resolve_item_path(abs_path, "SCRIPT-01") == abs_path
+
+
+def test_resolve_item_path_relative_anchors_to_item_dir(tmp_path, monkeypatch):
+    """A RELATIVE path resolves under ``automation-ideas/requirements/<id>/`` —
+    NOT against the process cwd.  This is the core fix for the P3.2.7
+    relative-path defect (artifacts were escaping to the repo root)."""
+    monkeypatch.chdir(str(tmp_path))
+    item_id = "SCRIPT-01"
+    resolved = _resolve_item_path("system_health_utility.sh", item_id)
+    expected = os.path.join(
+        str(tmp_path), "automation-ideas", "requirements", item_id, "system_health_utility.sh"
+    )
+    assert resolved == expected
+    # And it must NOT be anchored at bare cwd.
+    assert resolved != os.path.join(str(tmp_path), "system_health_utility.sh")
+
+
+def test_resolve_item_path_empty_is_returned_unchanged():
+    """An empty/None path is a caller error, not a path to anchor — return it
+    so the existing ``if not path`` guards (write_file/read_file) still fire."""
+    assert _resolve_item_path("", "ID-1") == ""
+    assert _resolve_item_path(None, "ID-1") is None
+
+
+def test_write_file_relative_lands_in_item_dir_not_cwd(tmp_path, monkeypatch):
+    """The defect, end-to-end: a RELATIVE ``write_file`` path must land under
+    ``requirements/<id>/``, never at the process cwd (repo root).
+
+    Mirrors the SCRIPT-01 failure where ``system_health_utility.sh`` appeared
+    untracked at the repo root.  Run from a throwaway cwd that is NOT the item
+    dir; assert the file is under the item dir and NOT at cwd.
+    """
+    monkeypatch.chdir(str(tmp_path))
+    item_id = "X"
+    item_dir = os.path.join(str(tmp_path), "automation-ideas", "requirements", item_id)
+    os.makedirs(item_dir, exist_ok=True)
+
+    done, msg = execute_tool(
+        "write_file",
+        {"path": "script.sh", "content": _GOOD_CONTENT},
+        item_id,
+    )
+    assert done is True, msg
+
+    # Landed in the ITEM dir …
+    expected = os.path.join(item_dir, "script.sh")
+    assert os.path.isfile(expected), f"expected {expected} to exist"
+    assert open(expected).read() == _GOOD_CONTENT
+    # … and NOT at the bare cwd (the old defect symptom).
+    assert not os.path.isfile(os.path.join(str(tmp_path), "script.sh")), (
+        "relative write_file escaped to cwd — the P3.2.7 defect regressed"
+    )

@@ -60,8 +60,17 @@ ITEM_ID = _fix.ITEM_ID
 IDEAS_DIR = _fix.IDEAS_DIR
 REQ_DIR = _fix.REQ_DIR
 REPORT_PATH = _fix.REPORT_PATH
-HEALTH_ROUTER_PATH = _fix.HEALTH_ROUTER_PATH
-VERSION_PATH = _fix.VERSION_PATH
+# P3.2.7 follow-up — the executor now anchors RELATIVE write_file paths at the
+# item's requirements dir (agents/executor_tools._resolve_item_path).  The
+# sibling CI fixture (verify_executor_p3_2.py) feeds ABSOLUTE paths via a
+# stubbed chat, so its writes keep landing at the repo root — that's why
+# ``_fix.HEALTH_ROUTER_PATH`` is repo-rooted and we leave that file unchanged.
+# THIS live harness does NOT stub chat: the real Gemma executor reads the
+# fixture spec/arch (which name ``api/health_router.py`` / ``VERSION``) and
+# emits those as RELATIVE paths, which now anchor under ``REQ_DIR``.  So the
+# on-disk proof below must read them from the item dir, not the repo root.
+HEALTH_ROUTER_PATH = os.path.join(REQ_DIR, "api", "health_router.py")
+VERSION_PATH = os.path.join(REQ_DIR, "VERSION")
 
 # Load the user's env (symlink target ~/.antikythera/.env) so GOOGLE_API_KEY
 # is present, exactly as the running app would have it.

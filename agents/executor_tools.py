@@ -43,6 +43,32 @@ def _is_stub_content(content: str) -> bool:
     lowered = content.lower()
     return any(m.lower() in lowered for m in _STUB_MARKERS)
 
+
+def _resolve_item_path(path: str, item_id: str) -> str:
+    """Anchor a *relative* tool path at the item's requirements directory.
+
+    ``execute_tool`` runs from the repo root (``executor_idea`` reads spec/arch
+    via ``os.path.join(os.getcwd(), "automation-ideas", ...)`` — see
+    ``agents/executor.py``).  An LLM-emitted RELATIVE ``path`` (e.g.
+    ``"system_health_utility.sh"``) used to resolve against cwd and land at the
+    repo root, polluting the working tree and mismatching the P3.2.7 gate's
+    "artifact under requirements/<id>/" assertion.  Anchor such paths at
+    ``automation-ideas/requirements/<item_id>/`` — built the same way as the
+    report path in ``executor.py::_finalize_phase``.  ABSOLUTE paths are
+    returned unchanged: the executor can still write a real repo-root source
+    file when the LLM (or a fixture) emits an absolute path.
+
+    The executor's ``write_file`` self-verify (read-back) then confirms the
+    bytes landed in the ITEM dir, so a false-complete against the old wrong-cwd
+    path can no longer slip through.
+    """
+    if not path:
+        return path
+    if os.path.isabs(path):
+        return path
+    item_dir = os.path.join(os.getcwd(), "automation-ideas", "requirements", item_id)
+    return os.path.join(item_dir, path)
+
 # Hard cap on how many workspace file entries get baked into an executor prompt.
 # A multi-hundred-line file list (the old os.walk behaviour) ballooned every
 # ``_perform_task_multi_turn`` prompt and is the most likely cause of the
@@ -174,7 +200,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
             return False, f"TOOL RESULT (terminal):\n{output}"
 
         elif tool_name == "write_file":
-            path = args.get("path")
+            path = _resolve_item_path(args.get("path") or "", item_id)
             content = args.get("content", "")
             if not path: return False, "ERROR: No path provided"
 
@@ -213,7 +239,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
             return True, f"SUCCESS: Wrote to {path}"
 
         elif tool_name == "patch":
-            path = args.get("path")
+            path = _resolve_item_path(args.get("path") or "", item_id)
             old_string = args.get("old_string")
             new_string = args.get("new_string")
             if not path or old_string is None: return False, "ERROR: Path or old_string missing"
@@ -230,7 +256,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
             return True, f"SUCCESS: Patched {path}"
 
         elif tool_name == "read_file":
-            path = args.get("path")
+            path = _resolve_item_path(args.get("path") or "", item_id)
             if not path: return False, "ERROR: No path provided"
 
             with open(path, 'r', encoding='utf-8') as f:

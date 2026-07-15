@@ -44,8 +44,17 @@ The executor cannot complete a verification-only task. Its only run-command tool
 
 Just emit the artifact-producing tasks and STOP. The executor self-verifies that each artifact it was asked to write actually landed; it does not need a verifier task to do that.
 
+### ONE TASK PER FILE (no splitting one file across tasks)
+Each distinct file must be produced by EXACTLY ONE task that writes its
+COMPLETE final contents in a single `write_file`. Never split a single file
+across multiple tasks — the executor's `write_file` OVERWRITES the whole file,
+so a second task targeting the same path destroys the first. If a file has
+several parts, write all of them in that one task's full contents and STOP.
+Two tasks may share a target file name only if they name different files
+(e.g. `api/a.py` and `api/b.py`), never the same path twice.
+
 ### GUIDELINES
-1. **Bound the size**: Prefer fewer, slightly larger tasks over many micro-steps. Do NOT enumerate "create the directory", then "create the file", then "add the first line", then "add the second line" — those collapse into one "Create file X with <contents>" task.
+1. **Bound the size**: Prefer fewer, slightly larger tasks over many micro-steps. Do NOT enumerate "create the directory", then "create the file", then "add the first line", then "add the second line" — those collapse into one "Create file X with <contents>" task. Each file appears in exactly ONE task; that task writes the entire file.
 2. **Concrete artifact action only**: Every task maps to a tool that CAN complete it. Phrase tasks as concrete artifact ops: "Create file X with content Y", "Implement function Z in file F", "Install dependency D".
 3. **Sequence**: Tasks in logical order (models -> utilities -> core logic -> API endpoints).
 4. **Atomicity**: Each task focuses on one responsibility.
