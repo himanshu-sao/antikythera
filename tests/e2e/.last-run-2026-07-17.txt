@@ -1,0 +1,184 @@
+
+Running 10 tests using 7 workers
+
+  ✓   1 [chromium] › tests/e2e/addIntegrationModal.spec.ts:19:7 › Integrations Add Connection Modal › opens Add Integration modal (583ms)
+  ✓   8 [chromium] › tests/e2e/pipeline.spec.ts:157:7 › Pipeline Golden Path › should move card between stages (373ms)
+  ✓   2 [chromium] › tests/e2e/integrationsManager.spec.ts:35:7 › Integrations Manager UI › renders integration cards and Add Connection CTA (1.4s)
+  ✓   5 [chromium] › tests/e2e/integrationsManager.spec.ts:45:7 › Integrations Manager UI › type filter works (1.5s)
+Reorder response timeout - continuing to verify DOM
+  ✘  10 [chromium] › tests/e2e/pipeline.spec.ts:257:7 › Pipeline Golden Path › should show error message when API fails (5.2s)
+  ✘   9 [chromium] › tests/e2e/pipeline.spec.ts:201:7 › Pipeline Golden Path › should persist intra-column reordering (10.4s)
+  ✘   4 [chromium] › tests/e2e/pipeline.spec.ts:91:7 › Pipeline Golden Path › should filter ideas by search query, priority, and stage (30.0s)
+  ✘   7 [chromium] › tests/e2e/deletion.spec.ts:34:7 › Item Deletion › should delete an item and it should disappear from the board (30.0s)
+  ✘   6 [chromium] › tests/e2e/pipeline.spec.ts:145:7 › Pipeline Golden Path › should open and close workflow guide (30.0s)
+  ✘   3 [chromium] › tests/e2e/pipeline.spec.ts:35:7 › Pipeline Golden Path › should create a new idea and see it in INTAKE (30.0s)
+
+
+  1) [chromium] › tests/e2e/deletion.spec.ts:34:7 › Item Deletion › should delete an item and it should disappear from the board 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for locator('div').filter({ hasText: 'Idea to Delete' }).first().locator('button[title="Delete"]')[22m
+
+
+      71 |     const card = await pipelinePage.getCardByTitle(title);
+      72 |     const trashIcon = card.locator('button[title="Delete"]');
+    > 73 |     await trashIcon.click();
+         |                     ^
+      74 |
+      75 |
+      76 |
+        at /Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/tests/e2e/deletion.spec.ts:73:21
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/deletion-Item-Deletion-sho-16af9-ld-disappear-from-the-board-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/deletion-Item-Deletion-sho-16af9-ld-disappear-from-the-board-chromium/error-context.md
+
+  2) [chromium] › tests/e2e/pipeline.spec.ts:35:7 › Pipeline Golden Path › should create a new idea and see it in INTAKE 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for getByRole('button', { name: '+ New Idea' })[22m
+
+
+       at page-objects/PipelinePage.ts:27
+
+      25 |
+      26 |   async createIdea(id: string, title: string) {
+    > 27 |     await this.newItemButton.click();
+         |                              ^
+      28 |     await this.page.locator('input[placeholder="e.g. IDEA-1"]').fill(id);
+      29 |     await this.page.locator('input[placeholder="What is the automation idea?"]').fill(title);
+      30 |     await this.page.getByRole('button', { name: 'Create Item' }).click();
+        at PipelinePage.createIdea (/Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/tests/e2e/page-objects/PipelinePage.ts:27:30)
+        at /Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/tests/e2e/pipeline.spec.ts:84:24
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/pipeline-Pipeline-Golden-P-5466c-w-idea-and-see-it-in-INTAKE-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/pipeline-Pipeline-Golden-P-5466c-w-idea-and-see-it-in-INTAKE-chromium/error-context.md
+
+  3) [chromium] › tests/e2e/pipeline.spec.ts:91:7 › Pipeline Golden Path › should filter ideas by search query, priority, and stage 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.fill: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for getByPlaceholder('Search ideas...')[22m
+
+
+       at page-objects/PipelinePage.ts:34
+
+      32 |
+      33 |   async searchIdeas(query: string) {
+    > 34 |     await this.searchInput.fill(query);
+         |                            ^
+      35 |   }
+      36 |
+      37 |   async getCardByTitle(title: string) {
+        at PipelinePage.searchIdeas (/Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/tests/e2e/page-objects/PipelinePage.ts:34:28)
+        at /Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/tests/e2e/pipeline.spec.ts:127:24
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/pipeline-Pipeline-Golden-P-28946-ch-query-priority-and-stage-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/pipeline-Pipeline-Golden-P-28946-ch-query-priority-and-stage-chromium/error-context.md
+
+  4) [chromium] › tests/e2e/pipeline.spec.ts:145:7 › Pipeline Golden Path › should open and close workflow guide 
+
+    [31mTest timeout of 30000ms exceeded.[39m
+
+    Error: locator.click: Test timeout of 30000ms exceeded.
+    Call log:
+    [2m  - waiting for getByRole('button', { name: 'How it works' })[22m
+
+
+      144 |
+      145 |   test('should open and close workflow guide', async ({ page }) => {
+    > 146 |     await pipelinePage.workflowButton.click();
+          |                                       ^
+      147 |
+      148 |     const workflowGuide = page.locator('h2', { hasText: 'Workflow Guide' });
+      149 |     await expect(workflowGuide).toBeVisible();
+        at /Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/tests/e2e/pipeline.spec.ts:146:39
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/pipeline-Pipeline-Golden-P-67ecf-en-and-close-workflow-guide-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/pipeline-Pipeline-Golden-P-67ecf-en-and-close-workflow-guide-chromium/error-context.md
+
+  5) [chromium] › tests/e2e/pipeline.spec.ts:201:7 › Pipeline Golden Path › should persist intra-column reordering 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoContainText[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Locator: locator('.grid-cols-5 .bg-white').first()
+    Expected substring: [32m"Second Idea"[39m
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toContainText" with timeout 5000ms[22m
+    [2m  - waiting for locator('.grid-cols-5 .bg-white').first()[22m
+
+
+      250 |     // Verify the order in the DOM (Second Idea should now be first)
+      251 |     const cards = page.locator('.grid-cols-5 .bg-white');
+    > 252 |     await expect(cards.first()).toContainText('Second Idea');
+          |                                 ^
+      253 |     await expect(cards.nth(1)).toContainText('First Idea');
+      254 |   });
+      255 |
+        at /Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/tests/e2e/pipeline.spec.ts:252:33
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/pipeline-Pipeline-Golden-P-e3c08-ist-intra-column-reordering-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/pipeline-Pipeline-Golden-P-e3c08-ist-intra-column-reordering-chromium/error-context.md
+
+  6) [chromium] › tests/e2e/pipeline.spec.ts:257:7 › Pipeline Golden Path › should show error message when API fails 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).[22mtoBeVisible[2m([22m[2m)[22m failed
+
+    Locator: locator('text=Error:')
+    Expected: visible
+    Timeout: 5000ms
+    Error: element(s) not found
+
+    Call log:
+    [2m  - Expect "toBeVisible" with timeout 5000ms[22m
+    [2m  - waiting for locator('text=Error:')[22m
+
+
+      267 |
+      268 |     const errorLocator = page.locator('text=Error:');
+    > 269 |     await expect(errorLocator).toBeVisible();
+          |                                ^
+      270 |     await expect(page.locator('text=Retry')).toBeVisible();
+      271 |   });
+      272 | });
+        at /Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/tests/e2e/pipeline.spec.ts:269:32
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    test-results/pipeline-Pipeline-Golden-P-ad943-rror-message-when-API-fails-chromium/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: test-results/pipeline-Pipeline-Golden-P-ad943-rror-message-when-API-fails-chromium/error-context.md
+
+  6 failed
+    [chromium] › tests/e2e/deletion.spec.ts:34:7 › Item Deletion › should delete an item and it should disappear from the board 
+    [chromium] › tests/e2e/pipeline.spec.ts:35:7 › Pipeline Golden Path › should create a new idea and see it in INTAKE 
+    [chromium] › tests/e2e/pipeline.spec.ts:91:7 › Pipeline Golden Path › should filter ideas by search query, priority, and stage 
+    [chromium] › tests/e2e/pipeline.spec.ts:145:7 › Pipeline Golden Path › should open and close workflow guide 
+    [chromium] › tests/e2e/pipeline.spec.ts:201:7 › Pipeline Golden Path › should persist intra-column reordering 
+    [chromium] › tests/e2e/pipeline.spec.ts:257:7 › Pipeline Golden Path › should show error message when API fails 
+  4 passed (31.9s)
