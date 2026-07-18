@@ -85,7 +85,11 @@ test.describe('Pipeline Golden Path', () => {
 
     const card = await pipelinePage.getCardByTitle(newTitle);
     await expect(card).toBeVisible();
-    await expect(card).toContainText('INTAKE');
+    // The live board shows stage in the column header (`h2` reads "Intake(N)"),
+    // not inside the card — so "see it in INTAKE" = the card lives under the
+    // Intake column (substring match is robust to the count suffix).
+    const intakeColumn = await pipelinePage.cardColumnHeader(newTitle);
+    await expect(intakeColumn).toContainText('Intake');
   });
 
   test('should filter ideas by search query, priority, and stage', async ({ page }) => {
@@ -247,8 +251,11 @@ test.describe('Pipeline Golden Path', () => {
 
     await page.reload();
 
-    // Verify the order in the DOM (Second Idea should now be first)
-    const cards = page.locator('.grid-cols-5 .bg-white');
+    // Verify the order in the DOM (Second Idea should now be first).
+    // Live card class is `group relative bg-white p-4 rounded-[10px] … cursor-grab
+    // hover-lift …` — the board is a horizontal-stack flex layout, not `.grid-cols-5`
+    // (the old grid layout was replaced). `.cursor-grab.hover-lift` uniquely matches cards.
+    const cards = page.locator('.cursor-grab.hover-lift');
     await expect(cards.first()).toContainText('Second Idea');
     await expect(cards.nth(1)).toContainText('First Idea');
   });
