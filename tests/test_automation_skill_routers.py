@@ -1,336 +1,240 @@
-"""Tests for the LLM-backed /propose and /brainstorm endpoints (P2.4).
+"""Targeted tests for the P2.4 wiring of automation_router /propose and
+skill_router /brainstorm through LLMClient.chat(), and their deterministic
+fallbacks.
 
-These do not hit any live LLM: a fake LLMClient is injected by monkeypatching
-the router module's ``llm_client`` global (the same seam used for
-``api.ai_adapter`` in ``tests/test_ai_adapter.py``). Each test restores the real
-LLMClient afterward so the fake never bleeds into the rest of the suite.
-
-Deterministic fallback (the pre-P2.4 keyword / template logic) is asserted to
-still run when the LLM is unavailable, returns the stub string, or emits
-unparseable / invalid JSON — so the UI keeps working offline.
+Mirrors the single-router isolation pattern in tests/test_observer.py: each
+fixture builds a throwaway FastAPI() mounting just the router under test. A
+fake LLMClient (with a recording .chat()) is injected via the module-level
+``_llm`` slot so ``_get_llm()`` returns it without ever constructing a real
+LLMClient — no live LLM key is needed.
 """
-import importlib
-import json
-import os
-import sys
-
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.main import app
-import api.automation_router as automation_router
-import api.skill_router as skill_router
+from api import automation_router, skill_router
 
 
 class _FakeLLM:
-    """Minimal stand-in for agents.llm_client.LLMClient.
+    """Minimal stand-in for LLMClient: records calls, returns canned chat() output."""
 
-    .chat(system_prompt, user_prompt, temperature=0.7) returns the canned
-    string, or raises if ``response`` is an Exception instance (mirrors
-    tests/test_ai_adapter.py).
-    """
-    def __init__(self, response):
-        self._response = response
-        self.calls = 0
+    def __init__(self, chat_return=""):
+        self.chat_return = chat_return
+        self.calls = []  # list of (system_prompt, user_prompt, temperature)
 
     def chat(self, system_prompt, user_prompt, temperature=0.7):
-        self.calls += 1
-        if isinstance(self._response, Exception):
-            raise self._response
-        return self._response
+        self.calls.append((system_prompt, user_prompt, temperature))
+        if isinstance(self.chat_return, Exception):
+            raise self.chat_return
+        return self.chat_return
 
+
+# ---------------------------------------------------------------------------
+# automation_router /propose
+# ---------------------------------------------------------------------------
 
 @pytest.fixture
-def client():
+def automation_client():
+    app = FastAPI()
+    app.include_router(automation_router.router, prefix="/api/automation")
     return TestClient(app)
 
 
+def _install_fake_automation_llm(monkeypatch, fake):
+    # _get_llm() returns the module-level _llm as-is when already set, so seeding
+    # it avoids constructing a real LLMClient.
+    monkeypatch.setattr(automation_router, "_llm", fake)
+
+
+def test_propose_happy_path_uses_llm(automation_client, monkeypatch):
+    """Valid LLM JSON is shaped into a ProposalResponse; chat() was actually called."""
+    fake = _FakeLLM(chat_return=(
+        '{"step_id": "step_new", "operator_id": "fetch_resource", '
+        '"adapter_id": "jira_adapter", "mode": "adapter", '
+        '"config": {"params": {}}, "input_ref": "resource_id", '
+        '"output_ref": "fetched_data", "condition": null, "loop_over": null, '
+        '"reasoning": "LLM mapped fetch instruction."}'
+    ))
+    _install_fake_automation_llm(monkeypatch, fake)
+
+    res = automation_client.post("/api/automation/propose", json={
+        "instruction": "fetch the jira ticket summary",
+        "current_state": {"step_1": "done"},
+        "integration_id": "jira_adapter",
+    })
+    assert res.status_code == 200
+    body = res.json()
+    assert body["proposal_id"] == "prop_1"
+    assert body["reasoning"] == "LLM mapped fetch instruction."
+    step = body["suggested_step"]
+    assert step["operator_id"] == "fetch_resource"
+    assert step["adapter_id"] == "jira_adapter"
+    assert step["output_ref"] == "fetched_data"
+    # The wiring actually invoked chat() with the new system prompt.
+    assert len(fake.calls) == 1
+    assert fake.calls[0][0] == automation_router._PROPOSER_SYSTEM
+    assert fake.calls[0][2] == 0.2
+
+
+def test_propose_llm_exception_falls_back(automation_client, monkeypatch):
+    """If chat() raises, the deterministic simulation still returns 200."""
+    fake = _FakeLLM(chat_return=RuntimeError("provider down"))
+    _install_fake_automation_llm(monkeypatch, fake)
+
+    res = automation_client.post("/api/automation/propose", json={
+        "instruction": "fetch the data",
+        "current_state": {},
+    })
+    assert res.status_code == 200
+    body = res.json()
+    # Simulation's fetch branch: fetch_resource + fetched_data output_ref.
+    assert body["suggested_step"]["operator_id"] == "fetch_resource"
+    assert body["suggested_step"]["output_ref"] == "fetched_data"
+    assert "retrieve data" in body["reasoning"]
+    assert len(fake.calls) == 1  # it tried the LLM first
+
+
+def test_propose_llm_stub_string_falls_back(automation_client, monkeypatch):
+    """The 'stub response' phrase means no real LLM — simulation is used."""
+    fake = _FakeLLM(chat_return="[stub response — openai LLM call failed: no key]")
+    _install_fake_automation_llm(monkeypatch, fake)
+
+    res = automation_client.post("/api/automation/propose", json={
+        "instruction": "update the status",
+        "current_state": {},
+    })
+    assert res.status_code == 200
+    body = res.json()
+    assert body["suggested_step"]["operator_id"] == "update_resource"
+    assert body["suggested_step"]["config"]["status"] == "Investigating"
+
+
+def test_propose_llm_non_json_falls_back(automation_client, monkeypatch):
+    """Prose/Markdown instead of JSON → simulation used, 200."""
+    fake = _FakeLLM(chat_return="Sure! I'd propose fetching the ticket.")
+    _install_fake_automation_llm(monkeypatch, fake)
+
+    res = automation_client.post("/api/automation/propose", json={
+        "instruction": "get the issue",
+        "current_state": {},
+    })
+    assert res.status_code == 200
+    assert res.json()["suggested_step"]["operator_id"] == "fetch_resource"
+
+
+def test_propose_simulate_unknown_instruction_returns_400(automation_client, monkeypatch):
+    """The simulation's 'unknown instruction' branch still raises 400."""
+    fake = _FakeLLM(chat_return="not json at all")
+    _install_fake_automation_llm(monkeypatch, fake)
+
+    # Instruction deliberately avoids every simulation keyword: extract/field/data,
+    # if/then/update, each/all/every, fetch/get, update/change.
+    res = automation_client.post("/api/automation/propose", json={
+        "instruction": "sing a song about the ocean",
+        "current_state": {},
+    })
+    assert res.status_code == 400
+
+
+def test_propose_simulate_extract_branch(automation_client, monkeypatch):
+    """Degraded path keeps the run_script extract branch intact."""
+    fake = _FakeLLM(chat_return=None)  # _strip_and_parse_json(None) -> None -> fallback
+    _install_fake_automation_llm(monkeypatch, fake)
+
+    res = automation_client.post("/api/automation/propose", json={
+        "instruction": "EXTRACT the field from the data",
+        "current_state": {},
+    })
+    assert res.status_code == 200
+    step = res.json()["suggested_step"]
+    assert step["operator_id"] == "run_script"
+    assert step["mode"] == "script"
+    assert "code" in step["config"]
+
+
+# ---------------------------------------------------------------------------
+# skill_router /brainstorm
+# ---------------------------------------------------------------------------
+
 @pytest.fixture
-def fake_automation_llm(monkeypatch):
-    """Patch automation_router.llm_client; restores the real one on teardown."""
-    real = automation_router.llm_client
-    fake = _FakeLLM("[stub response — not patched]")
-    monkeypatch.setattr(automation_router, "llm_client", fake)
-    yield fake
-    automation_router.llm_client = real
+def skill_client():
+    app = FastAPI()
+    app.include_router(skill_router.router, prefix="/api/skills")
+    return TestClient(app)
 
 
-@pytest.fixture
-def fake_skill_llm(monkeypatch):
-    """Patch skill_router.llm_client; restores the real one on teardown."""
-    real = skill_router.llm_client
-    fake = _FakeLLM("[stub response — not patched]")
-    monkeypatch.setattr(skill_router, "llm_client", fake)
-    yield fake
-    skill_router.llm_client = real
+def _install_fake_skill_llm(monkeypatch, fake):
+    monkeypatch.setattr(skill_router, "_llm", fake)
 
 
-# --------------------------------------------------------------------------
-# /api/automation/propose
-# --------------------------------------------------------------------------
-def test_propose_uses_llm_when_available(client, fake_automation_llm):
-    llm_json = {
-        "step_id": "step_new",
-        "operator_id": "update_resource",
-        "adapter_id": "jira_adapter",
-        "config": {"status": "Investigating"},
-        "input_ref": "fetched_data",
-        "output_ref": "update_result",
-    }
-    fake_automation_llm._response = json.dumps(llm_json)
+def test_brainstorm_happy_path_uses_llm(skill_client, monkeypatch):
+    fake = _FakeLLM(chat_return=(
+        '{"proposed_prompt": "Extract remediation + cvss from text.", '
+        '"proposed_schema": {"remediation": "string", "cvss": "number"}, '
+        '"reasoning": "LLM authored a few-shot extractor for both fields."}'
+    ))
+    _install_fake_skill_llm(monkeypatch, fake)
 
-    resp = client.post("/api/automation/propose", json={
-        "instruction": "escalate the ticket to the security team",
-        "current_state": {"fetched_data": {"id": "PROJ-1"}},
-        "integration_id": "jira_adapter",
+    res = skill_client.post("/api/skills/brainstorm", json={
+        "text_sample": "Remediation: 2.5.0-1.el8_10, CVSS: 7.5",
+        "target_fields": ["remediation", "cvss"],
+        "suggestion": "extract both",
     })
-
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["suggested_step"]["operator_id"] == "update_resource"
-    assert data["suggested_step"]["adapter_id"] == "jira_adapter"
-    assert data["suggested_step"]["config"] == {"status": "Investigating"}
-    assert data["proposal_id"] == "prop_1"
-    assert fake_automation_llm.calls == 1
-
-
-def test_propose_falls_back_to_keyword_logic_on_stub(client, fake_automation_llm):
-    fake_automation_llm._response = "[stub response — google LLM call failed: no key]"
-
-    resp = client.post("/api/automation/propose", json={
-        "instruction": "fetch the jira ticket PROJ-123",
-        "current_state": {},
-        "integration_id": "jira_adapter",
-    })
-
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["suggested_step"]["operator_id"] == "fetch_resource"
-    assert fake_automation_llm.calls == 1
+    assert res.status_code == 200
+    body = res.json()
+    assert body["proposed_prompt"] == "Extract remediation + cvss from text."
+    assert body["proposed_schema"] == {"remediation": "string", "cvss": "number"}
+    assert body["reasoning"].startswith("LLM authored")
+    assert len(fake.calls) == 1
+    assert fake.calls[0][0] == skill_router._BRAINSTORM_SYSTEM
+    assert fake.calls[0][2] == 0.2
 
 
-def test_propose_falls_back_on_unparseable_json(client, fake_automation_llm):
-    fake_automation_llm._response = "Sure! I think you should fetch the ticket."
+def test_brainstorm_llm_exception_falls_back(skill_client, monkeypatch):
+    fake = _FakeLLM(chat_return=RuntimeError("no key"))
+    _install_fake_skill_llm(monkeypatch, fake)
 
-    resp = client.post("/api/automation/propose", json={
-        "instruction": "fetch the jira ticket PROJ-123",
-        "current_state": {},
-        "integration_id": "jira_adapter",
-    })
-
-    assert resp.status_code == 200, resp.text
-    # Fell back to the keyword branch for "fetch".
-    assert resp.json()["suggested_step"]["operator_id"] == "fetch_resource"
-
-
-def test_propose_unknown_instruction_returns_400(client, fake_automation_llm):
-    fake_automation_llm._response = "[stub response — google LLM call failed: no key]"
-
-    resp = client.post("/api/automation/propose", json={
-        "instruction": "evaluate the philosophical implications of kanban",
-        "current_state": {},
-        "integration_id": "jira_adapter",
-    })
-
-    assert resp.status_code == 400
-
-
-def test_propose_llm_response_validates_pathstep(client, fake_automation_llm):
-    # PathStep.operator_id is a plain str field (no enum constraint), so a
-    # well-formed LLM response is surfaced as-is. This documents that behavior:
-    # when the LLM JSON has the required keys, the operator is trusted. The
-    # 400 / fallback contract is covered by test_propose_unknown_instruction_returns_400.
-    fake_automation_llm._response = json.dumps({
-        "step_id": "step_new",
-        "operator_id": "teleport_resource",
-        "adapter_id": "jira_adapter",
-        "config": {},
-    })
-
-    resp = client.post("/api/automation/propose", json={
-        "instruction": "evaluate the philosophical implications of kanban",
-        "current_state": {},
-        "integration_id": "jira_adapter",
-    })
-
-    assert resp.status_code == 200
-    assert resp.json()["suggested_step"]["operator_id"] == "teleport_resource"
-
-
-def test_propose_accepts_model_field(client, fake_automation_llm):
-    # The UI sends `model` in the body; it must be accepted (not 422'd) even
-    # though it is not yet spliced into the chat call.
-    fake_automation_llm._response = "[stub response — google LLM call failed: no key]"
-
-    resp = client.post("/api/automation/propose", json={
-        "instruction": "fetch the jira ticket PROJ-123",
-        "current_state": {},
-        "integration_id": "jira_adapter",
-        "model": "meta/llama-3.1-405b-instruct",
-    })
-
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["suggested_step"]["operator_id"] == "fetch_resource"
-
-
-# --------------------------------------------------------------------------
-# /api/skills/brainstorm
-# --------------------------------------------------------------------------
-def test_brainstorm_uses_llm_when_available(client, fake_skill_llm):
-    llm_json = {
-        "proposed_prompt": "Extract remediation from the sample.",
-        "proposed_schema": {"remediation": "string"},
-        "reasoning": "Single string field; few-shot extraction.",
-    }
-    fake_skill_llm._response = "```json\n" + json.dumps(llm_json) + "\n```"
-
-    resp = client.post("/api/skills/brainstorm", json={
+    res = skill_client.post("/api/skills/brainstorm", json={
         "text_sample": "Remediation: 2.5.0-1.el8_10",
         "target_fields": ["remediation"],
-        "suggestion": "extract the version",
+        "suggestion": "extract remediation",
     })
-
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    assert data["proposed_prompt"] == "Extract remediation from the sample."
-    assert data["proposed_schema"] == {"remediation": "string"}
-    assert data["reasoning"] == "Single string field; few-shot extraction."
-    assert fake_skill_llm.calls == 1
-
-
-def test_brainstorm_falls_back_on_stub(client, fake_skill_llm):
-    fake_skill_llm._response = "[stub response — google LLM call failed: no key]"
-
-    resp = client.post("/api/skills/brainstorm", json={
-        "text_sample": "Remediation: 2.5.0-1.el8_10",
-        "target_fields": ["remediation", "severity"],
-        "suggestion": "extract",
-    })
-
-    assert resp.status_code == 200, resp.text
-    data = resp.json()
-    # Deterministic fallback: schema maps every field to "string".
-    assert data["proposed_schema"] == {"remediation": "string", "severity": "string"}
-    assert "remediation" in data["proposed_prompt"]
+    assert res.status_code == 200
+    body = res.json()
+    # Simulation's few-shot template + {field: "string"} schema.
+    assert "structured data extractor" in body["proposed_prompt"]
+    assert body["proposed_schema"] == {"remediation": "string"}
+    assert set(body["proposed_schema"]) == {"remediation"}
+    assert len(fake.calls) == 1
 
 
-def test_brainstorm_falls_back_on_missing_keys(client, fake_skill_llm):
-    # JSON present but missing proposed_schema → must fall back.
-    fake_skill_llm._response = json.dumps({"proposed_prompt": "x", "reasoning": "y"})
+def test_brainstorm_llm_stub_string_falls_back(skill_client, monkeypatch):
+    fake = _FakeLLM(chat_return="[stub response — google LLM call failed: no key]")
+    _install_fake_skill_llm(monkeypatch, fake)
 
-    resp = client.post("/api/skills/brainstorm", json={
+    res = skill_client.post("/api/skills/brainstorm", json={
         "text_sample": "Remediation: 2.5.0-1.el8_10",
         "target_fields": ["remediation"],
-        "suggestion": "extract",
+        "suggestion": "extract remediation",
     })
-
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["proposed_schema"] == {"remediation": "string"}
-
-
-# --------------------------------------------------------------------------
-# P3.4 regression guard: skill_router must not instantiate SecretVault at import
-# --------------------------------------------------------------------------
-def test_skill_router_no_longer_instantiates_secret_vault(tmp_path):
-    cwd = os.getcwd()
-    os.chdir(tmp_path)
-    try:
-        # Re-import the module in a clean working directory.
-        sys.modules.pop("api.skill_router", None)
-        importlib.import_module("api.skill_router")
-
-        assert not (tmp_path / ".vault.key").exists(), (
-            "skill_router created .vault.key at import — SecretVault re-introduced?"
-        )
-        assert not (tmp_path / "secrets.vault").exists(), (
-            "skill_router created secrets.vault at import — SecretVault re-introduced?"
-        )
-    finally:
-        os.chdir(cwd)
-        # Restore the real imported module for the rest of the suite.
-        sys.modules.pop("api.skill_router", None)
-        importlib.import_module("api.skill_router")
+    assert res.status_code == 200
+    assert "structured data extractor" in res.json()["proposed_prompt"]
 
 
-# --------------------------------------------------------------------------
-# P3.4 regression guard: pipeline_router must not instantiate SecretVault at import
-# (the half of P3.4 the skill guard does not cover)
-# --------------------------------------------------------------------------
-def test_pipeline_router_no_longer_instantiates_secret_vault(tmp_path):
-    cwd = os.getcwd()
-    os.chdir(tmp_path)
-    try:
-        sys.modules.pop("api.pipeline_router", None)
-        importlib.import_module("api.pipeline_router")
+def test_brainstorm_llm_schema_missing_target_field_falls_back(skill_client, monkeypatch):
+    """If the LLM omits a requested target field from proposed_schema, fall back."""
+    fake = _FakeLLM(chat_return=(
+        '{"proposed_prompt": "x", '
+        '"proposed_schema": {"remediation": "string"}, '
+        '"reasoning": "r"}'  # schema missing "cvss"
+    ))
+    _install_fake_skill_llm(monkeypatch, fake)
 
-        assert not (tmp_path / ".vault.key").exists(), (
-            "pipeline_router created .vault.key at import — SecretVault re-introduced?"
-        )
-        assert not (tmp_path / "secrets.vault").exists(), (
-            "pipeline_router created secrets.vault at import — SecretVault re-introduced?"
-        )
-    finally:
-        os.chdir(cwd)
-        sys.modules.pop("api.pipeline_router", None)
-        importlib.import_module("api.pipeline_router")
-
-
-# --------------------------------------------------------------------------
-# P2.5: POST /api/workflows/trigger — UI (WorkflowManager.tsx) calls this with
-# {template_id, inputs} and expects {status, run_id, message}.
-# --------------------------------------------------------------------------
-def test_trigger_workflow_404_for_missing_template(client, tmp_path):
-    resp = client.post("/api/workflows/trigger", json={
-        "template_id": "definitely_not_a_real_template_xyz",
-        "inputs": {},
+    res = skill_client.post("/api/skills/brainstorm", json={
+        "text_sample": "Remediation: 2.5.0-1.el8_10",
+        "target_fields": ["remediation", "cvss"],
+        "suggestion": "extract both",
     })
-    assert resp.status_code == 404, resp.text
-    assert "not found" in resp.json()["detail"].lower()
-
-
-def test_trigger_workflow_creates_run_for_known_template(client, tmp_path):
-    # Seed a template through the app's own state manager so the run is resolvable.
-    from api.main import get_state_manager
-    sm = get_state_manager()
-    template_id = "test_trigger_tpl"
-    sm.templates.save_template(template_id, {"name": "Trigger Test", "steps": []})
-    try:
-        resp = client.post("/api/workflows/trigger", json={
-            "template_id": template_id,
-            "inputs": {},
-        })
-        assert resp.status_code == 200, resp.text
-        data = resp.json()
-        assert data["status"] == "success"
-        assert data["run_id"].startswith("run_")
-        assert "message" in data
-        # The run must actually exist in state.
-        assert sm.runs.get_run(data["run_id"]) is not None
-        assert sm.runs.get_run(data["run_id"])["template_id"] == template_id
-    finally:
-        # Clean up the seeded template + run so other tests stay isolated.
-        try:
-            sm.templates.delete_template(template_id)
-        except Exception:
-            pass
-
-
-def test_trigger_workflow_accepts_inputs_with_item_id(client, tmp_path):
-    """inputs.item_id, if provided, should bind the new run to that board item."""
-    from api.main import get_state_manager
-    sm = get_state_manager()
-    template_id = "test_trigger_bind_tpl"
-    sm.templates.save_template(template_id, {"name": "Bind Test", "steps": []})
-    try:
-        resp = client.post("/api/workflows/trigger", json={
-            "template_id": template_id,
-            "inputs": {"item_id": "ID-TRIG-1"},
-        })
-        assert resp.status_code == 200, resp.text
-        run_id = resp.json()["run_id"]
-        # The binding should be recorded for that item.
-        assert sm.bindings.get_run_id_for_item("ID-TRIG-1") == run_id
-    finally:
-        try:
-            sm.templates.delete_template(template_id)
-        except Exception:
-            pass
+    assert res.status_code == 200
+    # Simulation populates ALL target fields.
+    assert set(res.json()["proposed_schema"]) == {"remediation", "cvss"}

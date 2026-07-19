@@ -10,7 +10,9 @@ ui/npm-run-dev.log
 
 # Testing
 /test-results
+ui/test-results/
 playwright-report/
+ui/playwright-report/
 blob-report/
 .pytest_cache/
 .coverage

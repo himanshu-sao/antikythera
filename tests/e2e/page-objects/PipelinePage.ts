@@ -75,4 +75,36 @@ export class PipelinePage {
   async getColumnByTitle(title: string) {
     return this.page.locator('h2', { hasText: title }).first();
   }
+
+  // dnd-kit's PointerSensor (activationConstraint distance: 5) does not activate
+  // from Playwright's `locator.dragTo()` — that helper issues a single
+  // bounding-box-center hop, which the sensor sees as a pointer-press with no
+  // qualifying move, so `onDragEnd` never fires and no reorder/move call is made.
+  // A manual press -> stepped moves -> release lets the sensor see a real
+  // displacement so collision detection resolves `over` and the drop commits.
+  async dragCardOnto(cardTitle: string, targetTitle: string) {
+    const card = await this.getCardByTitle(cardTitle);
+    const target = targetTitle.includes('Idea')
+      ? await this.getCardByTitle(targetTitle)
+      : await this.getColumnByTitle(targetTitle);
+    const fromBox = await card.boundingBox();
+    const toBox = await target.boundingBox();
+    if (!fromBox || !toBox) return;
+    const startX = fromBox.x + fromBox.width / 2;
+    const startY = fromBox.y + fromBox.height / 2;
+    const endX = toBox.x + toBox.width / 2;
+    const endY = toBox.y + toBox.height / 2;
+    await this.page.mouse.move(startX, startY);
+    await this.page.mouse.down();
+    for (let i = 1; i <= 6; i++) {
+      await this.page.mouse.move(
+        startX + ((endX - startX) * i) / 6,
+        startY + ((endY - startY) * i) / 6,
+      );
+      await this.page.waitForTimeout(20);
+    }
+    await this.page.mouse.move(endX, endY);
+    await this.page.waitForTimeout(60);
+    await this.page.mouse.up();
+  }
 }

@@ -9,8 +9,6 @@ import os
 # Use the same base directory as main.py
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "automation-ideas"))
 os.makedirs(BASE_DIR, exist_ok=True)
-# P3.4: removed dead `from .secret_vault import SecretVault` + `vault = SecretVault(BASE_DIR)`
-# instantiation here — unused, and they created `.vault.key`/`secrets.vault` on disk at import.
 
 router = APIRouter()
 

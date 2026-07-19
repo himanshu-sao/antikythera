@@ -2,7 +2,6 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from api.main import get_state_manager
 from typing import List, Dict, Any, Optional
-import os
 
 router = APIRouter(prefix="/api/workflows", tags=["Workflows"])
 
@@ -43,6 +42,11 @@ async def trigger_workflow(req: TriggerWorkflowRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # NOTE: GET /api/state is served by board_router.py — do not duplicate here.
+
+
+class TriggerRequest(BaseModel):
+    template_id: str
+    inputs: Dict[str, Any] = {}
 
 @router.delete("/templates/{template_id}", summary="Delete a workflow template")
 async def delete_template(request: Request, template_id: str):
@@ -138,5 +142,27 @@ async def get_item_run(request: Request, item_id: str):
         return {"run_id": run_id}
     except AttributeError:
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/trigger", summary="Manually start a workflow run for a template")
+async def trigger_workflow(request: Request, body: TriggerRequest):
+    """
+    Starts a real workflow run via the shared ``ExecutionEngine.start_run``
+    (same path as ``/api/engine/start``). Unlike the ``/api/triggers/webhook``
+    route — which synthesizes a template from an inbound provider payload —
+    this endpoint requires an existing template_id and advances the run
+    through ``process_next_step`` so it is not left as an idle RUNNING row.
+    """
+    engine = getattr(request.app.state, "engine", None)
+    if engine is None:
+        raise HTTPException(status_code=500, detail="Execution engine not initialized in app.state")
+    try:
+        run_id = engine.start_run(body.template_id, body.inputs)
+        return {"status": "success", "run_id": run_id}
+    except ValueError as e:
+        # start_run raises ValueError when the template_id is unknown.
+        raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

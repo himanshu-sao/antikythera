@@ -1,12 +1,17 @@
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from api.main import app
+from api.brain_api import router as brain_router
 from api.brain_schemas import ObserverEvent
 import os
 import json
 
 @pytest.fixture
 def client():
+    # The dead module-level `app` in brain_api.py was removed (P3.5); build a
+    # throwaway app here that mounts just the brain router for isolation.
+    app = FastAPI()
+    app.include_router(brain_router)
     return TestClient(app)
 
 def test_ingest_event_triggers_delta(client):

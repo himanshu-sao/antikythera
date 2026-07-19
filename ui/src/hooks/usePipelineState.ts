@@ -129,7 +129,34 @@ export function usePipelineState() {
     }
   };
 
-  const handleMoveItem = async (itemId: string, targetStage: string, targetOrder: number) => {
+  const handleReorder = async (stage: string, ordered_ids: string[]) => {
+  try {
+    const res = await fetch(`${apiUrl}/api/items/reorder`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage, ordered_ids }), // matches ReorderRequest schema
+    });
+    if (!res.ok) {
+      let errorMessage = 'Failed to reorder items';
+      try {
+        const errorData = await res.json();
+        if (Array.isArray(errorData.detail)) {
+          errorMessage = errorData.detail.map((d: any) => d.msg).join(', ');
+        } else if (errorData.detail) {
+          errorMessage = typeof errorData.detail === 'string' ? errorData.detail : JSON.stringify(errorData.detail);
+        }
+      } catch (e) {}
+      throw new Error(errorMessage);
+    }
+    if (res.ok) {
+      await fetchState();
+    }
+  } catch (e: any) {
+    toast.error(e.message);
+  }
+};
+
+const handleMoveItem = async (itemId: string, targetStage: string, targetOrder: number) => {
     try {
       const res = await fetch(`${apiUrl}/api/move`, {
         method: 'POST',
@@ -165,6 +192,7 @@ export function usePipelineState() {
     handleUpdateItem,
     handleDeleteItem,
     handleCreateItem,
-    handleMoveItem
+    handleMoveItem,
+    handleReorder
   };
 }

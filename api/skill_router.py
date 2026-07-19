@@ -1,10 +1,10 @@
-import json
-import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict, Optional, List
 from .models.automation import Skill
 from agents.llm_client import LLMClient
+import json
+import logging
 import os
 
 logger = logging.getLogger(__name__)
@@ -12,88 +12,57 @@ logger = logging.getLogger(__name__)
 # Use the same base directory as main.py
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "automation-ideas"))
 os.makedirs(BASE_DIR, exist_ok=True)
-# Dead SecretVault removed (P3.4 — skill_router half). main.py comments out
-# SecretVault; credentials now come from env vars. This file no longer creates
-# .vault.key / secrets.vault on disk as an import side effect.
-# Shared LLM client. Resolves the UI-selected default provider/model from
-# AIEngineConfigService (falling back to config.yaml) — no hardcoded key/model.
-# Tests monkeypatch this module global with a fake LLMClient.
-llm_client = LLMClient()
 # Simple in-memory store for skills. In production, this would be a JSON file or DB.
 skills_db: Dict[str, Skill] = {}
 
 router = APIRouter()
 
-# System prompt for the /brainstorm LLM call. Phrased as standalone instructions
-# so it works even for ibm_bob, which concatenates system+user into one query.
+# Shared LLM client, lazily constructed on first /brainstorm call so import-time
+# or config-service failures don't break module load (mirrors AIAdapter._get_llm).
+_llm: Optional[LLMClient] = None
+
+
+def _get_llm() -> LLMClient:
+    global _llm
+    if _llm is None:
+        _llm = LLMClient()
+    return _llm
+
+
+# System prompt framing /brainstorm as a few-shot-prompt authoring engine that
+# returns one JSON object with the SkillProposalResponse fields.
 _BRAINSTORM_SYSTEM = (
-    "You are the Antikythera Skill Designer. Given a text sample, a list of "
-    "target fields to extract, and an optional user suggestion, design a "
-    "ready-to-use few-shot extraction prompt plus its output schema.\n"
-    "Return a JSON object with keys:\n"
-    "- proposed_prompt: a few-shot extraction prompt as a single string;\n"
-    "- proposed_schema: an object mapping each target field name to a type "
-    "string, one of string, number, boolean, array, object;\n"
-    "- reasoning: a short string explaining the design.\n"
-    "Do not include any prose outside the JSON."
+    "You are the Antikythera Skill Brainstormer. Given a text sample, the target "
+    "fields to extract, and a user suggestion, author a few-shot extraction "
+    "prompt plus a JSON output schema keyed by the target fields. Respond with "
+    "ONE JSON object — no prose outside the JSON — with the keys: "
+    "proposed_prompt, proposed_schema, reasoning. proposed_schema MUST map every "
+    "requested target field to a type (e.g. \"string\", \"number\"). Keep the "
+    "prompt concise and self-contained."
 )
 
 
-def _strip_code_fence(text: str) -> str:
-    """Tolerate a fenced ```json block returned by the LLM."""
-    text = text.strip()
+def _strip_and_parse_json(raw: str) -> Optional[dict]:
+    """Tolerantly parse an LLM response as a JSON object (handles ```json fences).
+
+    Returns None for stub responses, non-JSON text, or non-object JSON — callers
+    fall back to the deterministic simulation. Mirrors AIAdapter.analyze parsing.
+    """
+    if not isinstance(raw, str) or "stub response" in raw.lower():
+        return None
+    text = raw.strip()
     if text.startswith("```"):
         parts = text.split("```")
         text = parts[1] if len(parts) > 1 else parts[0]
         if text.lstrip().lower().startswith("json"):
             text = text.lstrip()[4:]
         text = text.strip("`").strip()
-    return text
-
-
-def _brainstorm_via_llm(request: "SkillProposalRequest") -> Optional["SkillProposalResponse"]:
-    """Try to build the skill proposal from the shared LLM.
-
-    Returns a SkillProposalResponse on success, or None when the LLM is
-    unavailable / returns a stub / emits unparseable or invalid JSON —
-    signaling the caller to fall back to the deterministic template builder.
-    """
-    user_prompt = (
-        f"text_sample: {request.text_sample}\n"
-        f"target_fields: {json.dumps(request.target_fields)}\n"
-        f"suggestion: {request.suggestion}\n"
-        "Produce the few-shot extraction prompt and schema as the JSON object "
-        "described in the system instructions."
-    )
     try:
-        raw = llm_client.chat(_BRAINSTORM_SYSTEM, user_prompt)
-    except Exception as e:  # LLMClient.chat never raises, but be defensive
-        logger.debug(f"brainstorm LLM call raised, falling back: {e}")
+        result = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
         return None
+    return result if isinstance(result, dict) else None
 
-    if LLMClient.is_stub(raw):
-        return None
-
-    try:
-        data = json.loads(_strip_code_fence(raw))
-        if not isinstance(data, dict):
-            return None
-        proposed_schema = data.get("proposed_schema")
-        if not isinstance(proposed_schema, dict):
-            return None
-        proposed_prompt = data.get("proposed_prompt")
-        reasoning = data.get("reasoning")
-        if not isinstance(proposed_prompt, str) or not isinstance(reasoning, str):
-            return None
-    except Exception as e:
-        logger.debug(f"brainstorm LLM JSON invalid, falling back: {e}")
-        return None
-
-    return SkillProposalResponse(
-        proposed_prompt=proposed_prompt,
-        proposed_schema=proposed_schema,
-        reasoning=reasoning,
-    )
 
 class SkillProposalRequest(BaseModel):
     text_sample: str
@@ -109,18 +78,53 @@ class SkillProposalResponse(BaseModel):
 async def brainstorm_skill(request: SkillProposalRequest):
     """
     Interactive loop to create a few-shot prompt for a new skill.
-    """
-    # Try the shared LLMClient first (UI-default provider/model). When no LLM
-    # is configured / reachable / parseable, _brainstorm_via_llm returns None
-    # and we fall through to the deterministic template builder below so the UI
-    # keeps working offline. See agents/llm_client.py LLMClient.chat degradation.
-    llm_result = _brainstorm_via_llm(request)
-    if llm_result is not None:
-        return llm_result
 
-    # Deterministic fallback — a hardcoded few-shot template built from the
-    # sample and target fields. MOCK AI Logic preserved for the offline path.
-    # Example: User provided a Jira description and wants to extract 'Remediation'
+    Routes through the shared ``LLMClient.chat()`` with a system prompt framing
+    the LLM as a few-shot-prompt author. When the LLM is unavailable (no key /
+    raise / stub / unparseable JSON), falls back to the deterministic few-shot
+    template in ``_simulate_brainstorm`` so the loop never breaks — same
+    contract as ``AIAdapter.analyze``.
+    """
+    user_prompt = (
+        f"Text sample:\n{request.text_sample}\n\n"
+        f"Target fields to extract: {', '.join(request.target_fields)}\n\n"
+        f"User suggestion: {request.suggestion}\n\n"
+        f"Produce proposed_prompt, proposed_schema (keys exactly matching the "
+        f"target fields), and reasoning."
+    )
+
+    try:
+        raw = _get_llm().chat(_BRAINSTORM_SYSTEM, user_prompt, temperature=0.2)
+    except Exception as e:
+        logger.warning("brainstorm_skill LLMClient.chat raised, using simulated fallback: %s", e)
+        return _simulate_brainstorm(request)
+
+    parsed = _strip_and_parse_json(raw)
+    if parsed is None or not {
+        "proposed_prompt", "proposed_schema", "reasoning",
+    }.issubset(parsed):
+        logger.debug("brainstorm_skill LLM response unparseable/incomplete, using simulated fallback")
+        return _simulate_brainstorm(request)
+
+    schema = parsed["proposed_schema"]
+    if not isinstance(schema, dict) or not set(request.target_fields).issubset(schema):
+        logger.debug("brainstorm_skill proposed_schema missing target fields, using simulated fallback")
+        return _simulate_brainstorm(request)
+
+    return SkillProposalResponse(
+        proposed_prompt=parsed["proposed_prompt"],
+        proposed_schema=schema,
+        reasoning=parsed["reasoning"],
+    )
+
+
+def _simulate_brainstorm(request: SkillProposalRequest) -> SkillProposalResponse:
+    """Deterministic fallback used when no real LLM is available.
+
+    Preserves the historical /brainstorm behavior verbatim (the hardcoded
+    few-shot-template string and the {field: \"string\"} schema), so
+    degraded/test runs behave exactly as before the LLM wiring.
+    """
     sample = request.text_sample
     fields = request.target_fields
 
@@ -128,7 +132,6 @@ async def brainstorm_skill(request: SkillProposalRequest):
     prompt += "Example:\nText: 'Remediation: 2.5.0-1.el8_10'\nOutput: {{'remediation': '2.5.0-1.el8_10'}}\n\n"
     prompt += f"Now process this: {sample}"
 
-    # Generate a simple schema based on the target fields
     schema = {f: "string" for f in fields}
 
     return SkillProposalResponse(
