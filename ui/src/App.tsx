@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  DndContext, 
-  DragEndEvent, 
-  DragStartEvent, 
-  PointerSensor, 
-  useSensor, 
-  useSensors, 
-  DragOverlay 
+import {
+  DndContext,
+  DragEndEvent,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragOverlay,
+  closestCorners,
 } from '@dnd-kit/core';
 import { 
   Home, 
@@ -37,6 +38,7 @@ import { apiUrl } from './config';
 import { usePipelineState } from './hooks/usePipelineState';
 import { CreateItemModal } from './components/modals/CreateItemModal';
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
+import { WorkflowGuideModal } from './components/modals/WorkflowGuideModal';
 import { AutomationStudio } from './components/AutomationStudio';
 import { BuilderModal } from './components/modals/ManagementModals';
 import AIEngineSettings from './components/AIEngineSettings';
@@ -59,10 +61,11 @@ export default function App() {
     state, 
     loading, 
     error, 
-    handleUpdateItem, 
-    handleDeleteItem, 
-    handleCreateItem, 
+    handleUpdateItem,
+    handleDeleteItem,
+    handleCreateItem,
     handleMoveItem,
+    handleReorder,
     fetchState
   } = usePipelineState();
 
@@ -84,6 +87,7 @@ export default function App() {
   const [stageFilter, setStageFilter] = useState('all');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [showWorkflowGuide, setShowWorkflowGuide] = useState(false);
   const [virtualBoardTemplate, setVirtualBoardTemplate] = useState<string | null>(null);
 
   useEffect(() => {
@@ -185,7 +189,26 @@ export default function App() {
       targetOrder = overIndex === -1 ? columnItems.length : overIndex;
     }
 
-    if (activeItem.stage === targetStage && (activeItem.order ?? 0) === targetOrder) return;
+    // Intra-column reorder (same stage): persist the new full ordering via the
+    // bulk /api/items/reorder endpoint. Cross-stage moves go through /api/move.
+    if (activeItem.stage === targetStage) {
+      // Build the reordered id list: drop the dragged item, then insert it at
+      // targetOrder. This matches the backend's ReorderRequest{stage, ordered_ids}.
+      const orderedIds = Object.entries(state.items)
+        .map(([id, item]) => ({ ...item, id }))
+        .filter(item => item.stage === targetStage)
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map(item => item.id);
+      const fromIndex = orderedIds.indexOf(itemId);
+      if (fromIndex !== -1) orderedIds.splice(fromIndex, 1);
+      orderedIds.splice(Math.min(targetOrder, orderedIds.length), 0, itemId);
+      // No-op guard: identical ordering shouldn't fire a network call.
+      if (fromIndex === orderedIds.indexOf(itemId)) return;
+      await handleReorder(targetStage, orderedIds);
+      return;
+    }
+
+    if ((activeItem.order ?? 0) === targetOrder) return;
     await handleMoveItem(itemId, targetStage, targetOrder);
   };
 
@@ -220,10 +243,65 @@ export default function App() {
 
   const renderKanbanBoard = () => {
     if (loading) return <SkeletonBoard />;
-    if (error) return <div className="flex items-center justify-center h-screen text-red-500">{error}</div>;
+    if (error) return (
+      <div className="flex flex-col items-center justify-center h-screen gap-3 text-red-500">
+        <div className="text-lg font-semibold">Error: {error}</div>
+        <button
+          onClick={() => fetchState()}
+          className="px-4 py-2 bg-[var(--accent)] text-white rounded-lg text-sm font-medium hover:bg-[var(--accent-hover)] transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
 
     return (
-      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+        {/* Filter bar — bound to the existing searchQuery/priorityFilter/stageFilter
+            state that already filters the column items below. Restored (was present in
+            the original UI then dropped); e2e pipeline.spec "should filter ideas by
+            search query, priority, and stage" depends on these controls rendering. */}
+        <div className="flex flex-wrap items-center gap-2 px-1 pb-3">
+          <input
+            type="text"
+            placeholder="Search ideas..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent)] flex-1 min-w-[200px] max-w-xs"
+          />
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          >
+            <option value="all">All Priorities</option>
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </select>
+          <select
+            value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          >
+            <option value="all">All Stages</option>
+            {STAGES.map(stage => (
+              <option key={stage} value={stage}>
+                {stage.replace(/_/g, ' ')}
+              </option>
+            ))}
+          </select>
+          {/* Workflow guide affordance (P3.8.4/#3). Was only on the workflow
+              view (WorkflowDiagram.tsx); re-added to the board so the e2e
+              pipeline.spec "should open and close workflow guide" has a target. */}
+          <button
+            onClick={() => setShowWorkflowGuide(true)}
+            className="px-3 py-1.5 text-sm font-medium text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--panel-2)] rounded-lg flex items-center gap-1.5 transition-colors"
+          >
+            <span>ℹ️</span> How it works
+          </button>
+        </div>
         <div className="flex gap-4 overflow-x-auto pb-4 snap-x h-full custom-scrollbar">
           {STAGES.map(stage => (
             <div key={stage} className="flex-shrink-0 snap-start">
@@ -467,9 +545,13 @@ export default function App() {
                 setShowDeleteConfirm(false);
               }
             }} 
-            targetId={deleteTargetId} 
+            targetId={deleteTargetId}
           />
-          <BuilderModal 
+          <WorkflowGuideModal
+            isOpen={showWorkflowGuide}
+            onClose={() => setShowWorkflowGuide(false)}
+          />
+          <BuilderModal
             isOpen={showBuilder} 
             onClose={() => setShowBuilder(false)} 
             itemId={selectedId} 

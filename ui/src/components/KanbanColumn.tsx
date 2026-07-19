@@ -9,18 +9,19 @@ import {
   useSortable 
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { 
-  Inbox, 
-  Pencil, 
-  FileText, 
-  LayoutGrid, 
-  Eye, 
-  TestTube, 
-  CheckCircle, 
-  Zap, 
-  Archive, 
+import {
+  Inbox,
+  Pencil,
+  FileText,
+  LayoutGrid,
+  Eye,
+  TestTube,
+  CheckCircle,
+  Zap,
+  Archive,
   MoreVertical,
-  Plus
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import type { KanbanCardData } from '../types';
 
@@ -145,15 +146,33 @@ export function KanbanCardContent({
           )}
         </div>
         
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onEditClick(id);
-          }}
-          className="p-1 hover:bg-gray-100 rounded-md text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <MoreVertical className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditClick(id);
+            }}
+            className="p-1 hover:bg-gray-100 rounded-md text-gray-400 hover:text-gray-600 transition-colors"
+            aria-label="Edit item"
+          >
+            <MoreVertical className="w-4 h-4" />
+          </button>
+          {/* Per-card delete affordance. onDeleteClick is already wired at the
+              board level to open DeleteConfirmModal (App.tsx). The trash control
+              was missing from the card → the whole delete stack was unreachable
+              by mouse. title="Delete" matches the e2e deletion.spec selector. */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteClick(id);
+            }}
+            title="Delete"
+            aria-label="Delete item"
+            className="p-1 hover:bg-red-50 rounded-md text-gray-400 hover:text-red-600 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-1.5 mb-3">
