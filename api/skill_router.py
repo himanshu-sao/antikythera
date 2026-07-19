@@ -2,13 +2,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict, Optional, List
 from .models.automation import Skill
-from .secret_vault import SecretVault
 import os
 
 # Use the same base directory as main.py
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "automation-ideas"))
 os.makedirs(BASE_DIR, exist_ok=True)
-vault = SecretVault(BASE_DIR)
 # Simple in-memory store for skills. In production, this would be a JSON file or DB.
 skills_db: Dict[str, Skill] = {}
 
