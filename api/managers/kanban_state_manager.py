@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from filelock import FileLock
 from api.managers.base import BaseJSONManager
+from api.managers._timestamps import sanitize_state
 
 class KanbanStateManager(BaseJSONManager):
     """Manager for the legacy Kanban board state (pipeline-state.json)."""
@@ -16,11 +17,14 @@ class KanbanStateManager(BaseJSONManager):
                 return {"items": {}, "stages": ["INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE", "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"]}
             try:
                 with open(self.path, "r") as f:
-                    return json.load(f)
+                    state = json.load(f)
             except Exception:
                 return {"items": {}}
+        # P3.6: self-heal any non-ISO created_at (e.g. historical ``"now"``)
+        # so stale fixtures and older writers don't leak to the UI/API.
+        return sanitize_state(state)
 
-    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
+    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None, complexity: Optional[str] = None) -> bool:
         with self.lock:
             state = self.load_state()
             normalized_id = item_id.upper()
@@ -32,6 +36,7 @@ class KanbanStateManager(BaseJSONManager):
                 "description": description,
                 "stage": "INTAKE",
                 "priority": "medium",
+                "complexity": complexity,
                 "source_type": source_type,
                 "source_value": source_value,
                 "due_date": due_date,

@@ -94,7 +94,7 @@ class AIAdapter:
             logger.warning(f"LLMClient.chat raised, using simulated fallback: {e}")
             return self._simulate_llm_call(full_prompt, context_data)
 
-        if not isinstance(raw, str) or "stub response" in raw.lower():
+        if LLMClient.is_stub(raw):
             # LLM unavailable / degraded to stub — use the deterministic fallback.
             return self._simulate_llm_call(full_prompt, context_data)
 

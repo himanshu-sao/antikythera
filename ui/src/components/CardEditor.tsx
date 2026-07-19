@@ -7,6 +7,7 @@ interface CardEditorProps {
     title: string;
     description?: string;
     priority: string;
+    complexity?: string;
     confidence_score: number;
     source_type?: string;
     source_value?: string;
@@ -62,6 +63,21 @@ export function CardEditor({ itemId, initialData, onSave, onDelete, onClose }: C
             onChange={e => setFormData({ ...formData, description: e.target.value })}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none h-32"
           />
+        </div>
+
+        {/* P4.1 — complexity override (matches agents.constants.TIER_STAGES). */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Complexity</label>
+          <select
+            value={formData.complexity || ''}
+            onChange={e => setFormData({ ...formData, complexity: e.target.value || undefined })}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none bg-white"
+          >
+            <option value="">Inherit / auto</option>
+            <option value="trivial">Trivial</option>
+            <option value="simple">Simple</option>
+            <option value="complex">Complex</option>
+          </select>
         </div>
 
         <div className="grid grid-cols-2 gap-4">

@@ -93,6 +93,41 @@ def calculate_confidence(spec_content):
     return min(score, 100)
 
 
+# P4.1 — deterministic complexity classifier (no LLM call; reuses the spec
+# text the Refiner already produced). Mirrors the "Proportionality" prose in
+# the Refiner system prompt: trivial ideas shouldn't force a full pipeline.
+COMPLEXITY_KEYWORDS = {
+    "trivial": ["health", "ping", "rename", "typo", "one-line", "log line"],
+    "simple":  ["endpoint", "script", "cli", "helper", "migration"],
+    "complex": ["service", "microservice", "auth", "distributed",
+                "migration of", "security-critical"],
+}
+
+
+def estimate_complexity(spec_content: str, title: str = "") -> str:
+    """Classify a spec's complexity into ``trivial``/``simple``/``complex``.
+
+    Deterministic keyword + length heuristic. Returns one of the three tier
+    names (matches ``agents.constants.TIER_STAGES`` keys). Short specs default
+    to ``trivial``; otherwise keyword hits decide, with ``complex`` winning
+    ties so we never under-pipeline a security/distributed task.
+    """
+    if not spec_content:
+        return "complex"
+    text = (spec_content + " " + title).lower()
+    # Very short spec → trivial regardless of keywords (a one-liner's spec
+    # rarely exceeds a few hundred chars even after the Refiner expands it).
+    if len(spec_content) < 400:
+        return "trivial"
+    hits = {tier: sum(text.count(k) for k in kws)
+            for tier, kws in COMPLEXITY_KEYWORDS.items()}
+    if hits["trivial"] and not hits["complex"]:
+        return "trivial"
+    if hits["simple"] and not hits["complex"]:
+        return "simple"
+    return "complex"
+
+
 def refine_idea(idea_id, title, patterns_path=None):
     """
     Refine an idea from a one-liner into a full specification using an LLM.

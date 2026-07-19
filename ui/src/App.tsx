@@ -502,6 +502,7 @@ export default function App() {
                         title: state.items[selectedId]?.title || '',
                         description: (state.items[selectedId] as any)?.description || '',
                         priority: state.items[selectedId]?.priority || 'medium',
+                        complexity: (state.items[selectedId] as any)?.complexity || undefined,
                         confidence_score: state.items[selectedId]?.confidence_score ?? 0,
                         source_type: state.items[selectedId]?.source_type || 'directory',
                         source_value: state.items[selectedId]?.source_value || '',

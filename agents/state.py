@@ -10,6 +10,8 @@ import os
 from datetime import datetime
 from filelock import FileLock
 
+from api.managers._timestamps import sanitize_state
+
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATE_FILE = os.path.join(PROJECT_ROOT, "automation-ideas", "pipeline-state.json")
 LOCK_FILE = STATE_FILE + ".lock"
@@ -33,7 +35,9 @@ def load_state():
         if not os.path.exists(STATE_FILE):
             return _default_state()
         with open(STATE_FILE, "r") as f:
-            return json.load(f)
+            state = json.load(f)
+    # P3.6: self-heal non-ISO created_at on read (see api/managers/_timestamps.py).
+    return sanitize_state(state)
 
 def save_state(state):
     """Save pipeline state to the JSON file.

@@ -1,7 +1,9 @@
 import logging
+from pathlib import Path
 from agents import refiner, architect, tester, audit as audit_module
 from agents import logger as task_logger
-from agents.constants import REVIEW_STAGES
+from agents.constants import REVIEW_STAGES, TIER_STAGES, DEFAULT_COMPLEXITY
+from agents.constants import next_stage
 
 logger = logging.getLogger(__name__)
 
@@ -13,10 +15,22 @@ class StageHandler:
     def __init__(self, orchestrator):
         self.orchestrator = orchestrator
 
+    def _advance(self, item, state, item_id):
+        """Move to the next stage for this item's complexity tier (DONE if none).
+
+        P4.1: forward progress is tier-aware. Skipped columns simply stay
+        empty for that item — ``next_stage`` returns the tier-specific
+        successor (or ``None`` for terminal/unknown). This replaces the
+        hard-coded ``transition_stage(item, "<NEXT>", ...)`` forward calls.
+        """
+        current = item.get("stage", "INTAKE")
+        nxt = next_stage(current, item.get("complexity"))
+        self.orchestrator.transition_stage(item, nxt or "DONE", state, item_id)
+
     def handle_intake(self, item, state, item_id):
         logger.info("Processing %s at INTAKE stage", item_id)
         task_logger.get_logger(item_id).info("orchestrator", "INTAKE_START", f"Beginning intake process for {item_id}")
-        self.orchestrator.transition_stage(item, "REFINEMENT", state, item_id)
+        self._advance(item, state, item_id)
 
     def handle_refinement(self, item, state, item_id):
         logger.info("Processing %s at REFINEMENT stage", item_id)
@@ -42,15 +56,31 @@ class StageHandler:
             logger.error("Refiner failed for %s: %s", item_id, str(e))
             t_logger.error("refiner", "REFINEMENT_FAILED", str(e))
             item["blocked_reason"] = f"Refiner failed: {str(e)}"
-        
-        self.orchestrator.transition_stage(item, "REVIEW_SPEC", state, item_id)
+
+        # P4.1: classify complexity at REFINEMENT, but only when the human
+        # hasn't already set it (an explicit ``complexity`` at create-time, or
+        # a later override, always wins). ``"auto"`` is the UI's "let the
+        # refiner decide" sentinel → treat as unset. We reuse the spec text the
+        # Refiner just wrote; no extra LLM call. The spec read is best-effort:
+        # ``refine_idea`` may be mocked in tests (skipping the write), in which
+        # case we fall back to the default tier rather than crashing.
+        if not item.get("complexity") or item.get("complexity") == "auto":
+            try:
+                spec_path = Path(refiner.REQUIREMENTS_DIR, item_id, "spec.md")
+                spec = spec_path.read_text() if spec_path.exists() else ""
+                item["complexity"] = refiner.estimate_complexity(spec, title=title)
+            except Exception as ce:
+                logger.warning("Complexity estimate failed for %s: %s", item_id, ce)
+                item["complexity"] = DEFAULT_COMPLEXITY
+
+        self._advance(item, state, item_id)
 
     def handle_review_spec(self, item, state, item_id):
         logger.info("Processing %s at REVIEW_SPEC stage", item_id)
         review_status = item.get("review_status", "PENDING")
         if review_status == "APPROVED":
             logger.info("%s review approved, transitioning to ARCHITECTURE", item_id)
-            self.orchestrator.transition_stage(item, "ARCHITECTURE", state, item_id)
+            self._advance(item, state, item_id)
         elif review_status == "NEEDS_REVISION":
             logger.info("%s needs revision, transitioning back to REFINEMENT", item_id)
             self.orchestrator.transition_stage(item, "REFINEMENT", state, item_id)
@@ -81,14 +111,14 @@ class StageHandler:
             t_logger.error("architect", "ARCHITECTURE_FAILED", str(e))
             item["blocked_reason"] = f"Architect failed: {str(e)}"
         
-        self.orchestrator.transition_stage(item, "REVIEW_ARCH", state, item_id)
+        self._advance(item, state, item_id)
 
     def handle_review_arch(self, item, state, item_id):
         logger.info("Processing %s at REVIEW_ARCH stage", item_id)
         review_status = item.get("review_status", "PENDING")
         if review_status == "APPROVED":
             logger.info("%s architecture review approved, transitioning to TESTING", item_id)
-            self.orchestrator.transition_stage(item, "TESTING", state, item_id)
+            self._advance(item, state, item_id)
         elif review_status == "NEEDS_REVISION":
             logger.info("%s architecture needs revision, transitioning back to ARCHITECTURE", item_id)
             self.orchestrator.transition_stage(item, "ARCHITECTURE", state, item_id)
@@ -118,15 +148,15 @@ class StageHandler:
             logger.error("Tester failed for %s: %s", item_id, str(e))
             t_logger.error("tester", "TESTING_FAILED", str(e))
             item["blocked_reason"] = f"Tester failed: {str(e)}"
-        
-        self.orchestrator.transition_stage(item, "REVIEW_TEST", state, item_id)
+
+        self._advance(item, state, item_id)
 
     def handle_review_test(self, item, state, item_id):
         logger.info("Processing %s at REVIEW_TEST stage", item_id)
         review_status = item.get("review_status", "PENDING")
         if review_status == "APPROVED":
             logger.info("%s test review approved, transitioning to APPROVED", item_id)
-            self.orchestrator.transition_stage(item, "APPROVED", state, item_id)
+            self._advance(item, state, item_id)
         elif review_status == "NEEDS_REVISION":
             logger.info("%s tests need revision, transitioning back to TESTING", item_id)
             self.orchestrator.transition_stage(item, "TESTING", state, item_id)
@@ -135,7 +165,7 @@ class StageHandler:
 
     def handle_approved(self, item, state, item_id):
         logger.info("Processing %s at APPROVED stage", item_id)
-        self.orchestrator.transition_stage(item, "EXECUTING", state, item_id)
+        self._advance(item, state, item_id)
 
     def handle_executing(self, item, state, item_id):
         logger.info("Processing %s at EXECUTING stage", item_id)
@@ -201,7 +231,11 @@ class StageHandler:
         if confidence > 0:
             self.orchestrator.transition_stage(item, "DONE", state, item_id)
         else:
-            self.orchestrator.transition_stage(item, "REVIEW_TEST", state, item_id)
+            # P4.1: REVIEW_TEST only exists for the `complex` tier. For
+            # trivial/simple items route the failure back to REVIEW_SPEC — the
+            # one review gate present in every tier — so a human can decide.
+            fallback = "REVIEW_TEST" if next_stage("REVIEW_TEST", item.get("complexity")) else "REVIEW_SPEC"
+            self.orchestrator.transition_stage(item, fallback, state, item_id)
 
     def handle_done(self, item, state, item_id):
         logger.info("%s is already DONE, skipping", item_id)

@@ -4,6 +4,8 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 from filelock import FileLock
 
+from api.managers._timestamps import sanitize_state
+
 class StateManager:
     """
     The legacy StateManager for the general Kanban board.
@@ -33,9 +35,11 @@ class StateManager:
                 return {"items": {}, "stages": ["INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE", "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"]}
             try:
                 with open(self.state_path, "r") as f:
-                    return json.load(f)
+                    state = json.load(f)
             except Exception:
                 return {"items": {}}
+        # P3.6: self-heal non-ISO created_at on read (see api/managers/_timestamps.py).
+        return sanitize_state(state)
 
     def _save_json(self, state: Dict[str, Any]):
         # Atomic write: temp file + rename
@@ -45,7 +49,7 @@ class StateManager:
                 json.dump(state, f, indent=2)
             os.replace(tmp_path, self.state_path)
 
-    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None) -> bool:
+    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None, complexity: Optional[str] = None) -> bool:
         state = self.load_state()
         normalized_id = item_id.upper()
         if normalized_id in state["items"]:
@@ -56,6 +60,7 @@ class StateManager:
             "description": description,
             "stage": "INTAKE",
             "priority": "medium",
+            "complexity": complexity,
             "source_type": source_type,
             "source_value": source_value,
             "due_date": due_date,

@@ -15,6 +15,19 @@ PATTERNS_FILE = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "pattern
 PENDING_UPDATES_FILE = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "pending-updates.md")
 HISTORY_DIR = os.path.join(PROJECT_ROOT, "automation-ideas", "brain", "history")
 
+
+def _is_stub_response(text: Any) -> bool:
+    """Detect unusable LLM output (delegates to ``LLMClient.is_stub``).
+
+    Centralized contract — ``LLMClient.is_stub()`` is the single source of
+    truth for stub detection. ``api/automation_router.py``,
+    ``api/skill_router.py``, and ``api/ai_adapter.py`` also call it directly.
+
+    Returning ``True`` means "skip the write".
+    """
+    return LLMClient.is_stub(text)
+
+
 class MemoryAgent:
     def __init__(self, config_path: str):
         self.llm = LLMClient(config_path=config_path)
@@ -79,10 +92,20 @@ Use the following structure:
         user_prompt = f"Here are the recent audit log entries:\n\n{chr(10).join(entries)}\n\nBased on these entries, propose NEW patterns to add to the patterns.md file. If no new patterns are found, return an empty string."
         try:
             response_text = self.llm.chat(system_prompt=system_prompt, user_prompt=user_prompt)
-            return response_text.strip()
         except Exception as e:
             logger.error(f"Failed to analyze patterns: {str(e)}")
             return None
+        # P3.1 stub-guard: never let a degraded stub / empty "no patterns" reply
+        # reach patterns.md as a ``## Learned on …`` section. When the LLM is
+        # unreachable, LLMClient.chat() returns "[stub response — …]"; we log
+        # the reason (it carries the real failure cause) and skip this round.
+        if _is_stub_response(response_text):
+            logger.warning(
+                "Memory loop produced no usable patterns; skipping patterns.md "
+                "write. LLM reason: %r", response_text
+            )
+            return None
+        return response_text.strip()
 
     def _update_patterns_file(self, new_patterns: str):
         logger.info("Updating patterns.md with new insights...")
@@ -111,7 +134,11 @@ def extract_pattern_from_content(item_id: str, artifact_name: str, content: str)
     # Resolve paths relative to the project root
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config_path = os.path.join(project_root, "config.yaml")
-    brain_patterns = os.path.join(project_root, "automation-ideas", "brain", "patterns.md")
+    # Use the module-level constant so tests can patch one PATTERNS_FILE and
+    # affect both write-paths (this matches _update_patterns_file, which already
+    # uses the constant). Hardcoding a parallel path here previously meant the
+    # on-completion promotion wrote to a path tests could not redirect.
+    brain_patterns = PATTERNS_FILE
 
     logger.info("Memory Agent: Extracting pattern from %s/%s", item_id, artifact_name)
 
@@ -134,8 +161,18 @@ def extract_pattern_from_content(item_id: str, artifact_name: str, content: str)
     try:
         llm = LLMClient(config_path=config_path)
         new_pattern_markdown = llm.chat(system_prompt=system_prompt, user_prompt=user_prompt)
+        # P3.1 stub-guard: a degraded stub or empty "no patterns" reply must not
+        # be appended to patterns.md (same contract as the periodic loop above
+        # and the routers/AIAdapter). Log the reason and skip.
+        if _is_stub_response(new_pattern_markdown):
+            logger.warning(
+                "Pattern extraction for %s/%s produced no usable content; "
+                "skipping patterns.md write. LLM reason: %r",
+                item_id, artifact_name, new_pattern_markdown,
+            )
+            return False
         # If the LLM returns insufficient content, skip
-        if not new_pattern_markdown or len(new_pattern_markdown) < 50:
+        if len(new_pattern_markdown) < 50:
             logger.warning("Pattern extraction yielded insufficient content. Skipping.")
             return False
         # Append the new pattern to patterns.md (create file if missing)

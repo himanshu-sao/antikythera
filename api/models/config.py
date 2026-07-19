@@ -34,13 +34,22 @@ class ModelConfig(BaseModel):
     def _validate_model_id(cls, v: str) -> str:
         """Reject model ids that could masquerade as a CLI flag when spliced
         into the ``bob`` subprocess argv (ibm_bob provider). A leading ``-``
-        would be reinterpreted as a ``bob`` option; empty/garbled ids would
+        would be reinterpreted as a ``bob`` option; a garbled id would
         either crash the binary or be a latent argv-injection vector. Allowed
         shape mirrors real ids like ``meta/llama-3.1-405b-instruct``.
+
+        An empty string is explicitly permitted: it is the sentinel for the
+        ``ibm_bob`` ``"let bob pick its own default model"`` path.
+        ``LLMClient._chat_bob`` omits the ``-m`` flag when ``self.model`` is
+        empty, so no argv splice ever happens for this value. Empty model ids
+        are only meaningful for CLI providers; HTTP providers surface a clear
+        request-time error rather than fail at config load.
         """
-        if not v or not _MODEL_ID_RE.match(v):
+        if v == "":
+            return v
+        if not _MODEL_ID_RE.match(v):
             raise ValueError(
-                "model_id must be non-empty and not start with '-'; "
+                "model_id must not start with '-'; "
                 "allowed chars: letters, digits, and . _ / : -"
             )
         return v

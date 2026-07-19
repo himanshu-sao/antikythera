@@ -64,7 +64,10 @@ _OPENAI_COMPAT = {
 # managed by the LLMClient.
 _IBM_BOB_CLI = "ibm_bob"
 _BOB_BINARY = "bob"
-_BOB_TIMEOUT = 60  # seconds — bob can be slow on first-run auth
+_BOB_TIMEOUT = 120  # seconds — bob can be slow on first-run auth and on
+                     # large structured-output prompts (planner JSON). A cold
+                     # bob daemon has been observed to exceed 60s on the first
+                     # call; 120s leaves headroom without hanging forever.
 
 # A model id is spliced into the ``bob`` argv as the value of ``-m``. Reject any
 # value that could masquerade as another option (leading ``-``) so a malformed
@@ -145,6 +148,31 @@ class LLMClient:
             self._resolved_api_key = None
 
         self._initialize_client()
+
+    @staticmethod
+    def is_stub(text) -> bool:
+        """Single-source-of-truth stub-response detector.
+
+        Every degraded response path in ``chat()`` returns a string containing
+        the literal ``stub response`` (the except block at line ~282 prefixes it
+        with ``[stub response — …]``). When no real provider is reachable
+        (missing key, network error, non-zero subprocess exit), the response is
+        always a stub.
+
+        Empty/whitespace-only and non-string values are also treated as stubs
+        because the memory agent's prompt explicitly allows an empty reply for
+        "no new patterns found", and both routers use the same contract.
+
+        Use ``LLMClient.is_stub(raw)`` instead of inlining
+        ``"stub response" in raw.lower()`` — this keeps the contract in one
+        place so if the stub phrase ever changes, all downstream guards pick
+        it up without a multi-file hunt.
+        """
+        if not isinstance(text, str):
+            return True
+        if not text.strip():
+            return True
+        return "stub response" in text.lower()
 
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         if not os.path.exists(config_path):
@@ -336,11 +364,14 @@ class LLMClient:
 
         The ``bob`` CLI takes a single prompt string (no separate
         system/user split), so the system prompt is prepended to the user
-        prompt and passed as the positional ``query`` argument. Flags
-        chosen against ``bob --help`` and verified empirically on v1.0.6:
+        prompt. Flags chosen against ``bob --help`` and verified empirically
+        on v1.0.6:
 
-          * positional prompt — ``-p``/``--prompt`` is deprecated and will
-            be removed in a future ``bob`` version;
+          * prompt via **stdin** — piping the prompt is the robust path:
+            a leading-dash prompt can't be reinterpreted as a ``bob`` flag
+            (the legacy ``--`` terminator does NOT work on v1.0.6 — the
+            positional after ``--`` is read as "no stdin provided" and the
+            binary exits 1). ``-p``/``--prompt`` also works but is deprecated;
           * ``-m`` only when a model is configured — passing an id the binary
             doesn't recognize crashes it ("An unexpected critical error
             occurred: [object Object]"). With no ``-m``, ``bob`` uses its
@@ -357,7 +388,25 @@ class LLMClient:
         On a non-zero exit we raise ``RuntimeError`` (without stderr in the
         message — stderr is logged server-side only, see ``chat()``'s except),
         which ``chat()``'s try/except degrades to the stub string.
+
+        Opt-in stub seam (P3.2.4): when the environment variable
+        ``ANTIKYTHERA_BOB_STUB`` is set to a truthy value, ``_chat_bob``
+        returns a deterministic response and **never spawns the ``bob``
+        subprocess**. This lets the test suite (and CI) exercise the full
+        ibm_bob code path without spending bob quota or risking the 8–15s
+        per-call / hang behaviour. Default (unset or ``0``) = real ``bob``,
+        so the P3.2.6 live-bob proof stays intact. A test that wants the
+        *real* binary within a normally-stubbed session can force it with
+        ``ANTIKYTHERA_BOB_STUB=0``.
         """
+        bob_stub = os.environ.get("ANTIKYTHERA_BOB_STUB", "").strip().lower()
+        if bob_stub and bob_stub not in ("0", "false", "no", "off"):
+            logger.info(
+                "ANTIKYTHERA_BOB_STUB is set — returning deterministic bob "
+                "stub response (no subprocess spawn)."
+            )
+            return self._bob_stub_response(system_prompt, user_prompt)
+
         prompt = f"{system_prompt}\n\n{user_prompt}"
         command = [
             _BOB_BINARY,
@@ -376,13 +425,15 @@ class LLMClient:
                     "ibm_bob model id failed allowlist validation"
                 )
             command += ["-m", self.model]
-        # ``--`` terminates option parsing so neither the model value (above)
-        # nor the positional prompt — which may legitimately begin with ``-`` —
-        # can be reinterpreted as a ``bob`` flag.
-        command += ["--", prompt]
+        # The prompt is piped via stdin (supplied as ``input`` to subprocess.run
+        # below). Passing it as a positional after a ``--`` terminator does NOT
+        # work on bob v1.0.6: the positional following ``--`` is ignored and the
+        # binary exits 1 ("No input provided ... use the --prompt option"). Stdin
+        # avoids yargs parsing entirely, so a leading-dash prompt is safe here too.
 
         result = subprocess.run(
             command,
+            input=prompt,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -399,6 +450,41 @@ class LLMClient:
             )
             raise RuntimeError(f"bob CLI exited {result.returncode}")
         return result.stdout.strip()
+
+    # ------------------------------------------------------------------
+    # Deterministic bob stub (used only when ANTIKYTHERA_BOB_STUB is set)
+    # ------------------------------------------------------------------
+    def _bob_stub_response(self, system_prompt: str, user_prompt: str) -> str:
+        """Deterministic stand-in for ``_chat_bob`` (P3.2.4 stub seam).
+
+        Returns a stable, parseable string based on the caller's role so that
+        the planner (expects a JSON array) and the executor (expects a
+        JSON tool-call object) each get something they can route through their
+        existing parsers without hitting the ``bob`` subprocess.
+
+        This is intentionally generic — the live ``bob`` proof (P3.2.6) uses
+        the real binary; the dedicated P3.2.4 verification harness
+        (``tools/verify_executor_p3_2.py``) swaps ``LLMClient.chat`` directly
+        for a precise ``write_file``/``api/health_router.py`` responder, so
+        the green CI run is pinned to *that* deterministic script, not to
+        this fallback.
+        """
+        # Executor agent calls return a tool-call JSON object.  Detect that
+        # context by the system prompt mentioning "Executor Agent".
+        if "Executor Agent" in (system_prompt or ""):
+            return (
+                '{"tool": "read_file", "args": {"path": "VERSION"}}'
+            )
+        # Planner calls (system prompt mentions "Implementation Planner")
+        # return a minimal 1-task checklist array so the planner accepts it.
+        if "Planner" in (system_prompt or ""):
+            return (
+                '[{"task": "stub: no-op", "type": "verification"}]'
+            )
+        # Diagnostics / generic: an explicit stub marker (NOT the real
+        # "[stub response …]" degradation string, so is_stub() / consumers
+        # can distinguish opt-in-stub from genuine failure).
+        return "[bob-stub] deterministic response (ANTIKYTHERA_BOB_STUB)"
 
     def generate_structured_content(self, system_prompt: str, user_prompt: str) -> str:
         """

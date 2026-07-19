@@ -2,6 +2,8 @@ import unittest
 import os
 import shutil
 import json
+from unittest.mock import patch
+import agents.llm_client as _llm_mod  # bound module obj; patch.object uses it directly
 from api.secret_vault import SecretVault
 from api.integration_hub import IntegrationHub
 from api.workflow_state_manager import WorkflowStateManager
@@ -13,7 +15,22 @@ class TestAntikytheraE2E(unittest.TestCase):
     def setUp(self):
         self.test_dir = "tests/e2e_test_dir"
         os.makedirs(self.test_dir, exist_ok=True)
-        
+
+        # Force the LLM to the deterministic stub path regardless of the ambient
+        # ~/.antikythera/ai_config.json default — this test asserts the
+        # SENSITIVE_BLOCK keyword fallback in AIAdapter.analyze(), which only
+        # fires when the LLM is unreachable (stub response). Without this,
+        # switching the AI Engine default to a real, keyed provider makes the
+        # LLM call succeed and the deterministic decision never triggers.
+        # We patch the bound module object directly because ``agents/__init__``
+        # doesn't re-export ``llm_client`` — so ``patch("agents.llm_client.…")``
+        # (string path) and ``patch.object(agents, …)`` both fail to resolve.
+        self._resolver_patch = patch.object(
+            _llm_mod, "_resolve_from_config_service", lambda: None
+        )
+        self._resolver_patch.start()
+        self.addCleanup(self._resolver_patch.stop)
+
         # Init all core components
         self.vault = SecretVault(self.test_dir)
         self.hub = IntegrationHub(self.test_dir, self.vault)
