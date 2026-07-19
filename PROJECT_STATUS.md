@@ -5,7 +5,7 @@ This is the **single master document** for the Antikythera project. It tracks th
 ## 📊 Current Executive Summary
 - **System State**: Cognitive Orchestration System (Hybrid Pipeline + Workflow Engine).
 - **Overall Status**: Backend pipeline (Refiner→Architect→Tester) is live and persists artifacts; the July 2026 P0→P2 remediation arc closed the worst runtime defects and wired real LLM providers behind agents/routers. Remaining work is throughput (the Executor/learning stages still stub) and P3 debt hygiene.
-- **Active Focus**: Fixing the learning `"stub response"` loop, producing one real end-to-end idea carried past spec, and stabilizing the Playwright e2e suite.
+- **Active Focus**: Producing one real end-to-end idea carried past spec and fixing the learning `"stub response"` loop. (Playwright e2e suite now green — see P3.8.)
 
 ---
 
@@ -79,7 +79,7 @@ A stop-the-bleed → wiring → real-LLM pass applied over 2026-07-11/12. Tracke
 - [ ] **P3.5 `brain_api.py` second `FastAPI()`** — dead app instance at `brain_api.py:~134`. Remove.
 - [ ] **P3.6 `created_at: "now"` literal** — `pipeline-state.json` still has 1 item with a string `"now"` instead of an ISO timestamp. Fix the writer + backfill.
 - [ ] **P3.7 Empty workflow templates** — `github_pr_release` and `audit_test_tpl` in `workflow_templates.json` have `steps: []`. Either fill or remove.
-- [ ] **P3.8 Playwright e2e suite (10 tests across 4 specs)** — last prior run (2026-07-02) had 6 golden-path tests red (pipeline create/filter/drag/reorder/error + deletion). All are API-mocked via `page.route`. Re-run and stabilize. `.last-run.json` is currently absent — needs a fresh run before this item can be marked.
+- [x] **P3.8 Playwright e2e suite (10 tests across 4 specs)** — DONE 2026-07-18, all 10 green (`npx playwright test` from repo root; `test-results/.last-run.json` → `passed`). Two layered root causes were fixed: (1) **App wiring** — `handleDragEnd` in `ui/src/App.tsx` routed every drag to `handleMoveItem` (→`/api/move`); the `handleReorder` hook (→`POST /api/items/reorder`) was implemented in `usePipelineState.ts` but never destructured in `App.tsx`, so intra-column reorders never persisted. Same-stage drops now route to `handleReorder`, cross-stage to `handleMoveItem`; `closestCorners` collision detection added to the `DndContext` (default `rectIntersection` is unreliable across per-column `SortableContext`s). (2) **dnd-kit + Playwright** — `locator.dragTo()` issues a single bounding-box hop that doesn't satisfy `PointerSensor`'s `activationConstraint:{distance:5}`, so `onDragEnd` never fired; added `PipelinePage.dragCardOnto()` (manual `mouse.move→down→stepped moves→up`) and switched the reorder test to it. The board filter bar, "How it works" workflow-guide affordance, Error+Retry state, and per-card Delete button were also restored — all required by the golden-path specs. Branch: `feat/p3.8.4-restore-pipeline-filters`. ⚠️ Stray `ui/test-results/` dir (from an earlier aborted run) exists and is **not** gitignored by the root `.gitignore` (only `/test-results` is); add `ui/test-results/` to `.gitignore` or delete it to avoid accidentally committing it.
 
 ---
 
@@ -120,7 +120,7 @@ A stop-the-bleed → wiring → real-LLM pass applied over 2026-07-11/12. Tracke
 **Current test state (July 2026):**
 - Backend pytest fast suite: green (live-LLM integration tests deselected). Run with `pytest` from the venv.
 - UI vitest: green, 9/9. Run with `cd ui && npx vitest run`.
-- Playwright e2e: **unverified this session** — needs a fresh `npx playwright test` run (see P3.8).
+- Playwright e2e: **green, 10/10** (2026-07-18). Run `npx playwright test` from the repo root (Playwright lives at repo root, not under `ui/`) with the Vite dev server on `:5173`. See P3.8.
 
 ---
 
@@ -134,4 +134,4 @@ When resolving issues from this document:
 
 ---
 
-**Last Updated**: 2026-07-12
+**Last Updated**: 2026-07-18
