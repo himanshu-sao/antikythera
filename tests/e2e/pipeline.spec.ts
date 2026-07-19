@@ -239,8 +239,10 @@ test.describe('Pipeline Golden Path', () => {
     const firstCard = await pipelinePage.getCardByTitle('First Idea');
     const secondCard = await pipelinePage.getCardByTitle('Second Idea');
 
-    // Drag Second Idea above First Idea
-    await secondCard.dragTo(firstCard);
+    // Drag Second Idea above First Idea. Uses the manual mouse sequence in
+    // dragCardOnto (not locator.dragTo) — dnd-kit's PointerSensor won't fire
+    // onDragEnd for a single-hop dragTo, so the reorder would never be sent.
+    await pipelinePage.dragCardOnto('Second Idea', 'First Idea');
 
     // Wait for the API calls to complete and the UI to reflect the change
     // Use a shorter timeout or a more flexible wait
