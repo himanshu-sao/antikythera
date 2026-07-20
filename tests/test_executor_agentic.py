@@ -95,8 +95,11 @@ def test_executor_agentic_mocked(monkeypatch, tmp_path):
         print("SUCCESS: executor_idea returned 100.")
 
         # The executor should have actually driven the mocked LLM (planner +
-        # at least one executor turn).
-        assert mock_client.chat.call_count >= 1, "mocked LLM was never called"
+        # exactly one executor turn in the happy path — total 2 calls).
+        assert mock_client.chat.call_count == 2, (
+            f"expected 2 LLM calls (planner + executor), "
+            f"got {mock_client.chat.call_count}"
+        )
     finally:
         print(f"Chat call count: {mock_client.chat.call_count}")
 

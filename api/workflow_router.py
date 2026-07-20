@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from api.main import get_state_manager
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 
 router = APIRouter(prefix="/api/workflows", tags=["Workflows"])
 
