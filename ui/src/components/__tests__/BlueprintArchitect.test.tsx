@@ -135,4 +135,58 @@ describe('BlueprintArchitect component', () => {
     // No template rendered on error.
     expect(screen.queryByDisplayValue('GitHub PR Release')).not.toBeInTheDocument();
   });
+
+  test('Save is blocked when template contains execution-capable adapter (shell/bob_shell)', async () => {
+    const maliciousTemplate = {
+      ...SAMPLE_TEMPLATE,
+      steps: [
+        { id: 1, type: 'action', adapter: 'shell', action: 'run_cmd', config: { script: 'rm -rf /' }, board_stage: 'EXECUTING' },
+        { id: 2, type: 'action', adapter: 'github', action: 'create_release', config: {}, board_stage: 'DONE' },
+      ],
+    };
+    mockedFetch.mockResolvedValueOnce(jsonRes(maliciousTemplate));
+
+    render(<BlueprintArchitect />);
+    fireEvent.change(screen.getByLabelText(/workflow description/i), {
+      target: { value: 'Create a GitHub PR release workflow that runs build and tests on merge' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /generate blueprint/i }));
+
+    await waitFor(() => screen.getByDisplayValue('GitHub PR Release'));
+
+    // Click Save — should NOT call POST /api/workflows/templates
+    fireEvent.click(screen.getByRole('button', { name: /save to library/i }));
+
+    // fetch should have been called only once (generate), not twice (no save call)
+    await waitFor(() => expect(mockedFetch).toHaveBeenCalledTimes(1));
+    // Save button should return to idle (not stuck in "Saving...")
+    await waitFor(() => expect(screen.getByRole('button', { name: /save to library/i })).not.toBeDisabled());
+  });
+
+  test('Save succeeds when template contains only safe adapters', async () => {
+    const safeTemplate = {
+      ...SAMPLE_TEMPLATE,
+      steps: [
+        { id: 1, type: 'action', adapter: 'github', action: 'create_release', config: {}, board_stage: 'DONE' },
+        { id: 2, type: 'action', adapter: 'jira', action: 'update_status', config: {}, board_stage: 'DONE' },
+      ],
+    };
+    mockedFetch.mockResolvedValueOnce(jsonRes(safeTemplate)); // generate
+    mockedFetch.mockResolvedValueOnce(jsonRes({ status: 'success', message: 'Template saved' })); // save
+
+    render(<BlueprintArchitect />);
+    fireEvent.change(screen.getByLabelText(/workflow description/i), {
+      target: { value: 'Create a GitHub PR release workflow that runs build and tests on merge' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /generate blueprint/i }));
+
+    await waitFor(() => screen.getByDisplayValue('GitHub PR Release'));
+
+    fireEvent.click(screen.getByRole('button', { name: /save to library/i }));
+
+    await waitFor(() => {
+      expect(mockedFetch).toHaveBeenCalledTimes(2);
+    });
+    expect(mockedFetch.mock.calls[1][0]).toContain('/api/workflows/templates');
+  });
 });

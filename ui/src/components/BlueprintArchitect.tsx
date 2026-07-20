@@ -85,10 +85,33 @@ export function BlueprintArchitect() {
     }
   };
 
+  // Adapters that can execute arbitrary commands / shell — block these from
+  // being silently persisted via an AI-generated template. The execution
+  // engine's registry has INTERNAL, GITHUB, JIRA, BOB_SHELL; the builder
+  // uses lowercase tokens (shell, ai, internal, github, jira, bob_shell).
+  // 'shell' is not in the engine registry (would error at run time), but we
+  // still block it here. 'bob_shell' IS in the registry and runs commands.
+  const EXECUTION_CAPABLE_ADAPTERS = new Set(['shell', 'bob_shell']);
+
   // Derive a stable template_id from the name (POST /api/workflows/templates
   // requires one). Falls back to a slug when the name is empty.
   const save = async () => {
     if (!template) return;
+
+    // Client gate: reject templates that contain execution-capable adapters.
+    // The backend /api/workflows/templates currently has no adapter allowlist;
+    // this defends the Save sink regardless.
+    const dangerousSteps = template.steps.filter(step =>
+      EXECUTION_CAPABLE_ADAPTERS.has(step.adapter?.toLowerCase())
+    );
+    if (dangerousSteps.length > 0) {
+      toast.error(
+        `Template contains execution-capable adapter(s): ${dangerousSteps.map(s => s.adapter).join(', ')}. ` +
+        `Remove or change these steps before saving.`
+      );
+      return;
+    }
+
     setIsSaving(true);
     try {
       const templateId =
