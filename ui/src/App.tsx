@@ -21,7 +21,8 @@ import {
   RefreshCw, 
   User, 
   ChevronDown,
-  X
+  X,
+  Wand2
 } from 'lucide-react';
 import { KanbanColumn, KanbanCardContent } from './components/KanbanColumn';
 import { ArtifactViewer } from './components/ArtifactViewer';
@@ -33,6 +34,7 @@ import { Toaster } from 'react-hot-toast';
 import { PipelineDashboard } from './components/PipelineDashboard';
 import { WorkflowManager } from './components/WorkflowManager';
 import { IntegrationsManager } from './components/IntegrationsManager';
+import { BlueprintArchitect } from './components/BlueprintArchitect';
 import type { Pipeline, PipelineState } from './types';
 import { apiUrl } from './config';
 import { usePipelineState } from './hooks/usePipelineState';
@@ -48,7 +50,7 @@ const STAGES = [
   "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"
 ];
 
-type TabType = 'KANBAN' | 'PIPELINE' | 'STUDIO' | 'WORKFLOWS' | 'INTEGRATIONS' | 'AI_ENGINE' | 'HOME';
+type TabType = 'KANBAN' | 'PIPELINE' | 'STUDIO' | 'WORKFLOWS' | 'INTEGRATIONS' | 'AI_ENGINE' | 'BLUEPRINT' | 'HOME';
 
 interface Tab {
   type: TabType;
@@ -235,6 +237,8 @@ export default function App() {
       return <WorkflowManager />;
     } else if (activeTab.type === 'INTEGRATIONS') {
       return <IntegrationsManager />;
+    } else if (activeTab.type === 'BLUEPRINT') {
+      return <BlueprintArchitect />;
     } else if (activeTab.type === 'AI_ENGINE') {
       return <AIEngineSettings />;
     }
@@ -351,6 +355,7 @@ export default function App() {
     { id: 'STUDIO', label: 'Studio', icon: PenLine },
     { id: 'WORKFLOWS', label: 'Workflows', icon: Workflow },
     { id: 'INTEGRATIONS', label: 'Integrations', icon: Globe },
+    { id: 'BLUEPRINT', label: 'Blueprint', icon: Wand2 },
     { id: 'AI_ENGINE', label: 'AI Engine', icon: Cpu },
     { id: 'SETTINGS', label: 'Settings', icon: Settings },
   ];

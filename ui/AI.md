@@ -21,7 +21,8 @@ The app uses a tabbed navigation with four primary surfaces:
 
 Additional panels available via sidebar:
 - **AI Engine** (`AIEngineSettings.tsx` + `AIEngineOverview.tsx`): Multi-provider model management
-- **Workflow Architect** (`WorkflowArchitect.tsx`): Natural-language blueprint generator
+- **Workflow Architect** (`WorkflowArchitect.tsx`): Lifecycle Orchestrator — per-item 7-stage phase transitions (`DISCOVERY → HANDOVER`) via `/api/orchestrator/*`, opened as a modal from the Workflows tab's "Workflow Builder" button.
+- **Blueprint** (`BlueprintArchitect.tsx`): Natural-language → workflow-template generator — prompt → `POST /api/builder/generate` → editable template → `POST /api/builder/validate` → save via `POST /api/workflows/templates` (its own sidebar tab).
 - **Brain Settings** (`BrainSettings.tsx`): Learning/pattern configuration
 
 ## Key Design Decisions

@@ -25,7 +25,7 @@ This is the **single master document** for the Antikythera project. It tracks th
     - [x] Fix `ArtifactViewer.test.tsx` timeouts.
     - [x] Fix `App.polling.test.tsx` environment issues.
     - [x] Stabilize `ArtifactViewer.edit.test.tsx`.
-    - [ ] **Implement "Workflow Architect" component**.
+    - [x] **Implement "Workflow Architect" component** — delivered as two cohesive pieces (the original label conflated them): **(A)** `WorkflowArchitect.tsx` hardened as a Lifecycle Orchestrator (per-item 7-stage `DISCOVERY → HANDOVER` transitions via `/api/orchestrator/*`, mock proposals dropped, real `nextPhase` logic, full `WorkflowArchitect.test.tsx` suite); **(B)** new `BlueprintArchitect.tsx` as the NL-blueprint generator wiring the previously-unwired `/api/builder/generate` → `/api/builder/validate` → `POST /api/workflows/templates`, exposed via its own `BLUEPRINT` sidebar tab (`BlueprintArchitect.test.tsx`, 5 tests).
     - [x] Verify Lifecycle Orchestrator End-to-End.
 - [x] **Phase 5: Integration Flow**
     - [ ] Test component interactions and API flows.
