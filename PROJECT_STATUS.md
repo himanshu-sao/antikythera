@@ -25,7 +25,7 @@ This is the **single master document** for the Antikythera project. It tracks th
     - [x] Fix `ArtifactViewer.test.tsx` timeouts.
     - [x] Fix `App.polling.test.tsx` environment issues.
     - [x] Stabilize `ArtifactViewer.edit.test.tsx`.
-    - [x] **Implement "Workflow Architect" component** — delivered as two cohesive pieces (the original label conflated them): **(A)** `WorkflowArchitect.tsx` hardened as a Lifecycle Orchestrator (per-item 7-stage `DISCOVERY → HANDOVER` transitions via `/api/orchestrator/*`, mock proposals dropped, real `nextPhase` logic, full `WorkflowArchitect.test.tsx` suite); **(B)** new `BlueprintArchitect.tsx` as the NL-blueprint generator wiring the previously-unwired `/api/builder/generate` → `/api/builder/validate` → `POST /api/workflows/templates`, exposed via its own `BLUEPRINT` sidebar tab (`BlueprintArchitect.test.tsx`, 5 tests).
+    - [x] **Implement "Workflow Architect" component** — delivered as two cohesive pieces (the original label conflated them): **(A)** `WorkflowArchitect.tsx` hardened as a Lifecycle Orchestrator (per-item 7-stage `DISCOVERY → HANDOVER` transitions via `/api/orchestrator/*`, mock proposals dropped, real `nextPhase` logic, full `WorkflowArchitect.test.tsx` suite); **(B)** new `BlueprintArchitect.tsx` as the NL-blueprint generator wiring the previously-unwired `/api/builder/generate` → `/api/builder/validate` → `POST /api/workflows/templates`, exposed via its own `BLUEPRINT` sidebar tab (`BlueprintArchitect.test.tsx`, 7 tests incl. client-side adapter gate). **Backend hardening deferred** — see "Blueprint Architect Backend Hardening" under Technical Gaps below.
     - [x] Verify Lifecycle Orchestrator End-to-End.
 - [x] **Phase 5: Integration Flow**
     - [ ] Test component interactions and API flows.
@@ -120,6 +120,13 @@ A stop-the-bleed → wiring → real-LLM pass applied over 2026-07-11/12. Tracke
 ### General System Gaps
 - [ ] **Backend**: Complete implementation of variable handling and context addition.
 - [x] **Stability**: ~~`SESSION_UPDATE.md` retired~~ (DONE 2026-07-19, commit `8446f14`) — replaced with a pointer notice redirecting to this document (see CLAUDE.md gotcha #9). Historical row preserved for archaeology only.
+
+### Blueprint Architect Backend Hardening (security follow-up from `feat/phase4-workflow-architect`)
+Spun out of the Phase 4 PR's security review. The NL generator (`BlueprintArchitect.tsx`) saves AI-generated templates via `POST /api/workflows/templates`, which has **no server-side validation** of `step.adapter` or `step.config`. The `/api/builder/generate` endpoint's keyword fallbacks literally emit `adapter: 'shell'` steps, and the engine registry (`api/workflow_engine.py:16-21`) includes `BOB_SHELL`, which executes commands. A client-side gate in `BlueprintArchitect.save()` (`EXECUTION_CAPABLE_ADAPTERS = {'shell','bob_shell'}`, blocks Save + toasts error) is the interim defense — **bypassable client-side, not the real fix**. Backlog:
+- [ ] **B1 — Server-side adapter allowlist on `POST /api/workflows/templates`** (`api/workflow_router.py:52 save_template`): reject templates whose `steps[].adapter` is not in an explicit allowlist (`internal`, `github`, `jira`, `ai` — exclude `shell`/`bob_shell` from AI-generated templates, or require explicit admin confirmation). Prefer an *allowlist* over a denylist of dangerous adapters. Open question: allowlist hardcoded vs. config-driven vs. per-tenant?
+- [ ] **B2 — Per-adapter `step.config` schema validation**: JSON-schema per adapter on the template-save path (and ideally on `/api/builder/*`); reject unknown/duplicate fields.
+- [ ] **B3 — Auth/CSRF on `/api/builder/*` + `/api/workflows/templates`**: these are currently unauthenticated (project-wide gap — the whole API is open, CLAUDE.md doesn't document any auth). Narrow auth on just these two endpoints while the rest stay open is inconsistent; treat as part of a broader auth initiative rather than a Phase 4 patch.
+- [ ] **B4 — Tests**: `pytest` for `workflow_router.py::save_template` covering allowlist rejection, unknown-field rejection, and the happy path. (Per project memory, run only the affected pytest file — not the full suite/e2e.)
 
 ---
 
