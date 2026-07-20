@@ -1,6 +1,6 @@
 # Antikythera Backend + Orchestrator
 # Multi-stage build for production-ready image
-ARG PYTHON_VERSION=3.9
+ARG PYTHON_VERSION=3.11
 
 # ------------------------------------------------------------------------------
 # Stage 1: Builder - Install dependencies

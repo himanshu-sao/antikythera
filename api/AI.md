@@ -5,7 +5,7 @@
 ---
 
 ## API Architecture
-- **Framework**: FastAPI (Python 3.9+)
+- **Framework**: FastAPI (Python 3.11+)
 - **App entry point**: `api/main.py`
 - **Pattern**: Router-based architecture. Note: most routers are flat files in `api/`, not in `api/routers/`.
 

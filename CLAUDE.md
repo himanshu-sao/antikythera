@@ -8,7 +8,7 @@ This is the authoritative quick-reference for AI agents working on the Antikythe
 ## Quick Facts
 | Item | Value |
 |------|-------|
-| Python | 3.9 (venv at `./venv/`) |
+| Python | 3.11 (venv at `./venv/`) |
 | Backend port | 8006 |
 | Frontend dev port | 5173 (proxies API to 8006) |
 | Framework | FastAPI (backend), React 19 + Vite + Tailwind (frontend) |
