@@ -90,7 +90,13 @@ def test_terminal_only_task_exhausts_max_attempts_not_20(monkeypatch, tmp_path):
 
 
 def test_write_file_task_completes_in_one_turn(monkeypatch, tmp_path):
-    """A ``write_file`` of real content completes in a single LLM turn."""
+    """A ``write_file`` of real content completes in a single LLM turn.
+
+    Per the P3.2.7 follow-up, ``execute_tool`` anchors a RELATIVE tool path at
+    ``automation-ideas/requirements/<item_id>/`` (not cwd), so the artifact
+    lands at ``<cwd>/automation-ideas/requirements/<item_id>/<target>`` —
+    ``tmp_path`` here is cwd via ``monkeypatch.chdir``.
+    """
     monkeypatch.chdir(tmp_path)
     target = os.path.join("api", "health_router.py")
     write_resp = _tool_call("write_file", path=target, content=_REAL_CONTENT)
@@ -99,10 +105,13 @@ def test_write_file_task_completes_in_one_turn(monkeypatch, tmp_path):
         monkeypatch, [write_resp, _tool_call("write_file", path="unused", content="x")]
     )
 
+    item_id = "TEST-LOOP-002"
     task = {"task": "Create api/health_router.py with GET /health", "type": "file_creation"}
-    done = executor._perform_task_multi_turn(task, "TEST-LOOP-002")
+    done = executor._perform_task_multi_turn(task, item_id)
 
-    abs_target = os.path.join(str(tmp_path), target)
+    abs_target = os.path.join(
+        str(tmp_path), "automation-ideas", "requirements", item_id, target
+    )
     assert done is True, "valid write_file did not complete the task"
     assert mock_client.chat.call_count == 1, (
         f"expected 1 LLM call for a one-shot write, got "

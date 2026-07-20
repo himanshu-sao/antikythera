@@ -3,8 +3,6 @@
 import sys
 import os
 import asyncio
-import inspect
-import importlib.util
 import pytest
 
 
@@ -61,18 +59,10 @@ def ensure_event_loop():
 #    defensive.
 # ----------------------------------------------------------------------
 
-# ----------------------------------------------------------------------
-# 4. Teardown hook that only restores the real agents.llm_client module.
-#    This is needed for `tests/test_executor_agentic.py` which injects a
-#    mock into sys.modules.  Other tests never touch this module.
-# ----------------------------------------------------------------------
+# Session-scoped event loop for pytest-asyncio (every async test, even those
+# outside the api/executors subpackage, gets a usable loop).
 @pytest.fixture(scope="session")
 def event_loop():
-    """Create a global event loop for all async tests.
-    The built‑in pytest‑asyncio plugin looks for a fixture named ``event_loop``.
-    Providing it here ensures every async test (even those outside the
-    ``api/executors`` subpackage) gets a usable loop.
-    """
     import asyncio
     loop = asyncio.new_event_loop()
     yield loop
@@ -93,18 +83,3 @@ def reset_state_manager(tmp_path):
         (knowledge / name).write_text(f"# {name.split('.')[0].capitalize()}")
     # Replace the global state_manager with a fresh instance
     api.main.state_manager = api.main.WorkflowStateManager(str(base))
-
-
-def pytest_runtest_teardown(item):
-    # Apply the cleanup only for the test that deliberately mocks the client
-    if "test_executor_agentic" in item.nodeid:
-        mod = sys.modules.get("agents.llm_client")
-        if mod and not getattr(mod, "__file__", None):
-            # Remove the mock
-            del sys.modules["agents.llm_client"]
-            # Load the genuine implementation from source
-            real_path = os.path.join(os.path.dirname(__file__), "agents", "llm_client.py")
-            spec = importlib.util.spec_from_file_location("agents.llm_client", real_path)
-            real_mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(real_mod)
-            sys.modules["agents.llm_client"] = real_mod
