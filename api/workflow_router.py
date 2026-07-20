@@ -6,40 +6,6 @@ from typing import List, Dict, Any, Optional
 router = APIRouter(prefix="/api/workflows", tags=["Workflows"])
 
 
-class TriggerWorkflowRequest(BaseModel):
-    """UI-triggered run: execute a known template by id."""
-    template_id: str
-    inputs: Dict[str, Any] = {}
-
-
-@router.post("/trigger", summary="Trigger a workflow run from a template")
-async def trigger_workflow(req: TriggerWorkflowRequest):
-    """UI calls this with {template_id, inputs}; returns {status, run_id, message}."""
-    try:
-        state_manager = get_state_manager()
-        template = state_manager.templates.get_template(req.template_id)
-        if not template:
-            raise HTTPException(status_code=404, detail=f"Template '{req.template_id}' not found")
-        run_id = f"run_{int.from_bytes(os.urandom(4), 'big')}"
-        run_data = {
-            "template_id": req.template_id,
-            "status": "RUNNING",
-            "current_step": 0,
-            "trigger_payload": {"source": "ui", "inputs": req.inputs},
-            "retry_count": 0,
-        }
-        state_manager.runs.create_run(run_id, run_data)
-        # Optionally bind to a board item if the UI provided one in inputs.
-        item_id = req.inputs.get("item_id")
-        if item_id:
-            state_manager.bindings.bind_run_to_item(run_id, str(item_id))
-        return {"status": "success", "run_id": run_id, "message": f"Workflow '{req.template_id}' triggered"}
-    except HTTPException:
-        raise
-    except AttributeError:
-        raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 # NOTE: GET /api/state is served by board_router.py — do not duplicate here.
 

@@ -31,6 +31,20 @@ class TestAntikytheraE2E(unittest.TestCase):
         self._resolver_patch.start()
         self.addCleanup(self._resolver_patch.stop)
 
+        # Even with the resolver disabled, a real keyed ``google`` provider in
+        # config.yaml (with GOOGLE_API_KEY in the env) would let ``chat()`` make
+        # a live network call and return a genuine decision — so the
+        # deterministic ``SENSITIVE_BLOCK`` fallback never fires and the test
+        # becomes environment-dependent / flaky. The test's documented intent
+        # is to exercise the STUB fallback path, so force ``chat`` to return the
+        # stub phrase; ``LLMClient.is_stub`` then routes ``analyze`` to
+        # ``_simulate_llm_call`` deterministically, with no network.
+        self._chat_patch = patch.object(
+            _llm_mod.LLMClient, "chat", return_value="stub response"
+        )
+        self._chat_patch.start()
+        self.addCleanup(self._chat_patch.stop)
+
         # Init all core components
         self.vault = SecretVault(self.test_dir)
         self.hub = IntegrationHub(self.test_dir, self.vault)
