@@ -61,6 +61,17 @@ const GoalDisplay = ({ phase }: { phase: LifecyclePhase }) => {
   );
 };
 
+/**
+ * Return the next lifecycle phase after `current`, or null if `current` is the
+ * terminal HANDOVER phase (or otherwise not in the pipeline). Used by the
+ * Transaction Panel's Proceed button to advance the item one stage.
+ */
+export const nextPhase = (current: LifecyclePhase): LifecyclePhase | null => {
+  const idx = LIFECYCLE_PIPELINE.findIndex(p => p.phase === current);
+  if (idx === -1 || idx >= LIFECYCLE_PIPELINE.length - 1) return null;
+  return LIFECYCLE_PIPELINE[idx + 1].phase;
+};
+
 export const WorkflowArchitect = ({ 
   itemId = 'default', 
   onPhaseChange, 
@@ -68,15 +79,7 @@ export const WorkflowArchitect = ({
   initialProposal 
 }: WorkflowArchitectProps) => {
   const [currentPhase, setCurrentPhase] = useState<LifecyclePhase>(propPhase || 'DISCOVERY');
-  const [proposal, setProposal] = useState<TransactionProposal | null>(initialProposal || null);
-  // Provide a mock proposal for the DISCOVERY phase during tests when none is fetched yet.
-  const mockProposal: TransactionProposal = {
-    id: 'tx-8821',
-    status: 'PROPOSED',
-    context: [],
-    plan: 'Mock plan details',
-    verification: 'Mock verification details'
-  };
+  const [proposal, setProposal] = useState<TransactionProposal | null>(initialProposal ?? null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -133,6 +136,30 @@ export const WorkflowArchitect = ({
     }
   };
 
+  // Approve the current proposal and advance to the next lifecycle phase.
+  // No-op when already at the terminal HANDOVER phase (nothing to advance to).
+  const handleProceed = () => {
+    const next = nextPhase(currentPhase);
+    if (next) {
+      handleTransition(next);
+    }
+  };
+
+  // Push an edited proposal back to the orchestrator; the server persists it as
+  // current_proposal and the next poll picks it up (POST /api/orchestrator/propose).
+  const handleModify = async (text: string) => {
+    try {
+      await fetch(`${apiUrl}/api/orchestrator/propose`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: itemId, proposal: { ...proposal, description: text || proposal?.description } })
+      });
+      fetchOrchestratorState();
+    } catch (e) {
+      console.error("Modify failed", e);
+    }
+  };
+
   return (
     <div className="w-full max-w-4xl mx-auto p-4">
       <div className="text-center mb-10">
@@ -160,14 +187,10 @@ export const WorkflowArchitect = ({
       <GoalDisplay phase={currentPhase} />
       
       <div className="mt-8 border-t border-gray-100 pt-8">
-        <TransactionPanel 
-          proposal={proposal || { id: 'tx-8821', description: 'Mock description' }} 
-          onProceed={() => {
-            // When proceeding via a proposal, we typically transition to the next logical phase
-            // or mark the current proposal as completed.
-            handleTransition(LIFECYCLE_PIPELINE.find(p => p.phase === currentPhase)?.phase === 'HANDOVER' ? 'DISCOVERY' : 'IMPLEMENTATION' as any);
-          }}
-          onModify={(text) => console.log('Modifying transaction:', text)}
+        <TransactionPanel
+          proposal={proposal}
+          onProceed={handleProceed}
+          onModify={handleModify}
         />
       </div>
     </div>

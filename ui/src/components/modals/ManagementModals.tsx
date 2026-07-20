@@ -22,17 +22,10 @@ export default ModalWrapper;
 
 export const BuilderModal = ({ isOpen, onClose, itemId }: { isOpen: boolean; onClose: () => void; itemId?: string }) => {
   const [phase, setPhase] = useState<LifecyclePhase>('DISCOVERY');
-  const mockProposal = {
-    id: 'tx-8821',
-    status: 'PROPOSED',
-    context: ['file1.txt', 'file2.txt'],
-    plan: 'Mock plan details',
-    verification: 'Mock verification details',
-  };
 
   return (
     <ModalWrapper isOpen={isOpen} onClose={onClose} title="Workflow Architect">
-      <WorkflowArchitect itemId={itemId || 'default'} onPhaseChange={setPhase} initialProposal={mockProposal} />
+      <WorkflowArchitect itemId={itemId || 'default'} onPhaseChange={setPhase} initialProposal={null} />
     </ModalWrapper>
   );
 };
