@@ -37,11 +37,11 @@ PYTHONPATH=$ROOT_DIR $PYTHON_EXE -m uvicorn api.main:app --host 0.0.0.0 --port $
 # Check which Python is being used
 cd /Users/himanshusao/Work/src/extra/himanshu-sao/antikythera
 ./venv/bin/python --version
-# Should show: Python 3.9.x
+# Should show: Python 3.11.x
 
 # Verify dependencies are in venv
 ./venv/bin/python -c "import uvicorn; print(uvicorn.__file__)"
-# Should show path inside ./venv/lib/python3.9/site-packages
+# Should show path inside ./venv/lib/python3.11/site-packages
 ```
 
 ### Important Notes

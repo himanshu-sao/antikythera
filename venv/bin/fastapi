@@ -1,4 +1,4 @@
-#!/Users/himanshusao/Work/src/extra/himanshu-sao/hermes/venv/bin/python
+#!/Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/venv/bin/python
 import sys
 from fastapi.cli import main
 if __name__ == '__main__':

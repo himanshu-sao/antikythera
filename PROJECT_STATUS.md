@@ -4,7 +4,7 @@ This is the **single master document** for the Antikythera project. It tracks th
 
 ## 📊 Current Executive Summary
 - **System State**: Cognitive Orchestration System (Hybrid Pipeline + Workflow Engine).
-- **Overall Status**: Backend pipeline (Refiner→Architect→Tester) is live and persists artifacts; the July 2026 P0→P2 remediation arc closed the worst runtime defects and wired real LLM providers behind agents/routers. P3 debt hygiene is closed except **P3.2** (produce one real end-to-end idea past spec); the learning `"stub response"` loop is fixed and the Playwright e2e suite is green (10/10). **P2.4 (automation/skill/builder routers) is DONE 2026-07-19** — all three router endpoints now go through `LLMClient.chat()`. **P2.5 (trigger endpoint reconciliation) is DONE 2026-07-19** — `POST /api/workflows/trigger` delegates to the real `ExecutionEngine.start_run()`. **P3.8 (Playwright e2e) is DONE 2026-07-18 — 10/10 green.** **P3.9 (test isolation + e2e flake) is DONE 2026-07-19 — backend pytest full suite is now fully green (414 passed / 5 skipped / 0 failed).** The executor hardening (P3.2.6/P3.2.7) and the GateGuard complexity-tier pipeline (P4.1) are also landed. Remaining real work: throughput (P3.2 — one genuine end-to-end idea with on-disk artifacts).
+- **Overall Status**: Backend pipeline (Refiner→Architect→Tester) is live and persists artifacts; the July 2026 P0→P2 remediation arc closed the worst runtime defects and wired real LLM providers behind agents/routers. P3 debt hygiene is closed except **P3.2** (produce one real end-to-end idea past spec); the learning `"stub response"` loop is fixed and the Playwright e2e suite is green (10/10). **P2.4 (automation/skill/builder routers) is DONE 2026-07-19** — all three router endpoints now go through `LLMClient.chat()`. **P2.5 (trigger endpoint reconciliation) is DONE 2026-07-19** — `POST /api/workflows/trigger` delegates to the real `ExecutionEngine.start_run()`. **P3.8 (Playwright e2e) is DONE 2026-07-18 — 10/10 green.** **P3.9 (test isolation + e2e flake) is DONE 2026-07-19.** Note (verified 2026-07-20): the suite has since grown to 446 passed / 5 skipped / **1 failed** — the single failure (`tests/test_architect.py::test_generate_architecture_contains_dry_run_notes`) passes in isolation but fails under full-suite ordering, a residual isolation bug of the P3.9 class; tracked as an open follow-up (see Verification section). The executor hardening (P3.2.6/P3.2.7) and the GateGuard complexity-tier pipeline (P4.1) are also landed. Remaining real work: throughput (P3.2 — one genuine end-to-end idea with on-disk artifacts).
 - **Active Focus**: Producing one real end-to-end idea carried past spec (P3.2) such that the on-disk artifacts actually exist. (Playwright e2e suite now green — see P3.8.)
 
 ---
@@ -119,7 +119,7 @@ A stop-the-bleed → wiring → real-LLM pass applied over 2026-07-11/12. Tracke
 
 ### General System Gaps
 - [ ] **Backend**: Complete implementation of variable handling and context addition.
-- [ ] **Stability**: `SESSION_UPDATE.md` is severely stale (last entry 2026-06-06, predating the entire July remediation arc). Either backfill it to reflect P0→P2 or retire it in favor of this document.
+- [x] **Stability**: ~~`SESSION_UPDATE.md` retired~~ (DONE 2026-07-19, commit `8446f14`) — replaced with a pointer notice redirecting to this document (see CLAUDE.md gotcha #9). Historical row preserved for archaeology only.
 
 ---
 
@@ -146,7 +146,7 @@ A stop-the-bleed → wiring → real-LLM pass applied over 2026-07-11/12. Tracke
 - Test loading states.
 
 **Current test state (July 2026):**
-- Backend pytest full suite: **green, 414 passed / 5 skipped / 0 failed** (2026-07-19). Run with `pytest` from the venv. The previously-carried "pre-existing e2e failure" is resolved (P3.9).
+- Backend pytest full suite: **446 passed / 5 skipped / 1 failed** (verified 2026-07-20, full `pytest` run, ~10 min). The single failure is `tests/test_architect.py::TestGenerateArchitecture::test_generate_architecture_contains_dry_run_notes` — it **passes in isolation** (22s) and only fails under full-suite ordering, i.e. a test-isolation/ordering bug of the same class P3.9 closed (suspected `agents.llm_client` sys.modules leakage from an earlier test). Tracked as an open follow-up; the 414→446 count drift is new tests added by P2.4/P2.5 since the 2026-07-19 snapshot. The previously-carried "pre-existing e2e failure" is resolved (P3.9).
 - UI vitest: green, 9/9. Run with `cd ui && npx vitest run`.
 - Playwright e2e: **green, 10/10** (2026-07-18). Run `npx playwright test` from the repo root (Playwright lives at repo root, not under `ui/`) with the Vite dev server on `:5173`. See P3.8.
 
@@ -334,4 +334,4 @@ Decision deferred to implementer; **A** is the conservative choice.
 
 ---
 
-**Last Updated**: 2026-07-19
+**Last Updated**: 2026-07-20

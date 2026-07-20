@@ -6,7 +6,7 @@ Antikythera is a perpetual, human-in-the-loop, asynchronous multi-agent automati
 The goal of Antikythera is to provide a high-leverage platform where AI agents handle the "heavy lifting" of software engineering (refining requirements, designing architecture, writing tests) while allowing human operators to maintain absolute control through gated review stages and a high-fidelity Kanban UI.
 
 ## 🛠 Tech Stack
-- **Agent Logic**: Python 3.9+ (FastAPI)
+- **Agent Logic**: Python 3.11+ (FastAPI)
 - **UI**: React 19, Vite, Tailwind CSS, TypeScript
 - **State Management**: File-based JSON stores with `filelock` for concurrency
 - **Cognitive Layer**: LLM-powered reasoning steps and a few-shot learning pattern store
@@ -79,7 +79,7 @@ All kanban-fix branch enhancements have been integrated:
 ## ⚙️ Setup & Configuration
 
 ### 1. Environment Setup
-- Ensure Python 3.9+ and Node.js 18+ are installed
+- Ensure Python 3.11+ and Node.js 18+ are installed
 - Install Python dependencies: `pip install fastapi uvicorn cryptography apscheduler requests`
 - Setup frontend: `cd ui && npm install`
 
