@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../config';
-import { Pipeline, Path, PathStep } from '../types';
+import { Pipeline, Path, PathStep } from '../types/legacy-pipeline';
 import { PipelineFlowchart } from './PipelineFlowchart';
 import { ExecutionHistory } from './ExecutionHistory';
 import { ExecutionAuditLog } from './ExecutionAuditLog';

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Path, PathStep } from '../types';
+import { Path, PathStep } from '../types/legacy-pipeline';
 
 interface FlowNode {
   id: string;

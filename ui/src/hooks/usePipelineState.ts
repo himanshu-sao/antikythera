@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { apiUrl } from '../config';
-import type { PipelineItem, PipelineState } from '../types';
+import type { PipelineItem, PipelineState } from '../types/legacy-pipeline';
 
 export function usePipelineState() {
   const [state, setState] = useState<PipelineState>({ items: {} });
