@@ -1,10 +1,11 @@
 import httpx
-from typing import Any, Dict, Optional
-import logging
 import os
+from typing import Any, Dict, List, Optional
+import logging
 from .base import BaseAdapter, AuthError
 
 logger = logging.getLogger(__name__)
+
 
 class JiraAdapter(BaseAdapter):
     """Adapter for Jira Cloud API.
@@ -34,6 +35,7 @@ class JiraAdapter(BaseAdapter):
         return token
 
     async def fetch(self, resource_id: Optional[str] = None, params: Optional[Dict[str, Any]] = None) -> Any:
+        """Fetch a single issue by ID (operator_map: fetch_resource -> fetch)."""
         token = self._get_token()
         if not token:
             raise AuthError("Jira token not found")
@@ -44,6 +46,36 @@ class JiraAdapter(BaseAdapter):
         base_url = os.getenv("JIRA_BASE_URL") or "https://your-domain.atlassian.net"
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{base_url}/rest/api/3/issue/{resource_id}", headers=headers, params=params)
+            if response.status_code == 401:
+                raise AuthError("Jira authentication failed")
+            response.raise_for_status()
+            return response.json()
+
+    async def list_tickets(self, jql: str = "order by created DESC", max_results: int = 50) -> List[Dict[str, Any]]:
+        """List tickets via JQL query (dec #28: list/vector action for Studio Graphs)."""
+        token = self._get_token()
+        if not token:
+            raise AuthError("Jira token not found")
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        base_url = os.getenv("JIRA_BASE_URL") or "https://your-domain.atlassian.net"
+        params = {"jql": jql, "maxResults": max_results}
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{base_url}/rest/api/3/search", headers=headers, params=params)
+            if response.status_code == 401:
+                raise AuthError("Jira authentication failed")
+            response.raise_for_status()
+            data = response.json()
+            return data.get("issues", [])
+
+    async def list_projects(self) -> List[Dict[str, Any]]:
+        """List all accessible Jira projects."""
+        token = self._get_token()
+        if not token:
+            raise AuthError("Jira token not found")
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        base_url = os.getenv("JIRA_BASE_URL") or "https://your-domain.atlassian.net"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(f"{base_url}/rest/api/3/project", headers=headers)
             if response.status_code == 401:
                 raise AuthError("Jira authentication failed")
             response.raise_for_status()

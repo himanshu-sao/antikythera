@@ -44,6 +44,7 @@ from api.trigger_router import router as trigger_router
 from api.builder_router import router as builder_router
 from api.workflow_router import router as workflow_router
 from api.routers.ai_engine_config_router import router as ai_engine_config_router
+from api.studio_router import router as studio_router
 
 # Assuming other routers exist, if not I'll add placeholders or just the ones I've built
 # Include Jira integration routes
@@ -117,6 +118,7 @@ app.include_router(trigger_router)
 app.include_router(builder_router)
 app.include_router(workflow_router)
 app.include_router(ai_engine_config_router, prefix="/api/ai-engine", tags=["AI Engine Configuration"])
+app.include_router(studio_router)
 
 # Mount static files for requirements and documentation
 app.mount("/docs", StaticFiles(directory=BASE_DIR), name="docs")

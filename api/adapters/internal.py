@@ -1,7 +1,8 @@
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from api.adapters.base import BaseAdapter
 from api.workflow_state_manager import WorkflowStateManager
+
 
 class InternalKanbanAdapter(BaseAdapter):
     """Concrete adapter for internal Kanban actions.
@@ -11,13 +12,14 @@ class InternalKanbanAdapter(BaseAdapter):
     raise ``NotImplementedError`` because they are not used by the current
     workflow; the synchronous ``execute`` method provides the needed logic.
     """
+
     def __init__(self, vault=None):
         # ``BaseAdapter`` expects a ``vault`` argument but many internal uses
         # do not need it. Provide a default ``None`` to keep compatibility.
         super().__init__(vault)
 
     """Adapter for interacting with the Antikythera Kanban API itself."""
-    
+
     def validate_config(self, config: Dict[str, Any]) -> bool:
         # Required: 'action' (e.g., 'move_item', 'add_comment')
         if "action" not in config:
@@ -68,6 +70,15 @@ class InternalKanbanAdapter(BaseAdapter):
                 return {"status": "success", "message": f"Comment added to {item_id}"}
             return {"status": "error", "message": f"Failed to add comment to {item_id}"}
 
+        elif action == "list_items":
+            # dec #28: list/vector action for Studio Graphs
+            stage = config.get("stage")
+            items = wf_mgr.kanban.load_state().get("items", {})
+            if stage:
+                filtered = {k: v for k, v in items.items() if v.get("stage") == stage}
+                return {"items": list(filtered.values())}
+            return {"items": list(items.values())}
+
         return {"status": "error", "message": f"Unsupported action {action}"}
 
     async def fetch(self, resource_id: str, params: Optional[Dict[str, Any]] = None) -> Any:
@@ -85,6 +96,25 @@ class InternalKanbanAdapter(BaseAdapter):
     async def delete(self, resource_id: str) -> Any:
         """Delete is not applicable for internal adapter; raise to signal misuse."""
         raise NotImplementedError("InternalKanbanAdapter does not support delete")
+
+    async def list_items(self, stage: Optional[str] = None) -> Dict[str, Any]:
+        """List all items, optionally filtered by stage (dec #28: list/vector action)."""
+        wf_mgr = None
+        try:
+            from api.main import get_state_manager
+            wf_mgr = get_state_manager()
+        except Exception:
+            wf_mgr = None
+        if not isinstance(wf_mgr, WorkflowStateManager):
+            wf_mgr = WorkflowStateManager(os.path.join(
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+                "automation-ideas"))
+
+        items = wf_mgr.kanban.load_state().get("items", {})
+        if stage:
+            filtered = {k: v for k, v in items.items() if v.get("stage") == stage}
+            return {"items": list(filtered.values())}
+        return {"items": list(items.values())}
 
     def check_status(self, run_id: str, config: Dict[str, Any]) -> str:
         # Internal actions are typically synchronous
