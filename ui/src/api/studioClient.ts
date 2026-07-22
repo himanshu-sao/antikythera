@@ -200,6 +200,37 @@ export async function listSchedulable(): Promise<GraphMeta[]> {
 }
 
 // -----------------------------------------------------------------------------
+// Interactive preview (Slice 1 authoring loop — live-results-led compiler)
+// -----------------------------------------------------------------------------
+
+export interface PreviewNodeInput {
+  node: StudioNode;                          // Draft StudioNode to execute
+  execution_state: Record<string, unknown>;  // In-progress state (output_ref -> value)
+}
+
+export interface PreviewNodeResult {
+  result: unknown;
+  updated_state: Record<string, unknown>;
+  status: 'success' | 'failed' | 'undefined' | 'skipped';
+  error: string | null;
+  matched_branch: 'true' | 'false' | null;   // ConditionalAction routing
+}
+
+export async function previewNode(input: PreviewNodeInput): Promise<PreviewNodeResult> {
+  // Synchronous single-draft-node execution against the in-progress state.
+  // The backend reuses the headless per-node handlers (dec #17), so preview
+  // semantics match a real run; no run log is persisted. 422 on a malformed
+  // StudioNode (validated as the discriminated union server-side).
+  return studioFetch<PreviewNodeResult>('/api/studio/preview-node', {
+    method: 'POST',
+    body: JSON.stringify({
+      node: input.node as unknown as Record<string, unknown>,
+      execution_state: input.execution_state,
+    }),
+  });
+}
+
+// -----------------------------------------------------------------------------
 // Skills (dec #13, #18 — persisted to disk)
 // -----------------------------------------------------------------------------
 

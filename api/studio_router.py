@@ -24,7 +24,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from api.managers.studio_graph_manager import StudioGraphManager
 from api.managers.skill_manager import SkillManager
@@ -164,6 +164,26 @@ class UndefinedQueueResponse(BaseModel):
     graph_id: str
     items: List[Dict[str, Any]]
     cap: int
+
+
+class PreviewNodeRequest(BaseModel):
+    """One draft node + the in-progress execution state to preview against."""
+    # A single StudioNode (validated as a discriminated union server-side).
+    node: Dict[str, Any] = Field(..., description="Draft StudioNode to execute")
+    # Caller-supplied execution state (outputs keyed by output_ref).
+    execution_state: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="In-progress execution state (output_ref -> value)",
+    )
+
+
+class PreviewNodeResponse(BaseModel):
+    """Result of a synchronous preview of a single draft node."""
+    result: Optional[Any] = None
+    updated_state: Dict[str, Any]
+    status: str  # success | failed | undefined | skipped
+    error: Optional[str] = None
+    matched_branch: Optional[str] = None  # "true" | "false" for ConditionalAction
 
 
 class SkillCreateRequest(BaseModel):
@@ -326,6 +346,40 @@ async def run_graph(
         graph_id=graph_id,
         status="running",
         started_at=run_log.started_at.isoformat() + "Z" if run_log else datetime.utcnow().isoformat() + "Z",
+    )
+
+
+@router.post("/preview-node", response_model=PreviewNodeResponse)
+async def preview_node(
+    request: PreviewNodeRequest,
+    engine: PathStepGraphEngine = Depends(get_graph_engine),
+):
+    """
+    Preview-execute a single draft node synchronously against the in-progress
+    execution_state (Slice 1 authoring loop — the live-results-led compiler).
+
+    The node dict is validated through the StudioNode discriminated union first,
+    so a malformed draft returns 422 rather than a cryptic engine error. The
+    engine reuses the same per-node handlers as headless execution (dec #17),
+    so preview semantics match a real run. No run log is persisted.
+    """
+    try:
+        # StudioNode is a discriminated Union, not a class with .model_validate —
+        # use TypeAdapter so the archetype discriminator routes to the right
+        # concrete node (QueryNode / FanOutNode / AITransformNode /
+        # ConditionalActionNode). A bare model_validate would always raise
+        # AttributeError on the Union.
+        node = TypeAdapter(StudioNode).validate_python(request.node)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid StudioNode: {e}")
+
+    out = await engine.preview_node(node, request.execution_state)
+    return PreviewNodeResponse(
+        result=out["result"],
+        updated_state=out["updated_state"],
+        status=out["status"],
+        error=out["error"],
+        matched_branch=out["matched_branch"],
     )
 
 

@@ -171,6 +171,110 @@ class PathStepGraphEngine:
         return logs[0].undefined_items[:100]
 
     # -------------------------------------------------------------------------
+    # Interactive Preview (Slice 1 authoring — live-results-led compiler)
+    # -------------------------------------------------------------------------
+
+    async def preview_node(
+        self,
+        node: StudioNode,
+        execution_state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """
+        Execute a single draft node against the in-progress execution_state and
+        return its result. Powers the interactive turn-by-turn authoring loop:
+        the UI calls preview-node at each turn so the human reacts to *real*
+        returned data (dec #0, dec #2).
+
+        Semantics intentionally mirror headless execution: we build an ephemeral
+        one-node graph + an ExecutionState seeded from the client's
+        execution_state, then dispatch to the SAME per-node handlers the headless
+        engine uses (_execute_query_node / _execute_ai_transform_node /
+        _execute_conditional_action_node). No parallel evaluator is introduced —
+        preview == headless (dec #17 discipline). The route is async so we can
+        `await` these handlers directly (they use the adapter / SafeExecutor).
+
+        FanOut produces no value itself; in preview we surface the sampled
+        source list so the UI can render one card per item. Downstream turns
+        iterate via the real (headless) loop when the graph runs after save.
+
+        Returns:
+            {
+                "result": <node output or None>,
+                "updated_state": <execution_state after writing output_ref>,
+                "status": "success" | "failed" | "undefined" | "skipped",
+                "error": <str | None>,
+                "matched_branch": <"true" | "false" | None>,  # ConditionalAction
+            }
+        """
+        # Seed an ephemeral ExecutionState from the client-supplied state.
+        # run_id is synthetic — preview never persists a run log.
+        exec_state = ExecutionState(
+            graph_id=f"preview:{node.node_id}",
+            run_id=f"preview_{uuid.uuid4().hex[:8]}",
+            state=dict(execution_state),  # copy; never mutate the caller's dict
+            run_log=[],
+            undefined_queue=[],
+            loop_stack=[],
+        )
+
+        # Ephemeral one-node graph so the shared handlers can resolve adjacency;
+        # no edges → no successor recursion runs.
+        preview_graph = StudioGraph(
+            graph_id=exec_state.graph_id,
+            name="preview",
+            nodes=[node],
+            edges=[],
+        )
+        adjacency = self._build_adjacency(preview_graph)
+
+        start_time = datetime.utcnow()
+        status = "success"
+        error: Optional[str] = None
+        matched_branch: Optional[str] = None
+        result: Any = None
+
+        try:
+            if node.archetype == NodeArchetype.QUERY:
+                result = await self._execute_query_node(exec_state, node)
+            elif node.archetype == NodeArchetype.AI_TRANSFORM:
+                result = await self._execute_ai_transform_node(exec_state, node)
+            elif node.archetype == NodeArchetype.CONDITIONAL_ACTION:
+                result = await self._execute_conditional_action_node(
+                    exec_state, node
+                )
+                # _execute_conditional_action_node returns {"matched": bool, ...}
+                if isinstance(result, dict) and "matched" in result:
+                    matched_branch = "true" if result["matched"] else "false"
+            elif node.archetype == NodeArchetype.FAN_OUT:
+                # No children to iterate in preview; surface the source list so
+                # the UI can render cards (one per item).
+                source = node.loop_over.get("source", "")
+                result = self._get_nested_value(exec_state.state, source)
+            else:
+                raise ValueError(f"Unknown node archetype: {node.archetype}")
+
+            # Write output to state the same way headless does (dec #17 parity).
+            if result is not None and getattr(node, "output_ref", None):
+                self._write_to_state(exec_state.state, node.output_ref, result)
+
+        except Exception as e:
+            logger.error(f"preview_node {node.node_id} failed: {e}")
+            status = "failed"
+            error = str(e)
+            result = None
+
+        exec_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+        logger.info(f"preview_node {node.node_id}: status={status}, {exec_time}ms")
+
+        return {
+            "result": result,
+            "updated_state": exec_state.state,
+            "status": status,
+            "error": error,
+            "matched_branch": matched_branch,
+        }
+
+    # -------------------------------------------------------------------------
     # Core Execution Logic
     # -------------------------------------------------------------------------
 
