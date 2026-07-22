@@ -1,458 +1,267 @@
+// Automation Studio — turn-based, live-results-led compiler (Phase 4).
+//
+// Replaces the dead "NL → one PathStep" recorder (dec #3/#25). The human plays
+// and selects against live data turn by turn; each reaction materializes a
+// StudioNode. The graph is saved as a durable headless template (dec #5) and
+// replayed on demand (dec #7/#15).
+//
+// See docs/plans/mighty-greeting-cookie.md §0 (Twistlock example) and §8 Step 3.
+//
+// Slice 1 scope: Query → Fan-out → AI-transform → Conditional-action → Save/Run.
+// No AuthModal/token-paste (dec #14); no Skill Brainstormer loop (dec #18).
+
 import React, { useState, useEffect } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
-import { apiUrl } from '../config';
-import { PathStep } from '../types';
 import { TextHighlighter } from './TextHighlighter';
-import { ModalWrapper } from './modals/ManagementModals';
+import {
+  type StudioGraph,
+  type StudioNode,
+  type CapabilityTier,
+  DEFAULT_CAPABILITY,
+} from '../types/studio';
+import {
+  getIntegrationStatus,
+  previewNode,
+  saveGraph,
+  runGraph,
+  type IntegrationStatus,
+  type PreviewNodeResult,
+} from '../api/studioClient';
 
-// ----- Types -----
-interface Proposal {
-  proposal_id: string;
-  suggested_step: PathStep;
-  reasoning: string;
-}
+// -----------------------------------------------------------------------------
+// Constants
+// -----------------------------------------------------------------------------
 
-interface AuthModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSubmit: (token: string) => void;
-  service: string; // jira | github
-}
-
-// ----- Auth Modal -----
-const AuthModal = ({ isOpen, onClose, onSubmit, service }: AuthModalProps) => {
-  const [token, setToken] = useState('');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit(token);
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <ModalWrapper isOpen={isOpen} onClose={onClose} title={`Authenticate ${service.toUpperCase()}`}>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Enter your {service.toUpperCase()} Personal Access Token:
-          </label>
-          <input
-            type="password"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            placeholder="Enter your token"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <div className="flex justify-end space-x-3">
-          <button type="button" onClick={onClose} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300">
-            Cancel
-          </button>
-          <button type="submit" className="px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600">
-            Submit
-          </button>
-        </div>
-      </form>
-    </ModalWrapper>
-  );
+// A studio graph is authored in memory; the backend assigns graph_id on save.
+const EMPTY_GRAPH: StudioGraph = {
+  graph_id: '',
+  name: '',
+  description: '',
+  version: '1.0.0',
+  created_at: '',
+  updated_at: '',
+  nodes: [],
+  edges: [],
+  required_capability: DEFAULT_CAPABILITY,
+  cron_schedule: undefined,
+  cron_enabled: false,
+  undefined_queue_cap: 100,
+  max_run_logs: 50,
 };
 
-// ----- Main Automation Studio Component -----
-export function AutomationStudio() {
-  // ==== State ==== //
-  const [instruction, setInstruction] = useState('');
-  const [selectedModel, setSelectedModel] = useState<string>(''); // AI model selector
-  const [integrations, setIntegrations] = useState<any[]>([]);
-  const [selectedIntegration, setSelectedIntegration] = useState<string>('');
-  const [proposal, setProposal] = useState<any | null>(null);
-  const [currentPath, setCurrentPath] = useState<PathStep[]>([]);
-  const [sandboxState, setSandboxState] = useState<Record<string, any>>({});
-  const [isLoading, setIsLoading] = useState(false);
-  const [isBrainstorming, setIsBrainstorming] = useState(false);
-  const [brainstormResult, setBrainstormResult] = useState<any | null>(null);
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authService, setAuthService] = useState<'jira' | 'github' | null>(null);
-  const [currentStepForAuth, setCurrentStepForAuth] = useState<PathStep | null>(null);
-  const [proposalIdForAuth, setProposalIdForAuth] = useState<string | null>(null);
+// Which turn the author is on. Each turn drafts exactly one StudioNode (except
+// collapse/pick, which is a scope narrowing — deferred to a later slice).
+type TurnType = 'query' | 'fan_out' | 'ai_transform' | 'conditional_action';
 
-  // ==== Initialize AI model and Integrations (if previously saved) ==== //
+const TURN_LABELS: Record<TurnType, { title: string; hint: string }> = {
+  query: { title: '1. Query', hint: 'Fetch live data (list/vector) from an adapter.' },
+  fan_out: { title: '2. Fan-out', hint: 'Loop — one branch per item in the query result.' },
+  ai_transform: { title: '3. AI-transform', hint: 'Run a Python snippet or saved Skill over each item.' },
+  conditional_action: { title: '4. Conditional-action', hint: 'Route/act when a condition matches.' },
+};
+
+const TURN_ORDER: TurnType[] = ['query', 'fan_out', 'ai_transform', 'conditional_action'];
+
+// -----------------------------------------------------------------------------
+// Main Component
+// -----------------------------------------------------------------------------
+
+export function AutomationStudio() {
+  // ==== Graph under construction (dec #5) ==== //
+  const [graph, setGraph] = useState<StudioGraph>(EMPTY_GRAPH);
+
+  // ==== Live sandbox: output_ref -> value (preview-node updates this) ==== //
+  const [executionState, setExecutionState] = useState<Record<string, unknown>>({});
+
+  // ==== Turn tracking ==== //
+  const [turnIndex, setTurnIndex] = useState<number>(0); // index into TURN_ORDER
+  const activeTurn: TurnType = TURN_ORDER[turnIndex] ?? 'query';
+
+  // ==== Per-turn draft + live preview (dec #15 — live-results-led) ==== //
+  const [draftNode, setDraftNode] = useState<Partial<StudioNode> | null>(null);
+  const [previewResult, setPreviewResult] = useState<PreviewNodeResult | null>(null);
+
+  // ==== Saved graph state ==== //
+  const [graphId, setGraphId] = useState<string | null>(null);
+  const [graphName, setGraphName] = useState<string>('');
+  const [runStatus, setRunStatus] = useState<string | null>(null);
+
+  // ==== UI state ==== //
+  const [isLoading, setIsLoading] = useState(false);
+  const [integrations, setIntegrations] = useState<IntegrationStatus[]>([]);
+
+  // ==== Bootstrap: integration status (dec #14 — status only, no token) ==== //
   useEffect(() => {
-    const init = async () => {
-      // Load AI models
+    let cancelled = false;
+    (async () => {
       try {
-        const res = await fetch(`${apiUrl}/api/ai-engine/config`);
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data.models) && data.models.length > 0) {
-            setSelectedModel(data.models[0].name);
-          }
-        }
+        const list = await getIntegrationStatus();
+        if (!cancelled) setIntegrations(list);
       } catch (e) {
-        console.error('Failed to fetch AI models', e);
+        if (!cancelled) console.error('Failed to load integration status', e);
       }
-      // Load Integrations
-      try {
-        const res = await fetch(`${apiUrl}/api/integrations/`);
-        if (res.ok) {
-          const data = await res.json();
-          const list = Array.isArray(data) ? data : data.integrations || [];
-          setIntegrations(list);
-          if (list.length > 0) {
-            setSelectedIntegration(list[0].name);
-          }
-        }
-      } catch (e) {
-        console.error('Failed to load integrations', e);
-      }
-    };
-    init();
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-
-  // ==== Handlers ==== //
-  const handlePropose = async () => {
-    if (!instruction) return;
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/automation/propose`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        instruction,
-        model: selectedModel,
-        current_state: sandboxState,
-        path_id: 'recording_session',
-        integration_id: selectedIntegration,
-      }),
-      });
-      if (!res.ok) throw new Error('Failed to get proposal');
-      const data = await res.json();
-      setProposal(data);
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleExtract = async (text: string) => {
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/skills/brainstorm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text_sample: text,
-          target_fields: ['field_1'],
-          suggestion: 'Extract the primary value',
-        }),
-      });
-      if (!res.ok) throw new Error('Brainstorming failed');
-      const data = await res.json();
-      setBrainstormResult(data);
-      setIsBrainstorming(true);
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleSaveSkill = async () => {
-    if (!brainstormResult) return;
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/skills/save`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          skill_id: `skill_${Date.now()}`,
-          name: 'New Extracted Skill',
-          category: 'EXTRACTION',
-          few_shot_prompt: brainstormResult.proposed_prompt,
-          output_schema: brainstormResult.proposed_schema,
-          version: '1.0.0',
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to save skill');
-      toast.success('Skill promoted and saved!');
-      setIsBrainstorming(false);
-      setBrainstormResult(null);
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleAccept = async () => {
-    if (!proposal) return;
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${apiUrl}/api/automation/accept`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          proposal_id: proposal.proposal_id,
-          step: proposal.suggested_step,
-        }),
-      });
-      if (!res.ok) throw new Error('Execution failed');
-      const data = await res.json();
-
-      // Auth required?
-      if (data.executed_result && data.executed_result.status === 'auth_required') {
-        const adapterId = proposal.suggested_step.adapter_id;
-        const service = adapterId.includes('jira')
-          ? 'jira'
-          : adapterId.includes('github')
-          ? 'github'
-          : null;
-        if (service) {
-          setAuthService(service as 'jira' | 'github');
-          setCurrentStepForAuth(proposal.suggested_step);
-          setProposalIdForAuth(proposal.proposal_id);
-          setIsAuthModalOpen(true);
-          setProposal(null);
-          return;
-        }
-      }
-
-      // Success path
-      setCurrentPath([...currentPath, proposal.suggested_step]);
-      setSandboxState(data.current_state);
-      setProposal(null);
-      setInstruction('');
-      toast.success('Step accepted and executed in sandbox!');
-    } catch (e: any) {
-      toast.error(e.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleTokenSubmit = async (token: string) => {
-    if (!authService || !proposalIdForAuth || !currentStepForAuth) return;
-    try {
-      await fetch(`${apiUrl}/api/automation/store-token`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ service: authService, token }),
-      });
-      setIsLoading(true);
-      const res = await fetch(`${apiUrl}/api/automation/accept`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ proposal_id: proposalIdForAuth, step: currentStepForAuth }),
-      });
-      if (!res.ok) throw new Error('Execution failed after auth');
-      const data = await res.json();
-      setCurrentPath([...currentPath, currentStepForAuth]);
-      setSandboxState(data.current_state);
-      toast.success('Step accepted and executed after authentication!');
-    } catch (e: any) {
-      toast.error(`Authentication failed: ${e.message}`);
-    } finally {
-      setIsAuthModalOpen(false);
-      setAuthService(null);
-      setCurrentStepForAuth(null);
-      setProposalIdForAuth(null);
-      setIsLoading(false);
-    }
-  };
-
-  const handleCloseAuthModal = () => {
-    setIsAuthModalOpen(false);
-    setAuthService(null);
-    setCurrentStepForAuth(null);
-    setProposalIdForAuth(null);
-    if (proposal) setProposal(proposal);
-  };
-  
-  // ==== UI Sections ==== //
-  const renderStepList = () => (
-    <div className="flex flex-col gap-4 p-6 bg-[#fcfbf8] border-r border-[#d8d3ca] h-full overflow-y-auto">
-      {/* Step 1 – Compose Instruction */}
-      <div className="bg-white rounded-xl shadow-sm border border-[#e5e7eb] p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-sm font-bold text-gray-500">1.</span>
-          <span className="font-medium text-gray-700">Compose Instruction</span>
-        </div>
-        <label className="block text-xs font-medium text-gray-500 mt-2 mb-1">AI Model</label>
-          <select
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            className="w-full rounded border border-[#d8d3ca] py-1 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0b6b72]"
-          >
-            {selectedModel && <option value={selectedModel}>{selectedModel}</option>}
-          </select>
-           <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Target Integration</label>
-           <select
-             value={selectedIntegration}
-             onChange={(e) => setSelectedIntegration(e.target.value)}
-             className="w-full rounded border border-[#d8d3ca] py-1 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0b6b72]"
-           >
-             {integrations.map(int => (
-               <option key={int.name} value={int.name}>
-                 {int.name} {int.status === 'connected' ? '✅' : '❌'}
-               </option>
-             ))}
-           </select>
-           <label className="block text-xs font-medium text-gray-500 mt-3 mb-1">Your instruction</label>
-        <textarea
-                                      value={instruction}
-                                      onChange={(e) => setInstruction(e.target.value)}
-                                      placeholder='e.g. Fetch all Jira tickets with JQL "(assignee=currentUser() AND status NOT IN (Done, Cancelled, Obsolete)) AND labels = Twistlock-Commercial"'
-                                      className="w-full h-28 p-2 border border-[#d8d3ca] rounded resize-none focus:outline-none focus:ring-2 focus:ring-[#0b6b72] text-sm bg-white"
-                                     />
-                                     <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
-          <span>{instruction.length} / 2000</span>
-        </div>
-        <div className="flex gap-2 mt-2">
-          <button className="px-2 py-0.5 border border-[#0b6b72] text-[#0b6b72] rounded-full text-xs hover:bg-[#0b6b72] hover:text-white transition-colors">
-            ⊕ Add context
-          </button>
-          <button className="px-2 py-0.5 border border-[#0b6b72] text-[#0b6b72] rounded-full text-xs hover:bg-[#0b6b72] hover:text-white transition-colors">
-            {} Use variable
-          </button>
-          <button className="px-2 py-0.5 border border-[#0b6b72] text-[#0b6b72] rounded-full text-xs hover:bg-[#0b6b72] hover:text-white transition-colors">
-            ⊟ Examples
-          </button>
-        </div>
-        <button
-          onClick={handlePropose}
-          disabled={isLoading}
-          className="mt-3 w-full bg-[#0b6b72] text-white py-2 rounded text-sm font-bold hover:bg-[#0a5c62] disabled:opacity-50"
-        >
-          {isLoading ? 'Compiling…' : 'Propose Step'}
-        </button>
-      </div>
-
-      {/* Step 2 – Refine & Confirm (collapsed) */}
-      <div className="p-4 border border-[#e5e7eb] rounded-lg text-gray-500">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-gray-400">2.</span>
-          <span className="font-medium text-gray-600">Refine & Confirm</span>
-        </div>
-      </div>
-
-      {/* Step 3 – Add to Workflow (collapsed) */}
-      <div className="p-4 border border-[#e5e7eb] rounded-lg text-gray-500">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-bold text-gray-400">3.</span>
-          <span className="font-medium text-gray-600">Add to Workflow</span>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderLiveSandbox = () => (
-    <div className="flex-1 p-8 overflow-y-auto bg-[#f6f4ef]">
-      <div className="flex justify-between items-center mb-6">
-        <h3 className="text-base font-semibold">Live Sandbox</h3>
-        <div className="flex items-center text-xs text-green-600">
-          <span className="w-2 h-2 bg-green-600 rounded-full mr-1"></span>
-          Live
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-6">
-        {isBrainstorming && (
-          <div className="bg-indigo-50 border-2 border-indigo-200 rounded-2xl p-6 animate-in slide-in-from-top-4">
-            <div className="flex justify-between items-center mb-4">
-              <h4 className="text-sm font-bold text-indigo-900 uppercase tracking-wider">Skill Brainstormer</h4>
-              <button onClick={() => setIsBrainstorming(false)} className="text-indigo-400 hover:text-indigo-600">✕</button>
-            </div>
-            <div className="space-y-4">
-              <div className="bg-white p-3 rounded-lg border border-indigo-100 text-xs font-mono text-indigo-700 whitespace-pre-wrap">
-                {brainstormResult?.proposed_prompt}
-              </div>
-              <div className="flex justify-between items-center">
-                <p className="text-[10px] text-indigo-500 italic">Proposed schema: {JSON.stringify(brainstormResult?.proposed_schema)}</p>
-                <button onClick={handleSaveSkill} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-all">
-                  Promote to Skill
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        <div className="bg-white rounded-2xl shadow-sm border border-[#d8d3ca] overflow-hidden">
-          <div className="px-6 py-3 border-b border-[#d8d3ca] bg-gray-50 flex justify-between items-center">
-            <span className="text-xs font-bold uppercase text-gray-500">Active Variables</span>
-          </div>
-          <div className="p-6 overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="text-[10px] uppercase text-gray-400 border-b border-gray-100">
-                  <th className="pb-2 font-medium">Variable</th>
-                  <th className="pb-2 font-medium">Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Object.entries(sandboxState).map(([key, val]) => (
-                  <tr key={key} className="border-b border-gray-50 group">
-                    <td className="py-3 font-mono text-xs text-[#0b6b72] font-bold">{key}</td>
-                    <td className="py-3 text-xs text-gray-600 max-w-md">
-                      {typeof val === 'object' ? (
-                        <TextHighlighter text={JSON.stringify(val, null, 2)} onExtract={handleExtract} />
-                      ) : (
-                        <TextHighlighter text={String(val)} onExtract={handleExtract} />
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {Object.keys(sandboxState).length === 0 && (
-                  <tr>
-                    <td colSpan={2} className="py-12 text-center text-xs text-gray-400 italic">
-                      Execute a step to see data appearing here.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderPathSequence = () => (
-    <div className="w-1/4 border-l border-[#d8d3ca] bg-[#fcfbf8] p-6 overflow-y-auto">
-      <h4 className="text-xs font-bold uppercase text-gray-400 mb-3">Current Path Sequence</h4>
-      <div className="space-y-2">
-        {currentPath.length === 0 && <p className="text-[10px] italic text-gray-400">No steps recorded yet.</p>}
-        {currentPath.map((step, idx) => (
-          <div key={idx} className="flex items-center gap-2 text-[11px] bg-white p-2 rounded border border-gray-200">
-            <span className="font-bold text-gray-400">{idx + 1}.</span>
-            <span className="font-medium text-gray-700">{step.operator_id}</span>
-            <span className="ml-auto text-[9px] text-gray-400">{step.adapter_id}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  // ...turn forms, accept/save/run, and panel wiring land in later commits.
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden bg-[#f6f4ef] text-[#231f19]">
       {/* Page Header */}
       <div className="p-6 bg-white border-b border-[#d8d3ca]">
-        <h1 className="text-2xl font-bold">Automation Studio</h1>
-        <p className="text-sm text-gray-500">Record your process. The AI compiles it into logic.</p>
+        <div className="flex justify-between items-center">
+          <div>
+            <h1 className="text-2xl font-bold">Automation Studio</h1>
+            <p className="text-sm text-gray-500">
+              Play & select against live data. Your reactions become the workflow.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={graphName}
+              onChange={(e) => setGraphName(e.target.value)}
+              placeholder="Graph name"
+              className="px-3 py-1.5 text-sm border border-[#d8d3ca] rounded focus:outline-none focus:ring-2 focus:ring-[#0b6b72] bg-white"
+            />
+            <button
+              disabled={graph.nodes.length === 0 || isLoading}
+              className="px-4 py-1.5 text-sm font-bold bg-[#0b6b72] text-white rounded hover:bg-[#0a5c62] disabled:opacity-50"
+            >
+              Save
+            </button>
+            <button
+              disabled={!graphId || isLoading}
+              className="px-4 py-1.5 text-sm font-bold border border-[#0b6b72] text-[#0b6b72] rounded hover:bg-[#0b6b72] hover:text-white disabled:opacity-50"
+            >
+              Run
+            </button>
+          </div>
+        </div>
+        {integrations.length > 0 && (
+          <div className="flex gap-3 mt-3 text-xs flex-wrap">
+            {integrations.map((it) => (
+              <span
+                key={it.name}
+                className={`px-2 py-0.5 rounded-full border ${it.connected ? 'border-green-300 text-green-700 bg-green-50' : 'border-gray-300 text-gray-500 bg-gray-50'}`}
+              >
+                {it.name} {it.connected ? '✅' : '❌'}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      {/* Main Content */}
+
+      {/* Main Content — 3 panes */}
       <div className="flex flex-1 overflow-hidden">
-        {renderStepList()}
-        {renderLiveSandbox()}
-        {renderPathSequence()}
+        {/* Left: Turn Panel */}
+        <div className="w-80 flex flex-col bg-[#fcfbf8] border-r border-[#d8d3ca] overflow-y-auto p-6">
+          {/* Turn forms land here in Commit 2. */}
+          <div className="flex-1 flex items-center justify-center text-center">
+            <div>
+              <p className="text-sm font-semibold text-gray-700">{TURN_LABELS[activeTurn].title}</p>
+              <p className="text-xs text-gray-500 mt-1">{TURN_LABELS[activeTurn].hint}</p>
+              <p className="text-[10px] text-gray-400 mt-6 italic">Turn forms arrive in the next commit.</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Center: Live Sandbox */}
+        <div className="flex-1 p-8 overflow-y-auto bg-[#f6f4ef]">
+          <div className="flex justify-between items-center mb-6">
+            <h3 className="text-base font-semibold">Live Sandbox</h3>
+            {previewResult && (
+              <div className={`flex items-center text-xs ${previewResult.status === 'success' ? 'text-green-600' : 'text-amber-600'}`}>
+                <span className={`w-2 h-2 rounded-full mr-1 ${previewResult.status === 'success' ? 'bg-green-600' : 'bg-amber-600'}`} />
+                {previewResult.status}
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-6">
+            {/* Cards: live preview of the current turn */}
+            <div className="bg-white rounded-2xl shadow-sm border border-[#d8d3ca] overflow-hidden">
+              <div className="px-6 py-3 border-b border-[#d8d3ca] bg-gray-50">
+                <span className="text-xs font-bold uppercase text-gray-500">Live Preview</span>
+              </div>
+              <div className="p-6">
+                {previewResult ? (
+                  <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">
+                    {JSON.stringify(previewResult.result, null, 2)}
+                  </pre>
+                ) : (
+                  <p className="py-12 text-center text-xs text-gray-400 italic">
+                    Draft a turn and preview-execute it to see live data here.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Active Variables: accumulated executionState */}
+            <div className="bg-white rounded-2xl shadow-sm border border-[#d8d3ca] overflow-hidden">
+              <div className="px-6 py-3 border-b border-[#d8d3ca] bg-gray-50 flex justify-between items-center">
+                <span className="text-xs font-bold uppercase text-gray-500">Active Variables</span>
+                <span className="text-[10px] text-gray-400">{Object.keys(executionState).length} refs</span>
+              </div>
+              <div className="p-6 overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="text-[10px] uppercase text-gray-400 border-b border-gray-100">
+                      <th className="pb-2 font-medium">Variable</th>
+                      <th className="pb-2 font-medium">Value</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(executionState).map(([key, val]) => (
+                      <tr key={key} className="border-b border-gray-50 group">
+                        <td className="py-3 font-mono text-xs text-[#0b6b72] font-bold align-top w-1/3">{key}</td>
+                        <td className="py-3 text-xs text-gray-600 max-w-md">
+                          {typeof val === 'object' ? (
+                            <TextHighlighter text={JSON.stringify(val, null, 2)} onExtract={() => {}} />
+                          ) : (
+                            <TextHighlighter text={String(val)} onExtract={() => {}} />
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {Object.keys(executionState).length === 0 && (
+                      <tr>
+                        <td colSpan={2} className="py-12 text-center text-xs text-gray-400 italic">
+                          Execute a turn to see data appearing here.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right: Graph Outline */}
+        <div className="w-72 border-l border-[#d8d3ca] bg-[#fcfbf8] p-6 overflow-y-auto">
+          <h4 className="text-xs font-bold uppercase text-gray-400 mb-3">Graph Outline</h4>
+          <div className="space-y-2">
+            {graph.nodes.length === 0 && <p className="text-[10px] italic text-gray-400">No nodes yet.</p>}
+            {graph.nodes.map((node, idx) => (
+              <div key={node.node_id} className="flex items-center gap-2 text-[11px] bg-white p-2 rounded border border-gray-200">
+                <span className="font-bold text-gray-400">{idx + 1}.</span>
+                <span className="font-medium text-gray-700">{node.name}</span>
+                <span className="ml-auto text-[9px] text-[#0b6b72] font-mono">{node.archetype}</span>
+              </div>
+            ))}
+          </div>
+
+          {runStatus && (
+            <div className="mt-6 pt-4 border-t border-[#d8d3ca]">
+              <h4 className="text-xs font-bold uppercase text-gray-400 mb-2">Last Run</h4>
+              <p className="text-[11px] text-gray-600">{runStatus}</p>
+            </div>
+          )}
+        </div>
       </div>
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={handleCloseAuthModal}
-        onSubmit={handleTokenSubmit}
-        service={authService || 'jira'}
-      />
+
       <Toaster />
     </div>
   );
