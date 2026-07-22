@@ -35,7 +35,7 @@ function mockFetchOnce(routes: Record<string, (b: string | undefined) => unknown
   });
 }
 
-describe('AutomationStudio (T2a turn-UI shell)', () => {
+describe('AutomationStudio (turn-UI compiler — T2a shell + T2b forms/handlers)', () => {
   beforeEach(() => fetchMock().mockReset());
 
   test('renders 3 panes + header with inert Save/Run', async () => {
@@ -128,5 +128,161 @@ describe('AutomationStudio (T2a turn-UI shell)', () => {
     });
     // Outline did not gain a node.
     expect(screen.queryByText(/Query jira/i)).not.toBeInTheDocument();
+  });
+
+  // Reusable turn-advance helper: preview a Query to populate executionState,
+  // then commit it. After this, the active turn is "2. Fan-out" and the live
+  // sandbox holds { jira_tickets: [...] } for the Fan-out source select.
+  async function commitQuery(adapter: string, outputRef: string) {
+    const adapterSelect = await screen.findByLabelText('Adapter');
+    fireEvent.change(adapterSelect, { target: { value: adapter } });
+    fireEvent.change(screen.getByLabelText('output_ref'), { target: { value: outputRef } });
+    fireEvent.click(screen.getByRole('button', { name: /Preview/i }));
+    await waitFor(() => expect(screen.getByText('#1')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Commit turn/i }));
+  }
+
+  test('turn 3 (AI-transform) form commits an ai_transform node', async () => {
+    const calls: string[] = [];
+    fetchMock().mockImplementation(async (url: string, init?: RequestInit) => {
+      const u = new URL(url, 'http://localhost');
+      const path = `${u.pathname}${u.search}`;
+      if (path.includes('/api/studio/preview-node')) {
+        const body = init?.body as string;
+        const node = JSON.parse(body).node;
+        const out = node.output_ref;
+        if (node.node_id) calls.push(node.node_id as string);
+        const isVector = out === 'jira_tickets';
+        return { ok: true, status: 200, json: async () => ({
+          result: isVector ? [{ key: 'OPS-1' }] : { label: 'brotli' },
+          updated_state: { [out]: isVector ? [{ key: 'OPS-1' }] : { label: 'brotli' } },
+          status: 'success', error: null, matched_branch: null,
+        }) } as unknown as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({ integrations: [
+        { name: 'jira', type: 'jira', status: 'ok', connected: true },
+      ] }) } as unknown as Response;
+    });
+    render(<AutomationStudio />);
+
+    // Turn 1 → 2: commit a Query over jira.
+    await commitQuery('jira', 'jira_tickets');
+
+    // Turn 2: Fan-out over jira_tickets.
+    expect(screen.getByText('2. Fan-out')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Source'), { target: { value: 'jira_tickets' } });
+    fireEvent.click(screen.getByRole('button', { name: /Commit turn/i }));
+
+    // Turn 3: AI-transform. Fill inline script + i/o refs, then commit.
+    expect(screen.getByText('3. AI-transform')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('input_ref'), { target: { value: 'ticket' } });
+    fireEvent.change(screen.getByLabelText('output_ref'), { target: { value: 'extracted_fields' } });
+    fireEvent.change(screen.getByLabelText('script'), { target: { value: 'result = {"d": item}' } });
+    fireEvent.click(screen.getByRole('button', { name: /Commit turn/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/AI-transform ticket → extracted_fields/)).toBeInTheDocument();
+    });
+    // The committed node's archetype chip shows ai_transform.
+    expect(screen.getByText('ai_transform')).toBeInTheDocument();
+    // The Query preview fired (commitQuery clicks Preview for turn 1).
+    expect(calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test('turn 4 (Conditional-action) form commits a conditional_action node', async () => {
+    fetchMock().mockImplementation(async (url: string, init?: RequestInit) => {
+      const u = new URL(url, 'http://localhost');
+      const path = `${u.pathname}${u.search}`;
+      if (path.includes('/api/studio/preview-node')) {
+        const node = JSON.parse(init?.body as string).node;
+        const out = node.output_ref;
+        const isVector = out === 'jira_tickets';
+        return { ok: true, status: 200, json: async () => ({
+          result: isVector ? [{ key: 'OPS-1' }] : { key: 'OPS-1' },
+          updated_state: out ? { [out]: isVector ? [{ key: 'OPS-1' }] : { key: 'OPS-1' } } : {},
+          status: 'success', error: null, matched_branch: out ? null : 'true',
+        }) } as unknown as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({ integrations: [
+        { name: 'jira', type: 'jira', status: 'ok', connected: true },
+      ] }) } as unknown as Response;
+    });
+    render(<AutomationStudio />);
+
+    // Advance through turns 1–3 so turn 4 is active.
+    await commitQuery('jira', 'jira_tickets');
+    fireEvent.change(screen.getByLabelText('Source'), { target: { value: 'jira_tickets' } });
+    fireEvent.click(screen.getByRole('button', { name: /Commit turn/i })); // → turn 3
+    fireEvent.change(screen.getByLabelText('input_ref'), { target: { value: 'ticket' } });
+    fireEvent.change(screen.getByLabelText('output_ref'), { target: { value: 'extracted_fields' } });
+    fireEvent.change(screen.getByLabelText('script'), { target: { value: 'result = {}' } });
+    fireEvent.click(screen.getByRole('button', { name: /Commit turn/i })); // → turn 4
+
+    // Turn 4: Conditional-action.
+    expect(screen.getByText('4. Conditional-action')).toBeInTheDocument();
+    expect(screen.getByLabelText('condition_type')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('field'), { target: { value: 'extracted_fields.os_distro' } });
+    fireEvent.change(screen.getByLabelText('value'), { target: { value: 'brotli' } });
+    fireEvent.click(screen.getByRole('button', { name: /Commit turn/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/If extracted_fields\.os_distro equals brotli/)).toBeInTheDocument();
+    });
+    expect(screen.getByText('conditional_action')).toBeInTheDocument();
+  });
+
+  test('Save posts the graph and stores graph_id; Run then posts run', async () => {
+    const calls: { method: string; path: string }[] = [];
+    let saved = false;
+    fetchMock().mockImplementation(async (url: string, init?: RequestInit) => {
+      const u = new URL(url, 'http://localhost');
+      const path = `${u.pathname}${u.search}`;
+      calls.push({ method: init?.method ?? 'GET', path });
+      if (path.includes('/api/studio/graphs') && path.endsWith('/run')) {
+        return { ok: true, status: 200, json: async () => ({
+          run_id: 'run-7', graph_id: 'g-1', status: 'running', started_at: '2026-07-22T00:00:00Z',
+        }) } as unknown as Response;
+      }
+      if (path === '/api/studio/graphs' && (init?.method === 'POST')) {
+        saved = true;
+        return { ok: true, status: 200, json: async () => ({
+          graph_id: 'g-1', name: 'Studio Graph 1', description: '', version: '1.0.0',
+          created_at: '', updated_at: '', required_capability: 'generate',
+          cron_schedule: null, cron_enabled: false, undefined_queue_cap: 100,
+          max_run_logs: 50, node_count: 1, edge_count: 0,
+        }) } as unknown as Response;
+      }
+      if (path.includes('/api/studio/preview-node')) {
+        const node = JSON.parse(init?.body as string).node;
+        const out = node.output_ref;
+        const isVector = out === 'jira_tickets';
+        return { ok: true, status: 200, json: async () => ({
+          result: isVector ? [{ key: 'OPS-1' }] : { key: 'OPS-1' },
+          updated_state: { [out]: isVector ? [{ key: 'OPS-1' }] : { key: 'OPS-1' } },
+          status: 'success', error: null, matched_branch: null,
+        }) } as unknown as Response;
+      }
+      return { ok: true, status: 200, json: async () => ({ integrations: [
+        { name: 'jira', type: 'jira', status: 'ok', connected: true },
+      ] }) } as unknown as Response;
+    });
+    render(<AutomationStudio />);
+
+    // Commit one Query node so the graph is non-empty and Save is enabled.
+    await commitQuery('jira', 'jira_tickets');
+
+    // Save → POST /api/studio/graphs, stores graph_id, Run becomes enabled.
+    const saveBtn = screen.getByRole('button', { name: /^Save$/i });
+    fireEvent.click(saveBtn);
+    await waitFor(() => expect(saved).toBe(true));
+    const runBtn = screen.getByRole('button', { name: /^Run$/i });
+    await waitFor(() => expect(runBtn).not.toBeDisabled());
+
+    // Run → POST .../run, status line renders in the Graph Outline.
+    fireEvent.click(runBtn);
+    await waitFor(() => {
+      expect(screen.getByText(/Run run-7 → running/)).toBeInTheDocument();
+    });
+    expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/run'))).toBe(true);
   });
 });

@@ -18,9 +18,15 @@ import {
   type StudioNode,
   type QueryNode,
   type FanOutNode,
+  type AITransformNode,
+  type ConditionalActionNode,
+  type ConditionExpr,
   type GraphEdge,
-  type CapabilityTier,
+  CapabilityTier,
   NodeArchetype,
+  ExecutionMode,
+  RoutingStrategy,
+  ConditionType,
   StudioNodeSchema,
   DEFAULT_CAPABILITY,
 } from '../types/studio';
@@ -28,9 +34,11 @@ import {
   getIntegrationStatus,
   previewNode,
   saveGraph,
+  updateGraph,
   runGraph,
   type IntegrationStatus,
   type PreviewNodeResult,
+  type RunSummary,
 } from '../api/studioClient';
 
 // -----------------------------------------------------------------------------
@@ -100,6 +108,20 @@ const adapterKeyFor = (name: string): string => {
 const nextNodeId = (archetype: string, count: number): string =>
   `${archetype}_${String(count).padStart(2, '0')}`;
 
+// Parse the raw string a user typed in the conditional-action value field into
+// the typed value the ConditionExpr zod schema accepts (z.unknown). Try JSON
+// first (so "1" → 1, "true" → true, '{"x":1}' → object); fall back to the raw
+// string, and treat empty as null. EXISTS conditions ignore the value anyway.
+const parseConditionValue = (raw: string): unknown => {
+  const s = raw.trim();
+  if (s === '') return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return s;
+  }
+};
+
 // -----------------------------------------------------------------------------
 // Per-turn draft state (kept separate from the committed graph)
 // -----------------------------------------------------------------------------
@@ -118,13 +140,65 @@ interface FanOutDraft {
   name: string;
 }
 
-type Draft = QueryDraft | FanOutDraft | null;
+// AI-transform turn: either an inline Python script or a saved Skill ref,
+// run over each item in scope via SafeExecutor (dec #13/#18). Exactly one of
+// script/skill_ref must be set at commit (backend enforces; UI hints too).
+interface AITransformDraft {
+  mode: 'script' | 'skill_ref';
+  script: string;
+  skill_ref: string;
+  input_ref: string;
+  output_ref: string;
+  suggested_model_tier: CapabilityTier | '';
+  name: string;
+}
+
+// Conditional-action turn (dec #8/#19): a condition over the scoped state plus
+// optional true/false adapter-action branches. routing_strategy defaults to
+// condition-first (exact match — free); signature is reserved-but-unused in
+// slice 1 (dec #19, max 200 chars) for Phase 2 NL classifier fallback.
+interface ConditionalActionDraft {
+  // Simple condition only in the slice-1 form (compound AND/OR is a later slice).
+  condition_type: ConditionType;
+  field: string;
+  value: string;            // UI captures raw string; parsed to typed value at build.
+  true_action: string;
+  true_output_ref: string;
+  false_action: string;
+  false_output_ref: string;
+  signature: string;
+  name: string;
+}
+
+type Draft = QueryDraft | FanOutDraft | AITransformDraft | ConditionalActionDraft | null;
 
 // Empty draft for each turn, so switching turns clears the form.
 const emptyDraftFor = (turn: TurnType): Draft => {
   if (turn === 'query') return { adapter: '', action: '', params: {}, output_ref: '', name: '' };
   if (turn === 'fan_out') return { source: '', iterator_var: 'item', name: '' };
-  return null;
+  if (turn === 'ai_transform') {
+    return {
+      mode: 'script',
+      script: '',
+      skill_ref: '',
+      input_ref: '',
+      output_ref: '',
+      suggested_model_tier: '',
+      name: '',
+    };
+  }
+  // conditional_action
+  return {
+    condition_type: ConditionType.EQUALS,
+    field: '',
+    value: '',
+    true_action: '',
+    true_output_ref: '',
+    false_action: '',
+    false_output_ref: '',
+    signature: '',
+    name: '',
+  };
 };
 
 // -----------------------------------------------------------------------------
@@ -171,7 +245,8 @@ export function AutomationStudio() {
   }, []);
 
   // ------------------------------------------------------------------
-  // Draft → StudioNode builder for the active turn (Turns 1–2 only in T2a).
+  // Draft → StudioNode builder for the active turn (all four turns).
+  // Returns null + the caller toasts when required fields are missing.
   // ------------------------------------------------------------------
   const buildDraftNode = (d: Draft): StudioNode | null => {
     const count = graph.nodes.length;
@@ -200,6 +275,47 @@ export function AutomationStudio() {
         loop_over: { source: f.source, iterator_var: f.iterator_var },
       } as FanOutNode;
     }
+    if (activeTurn === 'ai_transform' && d && 'input_ref' in d) {
+      const t: AITransformDraft = d;
+      if (!t.input_ref || !t.output_ref) return null;
+      const hasScript = t.mode === 'script' ? t.script.trim() !== '' : false;
+      const hasSkill = t.mode === 'skill_ref' ? t.skill_ref.trim() !== '' : false;
+      if (!hasScript && !hasSkill) return null;
+      const node: AITransformNode = {
+        node_id: nextNodeId('ai_transform', count),
+        archetype: NodeArchetype.AI_TRANSFORM,
+        name: t.name || `AI-transform ${t.input_ref} → ${t.output_ref}`,
+        execution_mode: ExecutionMode.SCRIPT,
+        input_ref: t.input_ref,
+        output_ref: t.output_ref,
+      } as AITransformNode;
+      if (hasScript) node.script = t.script;
+      if (hasSkill) node.skill_ref = t.skill_ref;
+      if (t.suggested_model_tier) node.suggested_model_tier = t.suggested_model_tier;
+      return node;
+    }
+    if (activeTurn === 'conditional_action' && d && 'condition_type' in d) {
+      const c: ConditionalActionDraft = d;
+      if (!c.field) return null;                // condition needs a field at minimum
+      const condition: ConditionExpr = {
+        type: c.condition_type,
+        field: c.field,
+        value: parseConditionValue(c.value),
+      };
+      const node: ConditionalActionNode = {
+        node_id: nextNodeId('conditional_action', count),
+        archetype: NodeArchetype.CONDITIONAL_ACTION,
+        name: c.name || `If ${c.field} ${c.condition_type} ${c.value || '…'}`,
+        condition,
+        routing_strategy: RoutingStrategy.CONDITION_FIRST,
+      } as ConditionalActionNode;
+      if (c.true_action) node.true_action = c.true_action;
+      if (c.true_output_ref) node.true_output_ref = c.true_output_ref;
+      if (c.false_action) node.false_action = c.false_action;
+      if (c.false_output_ref) node.false_output_ref = c.false_output_ref;
+      if (c.signature) node.signature = c.signature;
+      return node;
+    }
     return null;
   };
 
@@ -208,8 +324,7 @@ export function AutomationStudio() {
   // Sets the live result + merges updated_state into executionState.
   // ------------------------------------------------------------------
   const handlePreview = async () => {
-    const d: Draft = (activeTurn === 'query' || activeTurn === 'fan_out') ? draft : null;
-    const node = buildDraftNode(d);
+    const node = buildDraftNode(draft);
     if (!node) {
       toast.error('Fill in the required fields before previewing.');
       return;
@@ -224,7 +339,13 @@ export function AutomationStudio() {
       if (res.status === 'failed' || res.status === 'undefined') {
         toast.error(res.error || `Preview returned status "${res.status}".`);
       } else if (res.status === 'success') {
-        toast.success('Preview succeeded.');
+        // For ConditionalAction preview, show which branch the condition routed
+        // to (dec #8) — the human is reacting to live data when authoring.
+        if (res.matched_branch) {
+          toast.success(`Preview: condition matched the "${res.matched_branch}" branch.`);
+        } else {
+          toast.success('Preview succeeded.');
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -236,11 +357,13 @@ export function AutomationStudio() {
 
   // ------------------------------------------------------------------
   // Commit: zod-validate the draft node, append it + an edge to the graph,
-  // then advance to the next turn. Save/Run stay inert until T2b.
+  // then advance to the next turn. Edge source_handle is "loop" only when the
+  // prior node was a Fan-out (its children iterate one-per-item); the
+  // ConditionalAction true/false handles are reserved for a later sibling-edge
+  // slice — the linear authoring chain carries no loop/branch handle otherwise.
   // ------------------------------------------------------------------
   const handleCommit = () => {
-    const d: Draft = (activeTurn === 'query' || activeTurn === 'fan_out') ? draft : null;
-    const node = buildDraftNode(d);
+    const node = buildDraftNode(draft);
     if (!node) {
       toast.error('Nothing to commit — fill in the form first.');
       return;
@@ -280,20 +403,73 @@ export function AutomationStudio() {
   };
 
   // ------------------------------------------------------------------
-  // Save / Run — land in T2b. Kept inert placeholders here (dec #25 scope):
-  // clicking surfaces a "not yet wired" toast so the buttons aren't dead,
-  // but we do NOT persist or execute until the T2b terminal turn exists.
-  // The imports are referenced so the client surface stays compile-clean.
+  // Save: persist the in-memory graph as a durable headless template (dec #5).
+  // First save POSTs (backend derives graph_id); later saves PUT-update the
+  // existing id. Syncs the committed name into `graph.name` so re-saves keep a
+  // stable id, and stores the returned graph_id for Run.
   // ------------------------------------------------------------------
-  const handleSave = () => {
-    void saveGraph;  // T2b
-    toast('Save lands in T2b.', { icon: '🚧' });
+  const handleSave = async () => {
+    if (graph.nodes.length === 0) {
+      toast.error('Add at least one node before saving.');
+      return;
+    }
+    const name = graphName.trim() || `Studio Graph ${graph.nodes.length}`;
+    setIsLoading(true);
+    try {
+      const payload = {
+        name,
+        description: graph.description,
+        version: graph.version,
+        nodes: graph.nodes,
+        edges: graph.edges,
+        required_capability: graph.required_capability,
+        cron_schedule: graph.cron_schedule,
+        cron_enabled: graph.cron_enabled,
+        undefined_queue_cap: graph.undefined_queue_cap,
+        max_run_logs: graph.max_run_logs,
+      };
+      let meta;
+      if (graphId) {
+        meta = await updateGraph(graphId, payload);
+      } else {
+        meta = await saveGraph(payload);
+      }
+      setGraphId(meta.graph_id);
+      setGraphName(meta.name);
+      setGraph((g) => ({ ...g, graph_id: meta.graph_id, name: meta.name }));
+      toast.success(`Saved "${meta.name}" (${meta.graph_id}).`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Save failed: ${msg}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleRun = () => {
-    void runGraph;  // T2b
-    if (!graphId) return;
-    toast('Run lands in T2b.', { icon: '🚧' });
+  // ------------------------------------------------------------------
+  // Run: kick off a headless execution of the saved graph (dec #7/#15). The
+  // backend starts the run async and returns a run_id; we surface the
+  // started status in the Graph Outline. Slice-1 writes are dry-run/log first
+  // (dec #16) — the real Jira write fires at the slice-1 boundary, not here.
+  // ------------------------------------------------------------------
+  const handleRun = async () => {
+    if (!graphId) {
+      toast.error('Save the graph before running it.');
+      return;
+    }
+    setIsLoading(true);
+    setRunStatus('Starting run…');
+    try {
+      const summary: RunSummary = await runGraph(graphId);
+      setRunStatus(`Run ${summary.run_id} → ${summary.status} (started ${summary.started_at}).`);
+      toast.success(`Run started: ${summary.run_id}.`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setRunStatus(`Run failed: ${msg}`);
+      toast.error(`Run failed: ${msg}`);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Connected integrations offered by the Query form's adapter select.
@@ -486,14 +662,201 @@ export function AutomationStudio() {
             );
           })()}
 
-          {/* Turns 3–4 are T2b — surface the label but no form yet. */}
-          {(activeTurn === 'ai_transform' || activeTurn === 'conditional_action') && (
-            <div className="flex-1 flex items-center justify-center text-center">
-              <p className="text-[11px] text-gray-400 italic">
-                This turn's form lands in T2b.
-              </p>
-            </div>
-          )}
+          {/* ---- Turn 3: AI-transform ---- */}
+          {activeTurn === 'ai_transform' && draft && 'input_ref' in draft && (() => {
+            const t = draft as AITransformDraft;
+            const setT = (patch: Partial<AITransformDraft>) =>
+              setDraft({ ...(draft as AITransformDraft), ...patch } as AITransformDraft);
+            return (
+              <div className="flex-1 space-y-4">
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">Mode</span>
+                  <select
+                    aria-label="Mode"
+                    value={t.mode}
+                    onChange={(e) => setT({ mode: e.target.value as 'script' | 'skill_ref', script: '', skill_ref: '' })}
+                    className="mt-1 w-full px-2 py-1.5 text-sm border border-[#d8d3ca] rounded bg-white"
+                  >
+                    <option value="script">Inline Python script</option>
+                    <option value="skill_ref">Saved Skill ref</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">input_ref</span>
+                  <input
+                    aria-label="input_ref"
+                    value={t.input_ref}
+                    onChange={(e) => setT({ input_ref: e.target.value })}
+                    placeholder="ticket"
+                    className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                  />
+                </label>
+
+                {t.mode === 'script' ? (
+                  <label className="block">
+                    <span className="text-[10px] font-bold uppercase text-gray-400">script (Python — SafeExecutor)</span>
+                    <textarea
+                      aria-label="script"
+                      value={t.script}
+                      onChange={(e) => setT({ script: e.target.value })}
+                      placeholder={'# dict output is written to output_ref\nresult = {"label": item["summary"]}'}
+                      rows={6}
+                      className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white resize-y"
+                    />
+                  </label>
+                ) : (
+                  <label className="block">
+                    <span className="text-[10px] font-bold uppercase text-gray-400">skill_ref</span>
+                    <input
+                      aria-label="skill_ref"
+                      value={t.skill_ref}
+                      onChange={(e) => setT({ skill_ref: e.target.value })}
+                      placeholder="os_distro_classifier"
+                      className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                    />
+                  </label>
+                )}
+
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">output_ref</span>
+                  <input
+                    aria-label="output_ref"
+                    value={t.output_ref}
+                    onChange={(e) => setT({ output_ref: e.target.value })}
+                    placeholder="extracted_fields"
+                    className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">suggested_model_tier</span>
+                  <select
+                    aria-label="suggested_model_tier"
+                    value={t.suggested_model_tier}
+                    onChange={(e) => setT({ suggested_model_tier: e.target.value as CapabilityTier | '' })}
+                    className="mt-1 w-full px-2 py-1.5 text-sm border border-[#d8d3ca] rounded bg-white"
+                  >
+                    <option value="">— graph default —</option>
+                    <option value={CapabilityTier.CLASSIFY}>classify (4–8B local)</option>
+                    <option value={CapabilityTier.GENERATE}>generate (default)</option>
+                    <option value={CapabilityTier.REASON_OVER_CODE}>reason_over_code (20B/27B+)</option>
+                  </select>
+                </label>
+
+                <p className="text-[10px] text-gray-400 italic">
+                  Exactly one of script / skill_ref is used at commit. Preview runs it over the current state.
+                </p>
+              </div>
+            );
+          })()}
+
+          {/* ---- Turn 4: Conditional-action ---- */}
+          {activeTurn === 'conditional_action' && draft && 'condition_type' in draft && (() => {
+            const c = draft as ConditionalActionDraft;
+            const setC = (patch: Partial<ConditionalActionDraft>) =>
+              setDraft({ ...(draft as ConditionalActionDraft), ...patch } as ConditionalActionDraft);
+            const valueIgnored = c.condition_type === ConditionType.EXISTS;
+            return (
+              <div className="flex-1 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-[10px] font-bold uppercase text-gray-400">condition_type</span>
+                    <select
+                      aria-label="condition_type"
+                      value={c.condition_type}
+                      onChange={(e) => setC({ condition_type: e.target.value as ConditionType })}
+                      className="mt-1 w-full px-2 py-1.5 text-sm border border-[#d8d3ca] rounded bg-white"
+                    >
+                      <option value={ConditionType.EQUALS}>equals</option>
+                      <option value={ConditionType.CONTAINS}>contains</option>
+                      <option value={ConditionType.REGEX_MATCH}>regex_match</option>
+                      <option value={ConditionType.IN_LIST}>in_list</option>
+                      <option value={ConditionType.EXISTS}>exists</option>
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-[10px] font-bold uppercase text-gray-400">field (dot-path)</span>
+                    <input
+                      aria-label="field"
+                      value={c.field}
+                      onChange={(e) => setC({ field: e.target.value })}
+                      placeholder="extracted_fields.os_distro"
+                      className="mt-1 w-full px-2 py-1 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                    />
+                  </label>
+                </div>
+
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">value {valueIgnored && '(ignored for exists)'}</span>
+                  <input
+                    aria-label="value"
+                    value={c.value}
+                    onChange={(e) => setC({ value: e.target.value })}
+                    placeholder={valueIgnored ? '— not used —' : 'brotli  (JSON: "1", true, {"x":1})'}
+                    disabled={valueIgnored}
+                    className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white disabled:opacity-50"
+                  />
+                </label>
+
+                <div className="pt-1">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">True branch (match)</span>
+                  <div className="mt-1 space-y-2">
+                    <input
+                      aria-label="true_action"
+                      value={c.true_action}
+                      onChange={(e) => setC({ true_action: e.target.value })}
+                      placeholder="jira.move_to_investigating"
+                      className="w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                    />
+                    <input
+                      aria-label="true_output_ref"
+                      value={c.true_output_ref}
+                      onChange={(e) => setC({ true_output_ref: e.target.value })}
+                      placeholder="moved_tickets"
+                      className="w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-1">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">False branch (optional)</span>
+                  <div className="mt-1 space-y-2">
+                    <input
+                      aria-label="false_action"
+                      value={c.false_action}
+                      onChange={(e) => setC({ false_action: e.target.value })}
+                      placeholder="jira.add_label_undefined"
+                      className="w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                    />
+                    <input
+                      aria-label="false_output_ref"
+                      value={c.false_output_ref}
+                      onChange={(e) => setC({ false_output_ref: e.target.value })}
+                      placeholder="undefined_tickets"
+                      className="w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                    />
+                  </div>
+                </div>
+
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">signature (reserved — Phase 2 NL fallback)</span>
+                  <input
+                    aria-label="signature"
+                    value={c.signature}
+                    onChange={(e) => setC({ signature: e.target.value })}
+                    placeholder="component is brotli, status is new"
+                    maxLength={200}
+                    className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                  />
+                </label>
+
+                <p className="text-[10px] text-gray-400 italic">
+                  routing_strategy defaults to condition_first (exact match — free). Signature is unused in slice 1.
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Preview / Commit */}
           <div className="pt-4 mt-4 border-t border-[#d8d3ca] space-y-2">
