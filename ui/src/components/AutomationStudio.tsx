@@ -10,13 +10,18 @@
 // Slice 1 scope: Query → Fan-out → AI-transform → Conditional-action → Save/Run.
 // No AuthModal/token-paste (dec #14); no Skill Brainstormer loop (dec #18).
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { TextHighlighter } from './TextHighlighter';
 import {
   type StudioGraph,
   type StudioNode,
+  type QueryNode,
+  type FanOutNode,
+  type GraphEdge,
   type CapabilityTier,
+  NodeArchetype,
+  StudioNodeSchema,
   DEFAULT_CAPABILITY,
 } from '../types/studio';
 import {
@@ -62,6 +67,66 @@ const TURN_LABELS: Record<TurnType, { title: string; hint: string }> = {
 
 const TURN_ORDER: TurnType[] = ['query', 'fan_out', 'ai_transform', 'conditional_action'];
 
+// Adapter list/vector actions offered by the Query form (dec #28). Keyed by
+// adapter name (the `name` returned by getIntegrationStatus()). A Query must
+// select an action that returns a vector — fetch_resource returns one, never a list.
+type ActionSpec = { action: string; label: string; params: string[] };
+const ADAPTER_ACTIONS: Record<string, ActionSpec[]> = {
+  jira: [
+    { action: 'list_tickets', label: 'list_tickets(jql, max_results)', params: ['jql', 'max_results'] },
+    { action: 'list_projects', label: 'list_projects()', params: [] },
+  ],
+  github: [
+    { action: 'list_repos', label: 'list_repos(org, type, per_page)', params: ['org', 'type', 'per_page'] },
+    { action: 'list_pull_requests', label: 'list_pull_requests(owner, repo, state, per_page)', params: ['owner', 'repo', 'state', 'per_page'] },
+  ],
+  internal: [
+    { action: 'list_items', label: 'list_items(stage)', params: ['stage'] },
+  ],
+};
+
+// Map a connected-integration name to an adapter catalog key. Integration
+// names are free-form; this is a forgiving matcher over the recognized prefixes.
+const adapterKeyFor = (name: string): string => {
+  const lower = name.toLowerCase();
+  if (lower.includes('jira')) return 'jira';
+  if (lower.includes('github')) return 'github';
+  if (lower.includes('internal')) return 'internal';
+  return '';
+};
+
+// Build a fresh node_id. Deterministic + monotonic so commits are stable in
+// the graph outline (no Math.random — keeps snapshots/test output reproducible).
+const nextNodeId = (archetype: string, count: number): string =>
+  `${archetype}_${String(count).padStart(2, '0')}`;
+
+// -----------------------------------------------------------------------------
+// Per-turn draft state (kept separate from the committed graph)
+// -----------------------------------------------------------------------------
+
+interface QueryDraft {
+  adapter: string;
+  action: string;
+  params: Record<string, string>;
+  output_ref: string;
+  name: string;
+}
+
+interface FanOutDraft {
+  source: string;
+  iterator_var: string;
+  name: string;
+}
+
+type Draft = QueryDraft | FanOutDraft | null;
+
+// Empty draft for each turn, so switching turns clears the form.
+const emptyDraftFor = (turn: TurnType): Draft => {
+  if (turn === 'query') return { adapter: '', action: '', params: {}, output_ref: '', name: '' };
+  if (turn === 'fan_out') return { source: '', iterator_var: 'item', name: '' };
+  return null;
+};
+
 // -----------------------------------------------------------------------------
 // Main Component
 // -----------------------------------------------------------------------------
@@ -78,8 +143,9 @@ export function AutomationStudio() {
   const activeTurn: TurnType = TURN_ORDER[turnIndex] ?? 'query';
 
   // ==== Per-turn draft + live preview (dec #15 — live-results-led) ==== //
-  const [draftNode, setDraftNode] = useState<Partial<StudioNode> | null>(null);
+  const [draft, setDraft] = useState<Draft>(emptyDraftFor('query'));
   const [previewResult, setPreviewResult] = useState<PreviewNodeResult | null>(null);
+  const [previewing, setPreviewing] = useState(false);
 
   // ==== Saved graph state ==== //
   const [graphId, setGraphId] = useState<string | null>(null);
@@ -104,7 +170,144 @@ export function AutomationStudio() {
     return () => { cancelled = true; };
   }, []);
 
-  // ...turn forms, accept/save/run, and panel wiring land in later commits.
+  // ------------------------------------------------------------------
+  // Draft → StudioNode builder for the active turn (Turns 1–2 only in T2a).
+  // ------------------------------------------------------------------
+  const buildDraftNode = (d: Draft): StudioNode | null => {
+    const count = graph.nodes.length;
+    if (activeTurn === 'query' && d && 'adapter' in d) {
+      const q: QueryDraft = d;
+      if (!q.adapter || !q.action || !q.output_ref) return null;
+      return {
+        node_id: nextNodeId('query', count),
+        archetype: NodeArchetype.QUERY,
+        name: q.name || `Query ${q.adapter}.${q.action}`,
+        adapter: q.adapter,
+        action: q.action,
+        params: Object.fromEntries(
+          Object.entries(q.params).filter(([, v]) => v !== '' && v !== undefined),
+        ),
+        output_ref: q.output_ref,
+      } as QueryNode;
+    }
+    if (activeTurn === 'fan_out' && d && 'iterator_var' in d) {
+      const f: FanOutDraft = d;
+      if (!f.source || !f.iterator_var) return null;
+      return {
+        node_id: nextNodeId('fan_out', count),
+        archetype: NodeArchetype.FAN_OUT,
+        name: f.name || `Fan-out over ${f.source}`,
+        loop_over: { source: f.source, iterator_var: f.iterator_var },
+      } as FanOutNode;
+    }
+    return null;
+  };
+
+  // ------------------------------------------------------------------
+  // Preview: execute the draft node against execution_state (dec #15).
+  // Sets the live result + merges updated_state into executionState.
+  // ------------------------------------------------------------------
+  const handlePreview = async () => {
+    const d: Draft = (activeTurn === 'query' || activeTurn === 'fan_out') ? draft : null;
+    const node = buildDraftNode(d);
+    if (!node) {
+      toast.error('Fill in the required fields before previewing.');
+      return;
+    }
+    setPreviewing(true);
+    try {
+      const res = await previewNode({ node, execution_state: executionState });
+      setPreviewResult(res);
+      if (res.updated_state) {
+        setExecutionState((prev) => ({ ...prev, ...res.updated_state }));
+      }
+      if (res.status === 'failed' || res.status === 'undefined') {
+        toast.error(res.error || `Preview returned status "${res.status}".`);
+      } else if (res.status === 'success') {
+        toast.success('Preview succeeded.');
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(`Preview failed: ${msg}`);
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  // ------------------------------------------------------------------
+  // Commit: zod-validate the draft node, append it + an edge to the graph,
+  // then advance to the next turn. Save/Run stay inert until T2b.
+  // ------------------------------------------------------------------
+  const handleCommit = () => {
+    const d: Draft = (activeTurn === 'query' || activeTurn === 'fan_out') ? draft : null;
+    const node = buildDraftNode(d);
+    if (!node) {
+      toast.error('Nothing to commit — fill in the form first.');
+      return;
+    }
+    const parsed = StudioNodeSchema.safeParse(node);
+    if (!parsed.success) {
+      toast.error(`Invalid node: ${parsed.error.issues.map((i) => i.path.join('.') + ' ' + i.message).join('; ')}`);
+      return;
+    }
+    const committed = parsed.data as StudioNode;
+    const edge: GraphEdge | null = (() => {
+      const last = graph.nodes[graph.nodes.length - 1];
+      if (!last) return null;
+      const source_handle = last.archetype === NodeArchetype.FAN_OUT ? 'loop' : undefined;
+      return {
+        edge_id: `e_${last.node_id}_${committed.node_id}`,
+        source: last.node_id,
+        target: committed.node_id,
+        source_handle,
+      };
+    })();
+
+    setGraph((g) => ({
+      ...g,
+      nodes: [...g.nodes, committed],
+      edges: edge ? [...g.edges, edge] : g.edges,
+    }));
+    if (previewResult?.updated_state) {
+      setExecutionState((prev) => ({ ...prev, ...previewResult.updated_state }));
+    }
+    setPreviewResult(null);
+
+    const nextIdx = Math.min(turnIndex + 1, TURN_ORDER.length - 1);
+    setTurnIndex(nextIdx);
+    setDraft(emptyDraftFor(TURN_ORDER[nextIdx]));
+    toast.success(`Committed ${committed.archetype} node.`);
+  };
+
+  // ------------------------------------------------------------------
+  // Save / Run — land in T2b. Kept inert placeholders here (dec #25 scope):
+  // clicking surfaces a "not yet wired" toast so the buttons aren't dead,
+  // but we do NOT persist or execute until the T2b terminal turn exists.
+  // The imports are referenced so the client surface stays compile-clean.
+  // ------------------------------------------------------------------
+  const handleSave = () => {
+    void saveGraph;  // T2b
+    toast('Save lands in T2b.', { icon: '🚧' });
+  };
+
+  const handleRun = () => {
+    void runGraph;  // T2b
+    if (!graphId) return;
+    toast('Run lands in T2b.', { icon: '🚧' });
+  };
+
+  // Connected integrations offered by the Query form's adapter select.
+  const adapterOptions = useMemo(
+    () => integrations.filter((i) => i.connected && adapterKeyFor(i.name)),
+    [integrations],
+  );
+
+  // Existing output_refs the Fan-out form can loop over.
+  const sourceOptions = useMemo(
+    () => Object.keys(executionState),
+    [executionState],
+  );
+
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden bg-[#f6f4ef] text-[#231f19]">
@@ -126,12 +329,14 @@ export function AutomationStudio() {
               className="px-3 py-1.5 text-sm border border-[#d8d3ca] rounded focus:outline-none focus:ring-2 focus:ring-[#0b6b72] bg-white"
             />
             <button
+              onClick={handleSave}
               disabled={graph.nodes.length === 0 || isLoading}
               className="px-4 py-1.5 text-sm font-bold bg-[#0b6b72] text-white rounded hover:bg-[#0a5c62] disabled:opacity-50"
             >
               Save
             </button>
             <button
+              onClick={handleRun}
               disabled={!graphId || isLoading}
               className="px-4 py-1.5 text-sm font-bold border border-[#0b6b72] text-[#0b6b72] rounded hover:bg-[#0b6b72] hover:text-white disabled:opacity-50"
             >
@@ -157,13 +362,157 @@ export function AutomationStudio() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Turn Panel */}
         <div className="w-80 flex flex-col bg-[#fcfbf8] border-r border-[#d8d3ca] overflow-y-auto p-6">
-          {/* Turn forms land here in Commit 2. */}
-          <div className="flex-1 flex items-center justify-center text-center">
-            <div>
-              <p className="text-sm font-semibold text-gray-700">{TURN_LABELS[activeTurn].title}</p>
-              <p className="text-xs text-gray-500 mt-1">{TURN_LABELS[activeTurn].hint}</p>
-              <p className="text-[10px] text-gray-400 mt-6 italic">Turn forms arrive in the next commit.</p>
+          <div className="mb-4">
+            <p className="text-sm font-semibold text-gray-700">{TURN_LABELS[activeTurn].title}</p>
+            <p className="text-xs text-gray-500 mt-1">{TURN_LABELS[activeTurn].hint}</p>
+          </div>
+
+          {/* ---- Turn 1: Query ---- */}
+          {activeTurn === 'query' && draft && 'adapter' in draft && (() => {
+            const q = draft as QueryDraft;
+            const akey = q.adapter ? adapterKeyFor(q.adapter) : '';
+            const actions = akey ? (ADAPTER_ACTIONS[akey] ?? []) : [];
+            const chosen = actions.find((a) => a.action === q.action) ?? null;
+            const setQ = (patch: Partial<QueryDraft>) =>
+              setDraft({ ...(draft as QueryDraft), ...patch } as QueryDraft);
+            return (
+              <div className="flex-1 space-y-4">
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">Adapter</span>
+                  <select
+                    aria-label="Adapter"
+                    value={q.adapter}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      const key = adapterKeyFor(name);
+                      const firstAction = key ? (ADAPTER_ACTIONS[key]?.[0]?.action ?? '') : '';
+                      setQ({ adapter: name, action: firstAction, params: {} });
+                    }}
+                    className="mt-1 w-full px-2 py-1.5 text-sm border border-[#d8d3ca] rounded bg-white"
+                  >
+                    <option value="">Select adapter…</option>
+                    {adapterOptions.map((it) => (
+                      <option key={it.name} value={it.name}>{it.name}</option>
+                    ))}
+                  </select>
+                  {adapterOptions.length === 0 && (
+                    <span className="text-[10px] text-amber-600">No connected adapters loaded.</span>
+                  )}
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">Action (list/vector)</span>
+                  <select
+                    aria-label="Action"
+                    value={q.action}
+                    onChange={(e) => setQ({ action: e.target.value, params: {} })}
+                    disabled={!akey}
+                    className="mt-1 w-full px-2 py-1.5 text-sm border border-[#d8d3ca] rounded bg-white disabled:opacity-50"
+                  >
+                    <option value="">{akey ? 'Select action…' : 'Pick an adapter first'}</option>
+                    {actions.map((a) => (
+                      <option key={a.action} value={a.action}>{a.label}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {chosen && chosen.params.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold uppercase text-gray-400">Params</span>
+                    {chosen.params.map((p) => (
+                      <label key={p} className="block">
+                        <span className="text-[11px] font-mono text-gray-500">{p}</span>
+                        <input
+                          aria-label={`param ${p}`}
+                          value={q.params[p] ?? ''}
+                          onChange={(e) => setQ({ params: { ...q.params, [p]: e.target.value } })}
+                          className="mt-0.5 w-full px-2 py-1 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">output_ref</span>
+                  <input
+                    aria-label="output_ref"
+                    value={q.output_ref}
+                    onChange={(e) => setQ({ output_ref: e.target.value })}
+                    placeholder="jira_tickets"
+                    className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                  />
+                </label>
+              </div>
+            );
+          })()}
+
+          {/* ---- Turn 2: Fan-out ---- */}
+          {activeTurn === 'fan_out' && draft && 'iterator_var' in draft && (() => {
+            const f = draft as FanOutDraft;
+            const setF = (patch: Partial<FanOutDraft>) =>
+              setDraft({ ...(draft as FanOutDraft), ...patch } as FanOutDraft);
+            return (
+              <div className="flex-1 space-y-4">
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">Source (existing output_ref)</span>
+                  <select
+                    aria-label="Source"
+                    value={f.source}
+                    onChange={(e) => setF({ source: e.target.value })}
+                    className="mt-1 w-full px-2 py-1.5 text-sm font-mono border border-[#d8d3ca] rounded bg-white"
+                  >
+                    <option value="">Select source…</option>
+                    {sourceOptions.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  {sourceOptions.length === 0 && (
+                    <span className="text-[10px] text-amber-600">Query a node first to populate outputs.</span>
+                  )}
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-bold uppercase text-gray-400">iterator_var</span>
+                  <input
+                    aria-label="iterator_var"
+                    value={f.iterator_var}
+                    onChange={(e) => setF({ iterator_var: e.target.value })}
+                    placeholder="ticket"
+                    className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white"
+                  />
+                </label>
+              </div>
+            );
+          })()}
+
+          {/* Turns 3–4 are T2b — surface the label but no form yet. */}
+          {(activeTurn === 'ai_transform' || activeTurn === 'conditional_action') && (
+            <div className="flex-1 flex items-center justify-center text-center">
+              <p className="text-[11px] text-gray-400 italic">
+                This turn's form lands in T2b.
+              </p>
             </div>
+          )}
+
+          {/* Preview / Commit */}
+          <div className="pt-4 mt-4 border-t border-[#d8d3ca] space-y-2">
+            <button
+              onClick={handlePreview}
+              disabled={previewing}
+              className="w-full px-3 py-2 text-sm font-bold border border-[#0b6b72] text-[#0b6b72] rounded hover:bg-[#0b6b72] hover:text-white disabled:opacity-50"
+            >
+              {previewing ? 'Previewing…' : 'Preview'}
+            </button>
+            <button
+              onClick={handleCommit}
+              className="w-full px-3 py-2 text-sm font-bold bg-[#0b6b72] text-white rounded hover:bg-[#0a5c62]"
+            >
+              Commit turn
+            </button>
+            <p className="text-[10px] text-gray-400 italic">
+              Commit advances to the next turn and writes the node into the graph.
+            </p>
           </div>
         </div>
 
@@ -182,14 +531,39 @@ export function AutomationStudio() {
           <div className="grid grid-cols-1 gap-6">
             {/* Cards: live preview of the current turn */}
             <div className="bg-white rounded-2xl shadow-sm border border-[#d8d3ca] overflow-hidden">
-              <div className="px-6 py-3 border-b border-[#d8d3ca] bg-gray-50">
+              <div className="px-6 py-3 border-b border-[#d8d3ca] bg-gray-50 flex justify-between items-center">
                 <span className="text-xs font-bold uppercase text-gray-500">Live Preview</span>
+                {previewResult && Array.isArray(previewResult.result) && (
+                  <span className="text-[10px] text-gray-400">
+                    {previewResult.result.length} item{previewResult.result.length === 1 ? '' : 's'}
+                  </span>
+                )}
               </div>
               <div className="p-6">
                 {previewResult ? (
-                  <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">
-                    {JSON.stringify(previewResult.result, null, 2)}
-                  </pre>
+                  Array.isArray(previewResult.result) ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      {previewResult.result.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="border border-[#e2ddd2] rounded-lg p-3 bg-[#fcfbf8] hover:border-[#0b6b72] cursor-pointer"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-bold uppercase text-gray-400">#{idx + 1}</span>
+                          </div>
+                          <pre className="text-[11px] font-mono text-gray-700 whitespace-pre-wrap break-words overflow-hidden max-h-40">
+                            {typeof item === 'object' && item !== null
+                              ? JSON.stringify(item, null, 2)
+                              : String(item)}
+                          </pre>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap overflow-x-auto">
+                      {JSON.stringify(previewResult.result, null, 2)}
+                    </pre>
+                  )
                 ) : (
                   <p className="py-12 text-center text-xs text-gray-400 italic">
                     Draft a turn and preview-execute it to see live data here.
