@@ -35,16 +35,21 @@ export interface PipelineItem {
   title: string;
   stage: string;
   order: number;
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  complexity?: 'trivial' | 'simple' | 'complex' | 'auto';
+  priority: 'low' | 'medium' | 'high' | 'critical' | string;
+  complexity?: 'trivial' | 'simple' | 'complex' | 'auto' | string;
   goal?: string;
   description?: string;
   source_type?: string;
   source_value?: string;
   due_date?: string;
   confidence_score?: number;
-  assigned_agent?: string;
-  blocked_reason?: string;
+  assigned_agent?: string | null;
+  blocked_reason?: string | null;
+  // Board adapters read these runtime fields written by api/managers/kanban_state_manager.py
+  // and the orchestrator; verified against a live GET /api/state response (Correction A).
+  comments?: unknown[];
+  history?: unknown[];
+  review_status?: string;
   created_at?: string;
   updated_at?: string;
   [key: string]: unknown;
@@ -52,4 +57,32 @@ export interface PipelineItem {
 
 export interface PipelineState {
   items: Record<string, PipelineItem>;
+}
+
+// Board view-model types (derived in ui/src/utils/boardAdapter.ts). These describe the
+// column/card shape the Kanban board renders after transforming /api/state; they are NOT
+// returned by the backend. Board-scoped, Studio-decoupled (dec #22 / §7 Correction A).
+export interface BoardCard {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  order: number;
+  priority: string;
+  complexity: string;
+  confidence_score: number | null;
+  comments: unknown[];
+  history: unknown[];
+  blocked_reason: string | null;
+  assigned_agent: string | null;
+  review_status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BoardColumn {
+  id: string;
+  title: string;
+  order: number;
+  cards: BoardCard[];
 }

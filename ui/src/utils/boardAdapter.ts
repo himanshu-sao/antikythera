@@ -1,4 +1,4 @@
-import { PipelineState, PipelineItem, BoardColumn, BoardCard } from '../types';
+import { PipelineState, PipelineItem, BoardColumn, BoardCard } from '../types/legacy-pipeline';
 
 export function apiToBoardModel(state: PipelineState): BoardColumn[] {
   const stages = [
