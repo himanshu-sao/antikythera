@@ -12,3 +12,7 @@ filelock>=3.13.0
 openai
 google-genai
 python-dotenv
+
+# Dev/test tooling (not required at runtime)
+coverage==7.15.2
+pytest-cov==7.1.0
