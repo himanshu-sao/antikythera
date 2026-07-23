@@ -57,6 +57,63 @@ from api.executors.safe_executor import SafeExecutor, SafeExecutorError, Securit
 logger = logging.getLogger(__name__)
 
 
+# -----------------------------------------------------------------------------
+# Module-level helpers for ConditionalAction undefined-queue accounting (dec #11/#20).
+# Kept pure + testable so the routing gate can be unit-tested without spinning
+# up the engine.
+# -----------------------------------------------------------------------------
+
+
+def _iterator_var(node: ConditionalActionNode, loop_context: Optional[Dict[str, Any]]) -> Optional[str]:
+    """Best-effort recovery of the FanOut iterator_var name for a conditional.
+
+    The conditional node sees only ``loop_context`` (the per-item scope), not the
+    upstream FanOut's ``loop_over`` spec. We recover the iterator name by
+    picking the first top-level key in loop_context that is not engine-internal.
+    Returns None when the conditional runs outside any fan-out (no item to queue).
+    """
+    if not loop_context:
+        return None
+    for key in loop_context:
+        if not key.startswith("_"):
+            return key
+    return None
+
+
+def _condition_field(condition: ConditionExpr) -> Optional[str]:
+    """Dot-path of the top-level simple condition's field, for undefined-queue
+    diagnostics. Compound (AND/OR) conditions return None — their per-conjunct
+    fields aren't a single path."""
+    if isinstance(condition, Condition):
+        return condition.field
+    return None
+
+
+def _condition_snapshot(
+    condition: ConditionExpr,
+    state: Dict[str, Any],
+    loop_context: Optional[Dict[str, Any]],
+    resolver,
+) -> Dict[str, Any]:
+    """Capture the evaluated field values for the queued undefined item, so the
+    reviewer (feedback loop, dec #6) can see what failed to match. Compound
+    conditions snapshot each conjunct. ``resolver`` is the engine's bound
+    ``_get_nested_value`` (carries the Jira ``issue.fields.<x>`` fallback)."""
+    source_state = {**state, **(loop_context or {})}
+
+    def resolve(cond: ConditionExpr) -> Dict[str, Any]:
+        if isinstance(cond, Condition):
+            return {cond.field: resolver(source_state, cond.field)}
+        if isinstance(cond, ConditionLogic):
+            snaps: Dict[str, Any] = {}
+            for c in cond.conditions:
+                snaps.update(resolve(c))
+            return snaps
+        return {}
+
+    return resolve(condition)
+
+
 class PathStepGraphEngine:
     """
     Headless execution engine for Studio Graphs.
@@ -355,16 +412,51 @@ class PathStepGraphEngine:
 
             # Record success
             exec_time = int((datetime.utcnow() - start_time).total_seconds() * 1000)
-            exec_state.run_log.append({
+            log_entry: Dict[str, Any] = {
                 "node_id": node_id,
                 "status": "success",
                 "output": result,
                 "execution_time_ms": exec_time,
-            })
+            }
 
-            # Write output to state
-            if result and node.output_ref:
-                self._write_to_state(exec_state.state, node.output_ref, result)
+            # dec #11/#20 — ConditionalAction routing accounting. The handler
+            # returns {"matched": bool, ...}; record which branch matched so
+            # _finalize_run can count total_matched for the perpetual aggregate
+            # (plan §6 "condition-match routing dispatches"). When the condition
+            # did NOT match and no false_action is configured, the item is
+            # "unrecognized" (dec #11 undefined flavor) → buffer it into the
+            # run's undefined_queue (cap 100 enforced in _finalize_run) so the
+            # feedback loop can grow the graph. This is the only slice-1 path
+            # that populates undefined_queue; matched items route to their
+            # branch action (dry-run short-circuited when exec_state.dry_run).
+            if node.archetype == NodeArchetype.CONDITIONAL_ACTION and isinstance(result, dict) and "matched" in result:
+                matched = bool(result.get("matched"))
+                log_entry["matched_branch"] = "true" if matched else "false"
+                if not matched and node.false_action is None:
+                    iterator_var = _iterator_var(node, loop_context)
+                    queued_item = {
+                        "node_id": node_id,
+                        "item": (loop_context or {}).get(iterator_var) if iterator_var else None,
+                        "condition_field": _condition_field(node.condition),
+                        "state_snapshot": _condition_snapshot(
+                            node.condition, exec_state.state, loop_context, self._get_nested_value
+                        ),
+                    }
+                    exec_state.undefined_queue.append(queued_item)
+                    log_entry["failure_flavor"] = FailureFlavor.UNDEFINED.value
+                    logger.info(
+                        f"ConditionalAction {node_id}: condition unmatched, no false "
+                        f"branch → undefined-queue (len={len(exec_state.undefined_queue)})"
+                    )
+
+            exec_state.run_log.append(log_entry)
+
+            # Write output to state. Only Query / AITransform nodes declare
+            # ``output_ref`` (FanOut/ConditionalAction do not) — read it
+            # defensively so non-output nodes don't AttributeError out here.
+            output_ref = getattr(node, "output_ref", None)
+            if result and output_ref:
+                self._write_to_state(exec_state.state, output_ref, result)
 
             # Recurse to successors
             for edge in adjacency.get(node_id, []):

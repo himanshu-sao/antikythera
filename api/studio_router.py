@@ -239,9 +239,23 @@ async def create_graph(
     if existing:
         graph_id = f"{graph_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
-    # Convert nodes/edges to models
-    nodes = [StudioNode.model_validate(n) for n in request.nodes]
-    edges = [GraphEdge.model_validate(e) for e in request.edges]
+    # Convert nodes/edges to models. StudioNode is a discriminated Union —
+    # Union has no model_validate (AttributeError); use TypeAdapter so the
+    # archetype discriminator routes each node to its concrete model (same fix
+    # as the preview-node path, commit a2e2529). Lets save_graph accept a graph
+    # built interactively end-to-end.
+    #
+    # validate_python raises pydantic.ValidationError inline (e.g. an unknown
+    # archetype) — left to bubble that becomes a 500 / unhandled exception.
+    # Wrap it so a malformed node returns a clean 422 (FastAPI does the same
+    # automatically for errors raised inside request-model parsing, but this
+    # validation runs in the handler body so we surface it ourselves).
+    studio_node_adapter = TypeAdapter(StudioNode)
+    try:
+        nodes = [studio_node_adapter.validate_python(n) for n in request.nodes]
+        edges = [GraphEdge.model_validate(e) for e in request.edges]
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
 
     graph = StudioGraph(
         graph_id=graph_id,
@@ -301,7 +315,13 @@ async def update_graph(
     if request.version is not None:
         graph.version = request.version
     if request.nodes is not None:
-        graph.nodes = [StudioNode.model_validate(n) for n in request.nodes]
+        # StudioNode is a Union → use TypeAdapter, not model_validate (see create_graph).
+        # Wrap in try/except for the same 422-vs-500 reason as create_graph.
+        studio_node_adapter = TypeAdapter(StudioNode)
+        try:
+            graph.nodes = [studio_node_adapter.validate_python(n) for n in request.nodes]
+        except ValidationError as e:
+            raise HTTPException(status_code=422, detail=e.errors())
     if request.edges is not None:
         graph.edges = [GraphEdge.model_validate(e) for e in request.edges]
     if request.required_capability is not None:
