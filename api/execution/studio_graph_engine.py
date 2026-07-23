@@ -92,13 +92,18 @@ class PathStepGraphEngine:
     # Public API
     # -------------------------------------------------------------------------
 
-    def start_run(self, graph_id: str, inputs: Dict[str, Any]) -> str:
+    def start_run(self, graph_id: str, inputs: Dict[str, Any], dry_run: bool = False) -> str:
         """
         Start a new graph run.
 
         Args:
             graph_id: ID of the StudioGraph to execute
             inputs: Initial inputs for the run
+            dry_run: dec #16 — when True, condition-routed branches that would
+                fire a live adapter write (update_resource) are short-circuited
+                to a logged "would-have-run" result. Reads still execute, so
+                routing + undefined-queue + run-logs can be verified without
+                side effects before the single real write at slice-1 end.
 
         Returns:
             run_id of the started execution
@@ -117,6 +122,7 @@ class PathStepGraphEngine:
             run_log=[],
             undefined_queue=[],
             loop_stack=[],
+            dry_run=dry_run,
         )
 
         # Save initial run log
@@ -569,6 +575,28 @@ class PathStepGraphEngine:
         matched_branch = "true" if condition_met else "false"
         logger.info(f"ConditionalAction {node.node_id}: condition={condition_met}, branch={matched_branch}")
 
+        # dec #16 dry-run gate: short-circuit the live adapter write (the only
+        # side-effecting surface in slice 1) to a logged "would-have-run"
+        # summary. Reads already ran during the Query turns, so the routing,
+        # condition-match, and undefined-queue all populate normally — only the
+        # destructive update_resource call is suppressed. This is what lets the
+        # acceptance run replay a graph dry first and flip dry_run=False for the
+        # single real Jira write at slice-1 end (plan §6 "after dry-run logging").
+        if exec_state.dry_run:
+            dry_run_summary = self._dry_run_would_have_run(
+                condition_met, node
+            )
+            logger.info(
+                f"ConditionalAction {node.node_id}: DRY-RUN short-circuit on "
+                f"branch={matched_branch} -> would_have_run={dry_run_summary['adapter']} "
+                f"action={dry_run_summary['action']!r}"
+            )
+            return {
+                "matched": condition_met,
+                "dry_run": True,
+                "would_have_run": dry_run_summary,
+            }
+
         # Execute the matching branch's adapter action if present
         if condition_met and node.true_action:
             step_config = {
@@ -602,6 +630,40 @@ class PathStepGraphEngine:
 
         # No action on this branch - just pass through
         return {"matched": condition_met}
+
+    @staticmethod
+    def _dry_run_would_have_run(condition_met: bool, node: ConditionalActionNode) -> Dict[str, Any]:
+        """Summarize the adapter write a conditional branch WOULD have fired.
+
+        Used only when exec_state.dry_run is True (dec #16). Returns a
+        JSON-serializable description of the suppressed write so the run log
+        records intent without touching the target system. Selects the branch
+        matching the evaluated condition; when that branch has no configured
+        action, returns an explicit ``noop`` marker.
+        """
+        if condition_met and node.true_action:
+            return {
+                "branch": "true",
+                "adapter": node.true_action,
+                "action": "update_resource",
+                "config": node.true_action_config,
+                "output_ref": node.true_output_ref,
+            }
+        if not condition_met and node.false_action:
+            return {
+                "branch": "false",
+                "adapter": node.false_action,
+                "action": "update_resource",
+                "config": node.false_action_config,
+                "output_ref": node.false_output_ref,
+            }
+        return {
+            "branch": "true" if condition_met else "false",
+            "adapter": None,
+            "action": "noop",
+            "config": None,
+            "output_ref": None,
+        }
 
     # -------------------------------------------------------------------------
     # Condition Evaluation (shared with OperatorRegistry)

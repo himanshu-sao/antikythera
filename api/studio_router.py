@@ -137,6 +137,12 @@ class GraphDetailResponse(GraphResponse):
 
 class RunRequest(BaseModel):
     inputs: Dict[str, Any] = Field(default_factory=dict)
+    # dec #16: dry_run=True exercises the graph end-to-end (reads run, condition
+    # routing + undefined-queue + run-logs all populate) but short-circuits the
+    # conditional true/false adapter writes to a logged "would-have-run" result,
+    # so the verification pass never fires a live Jira write. Flip False for
+    # the single real write at slice-1 end (plan §6 "after dry-run logging").
+    dry_run: bool = False
 
 
 class RunResponse(BaseModel):
@@ -144,6 +150,7 @@ class RunResponse(BaseModel):
     graph_id: str
     status: str
     started_at: str
+    dry_run: bool = False
 
 
 class RunLogResponse(BaseModel):
@@ -338,7 +345,7 @@ async def run_graph(
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not found")
 
-    run_id = engine.start_run(graph_id, request.inputs)
+    run_id = engine.start_run(graph_id, request.inputs, dry_run=request.dry_run)
     run_log = engine.get_run_log(run_id)
 
     return RunResponse(
@@ -346,6 +353,7 @@ async def run_graph(
         graph_id=graph_id,
         status="running",
         started_at=run_log.started_at.isoformat() + "Z" if run_log else datetime.utcnow().isoformat() + "Z",
+        dry_run=request.dry_run,
     )
 
 

@@ -289,6 +289,13 @@ class ExecutionState(BaseModel):
     loop_stack: List[Dict[str, Any]] = Field(default_factory=list)  # For nested fan-out
     undefined_queue: List[Dict[str, Any]] = Field(default_factory=list)
     run_log: List[Dict[str, Any]] = Field(default_factory=list)
+    # dec #16 dry-run mode: when True, the conditional true/false branches that
+    # would normally fire a live adapter write (update_resource) are short-
+    # circuited to a logged "would-have-run" result. Reads (Query list/vector)
+    # still execute so routing/queue/condition-match can be verified without
+    # side effects. Lets a graph be exercised end-to-end before the single
+    # real Jira write at slice-1 end (plan §6, "after dry-run logging").
+    dry_run: bool = False
 
 
 class NodeExecutionResult(BaseModel):
