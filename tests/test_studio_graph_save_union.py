@@ -53,6 +53,27 @@ def _node_query():
     }
 
 
+def _node_fanout():
+    return {
+        "node_id": "f1",
+        "name": "f1",
+        "archetype": "fan_out",
+        "loop_over": {"source": "items", "iterator_var": "ticket"},
+    }
+
+
+def _node_ai():
+    return {
+        "node_id": "a1",
+        "name": "a1",
+        "archetype": "ai_transform",
+        "execution_mode": "script",
+        "script": "return {'plan': 'enrich'}",
+        "input_ref": "items",
+        "output_ref": "enriched",
+    }
+
+
 class TestGraphSaveUnion(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="studio_save_test_")
@@ -114,6 +135,80 @@ class TestGraphSaveUnion(unittest.TestCase):
         bad["archetype"] = "not_a_real_archetype"
         r = self.client.post("/api/studio/graphs", json={"name": "bad", "nodes": [bad], "edges": []})
         self.assertEqual(r.status_code, 422, r.text)
+
+    def test_update_rejects_bad_archetype_with_422(self):
+        """Gap D — the PUT update path got the same try/except fix as POST
+        create, but only create is guard-tested. A bad archetype on update
+        must 422 (not 500) and must NOT mutate the already-persisted graph."""
+        # seed a good graph
+        seed = {"name": "g_upd", "nodes": [_node_query()], "edges": []}
+        r = self.client.post("/api/studio/graphs", json=seed)
+        self.assertEqual(r.status_code, 201, r.text)
+        gid = r.json()["graph_id"]
+
+        bad = _node_query()
+        bad["archetype"] = "not_a_real_archetype"
+        r = self.client.put(f"/api/studio/graphs/{gid}", json={"nodes": [bad]})
+        self.assertEqual(r.status_code, 422, r.text)
+
+        # the persisted graph is untouched: still 1 node, still the valid query archetype
+        g = self.client.get(f"/api/studio/graphs/{gid}").json()
+        self.assertEqual(len(g["nodes"]), 1)
+        self.assertEqual(g["nodes"][0]["archetype"], "query")
+
+    def test_create_422_detail_carries_validation_errors(self):
+        """Gap F — the 422 must surface pydantic's structured errors (a list of
+        {loc, msg, type, ...}), not a bare string, so a malformed node is
+        diagnosable. Covers POST create."""
+        bad = _node_query()
+        bad["archetype"] = "not_a_real_archetype"
+        r = self.client.post("/api/studio/graphs", json={"name": "bad", "nodes": [bad], "edges": []})
+        self.assertEqual(r.status_code, 422, r.text)
+        detail = r.json().get("detail")
+        self.assertIsInstance(detail, list, "422 detail must be a list of validation errors")
+        # the offending field is the discriminator (archetype); pydantic tags it literal_error
+        locs = [tuple(e.get("loc", ())) for e in detail]
+        self.assertTrue(any("archetype" in loc for loc in locs), f"archetype in locs: {locs}")
+        self.assertTrue(any(e.get("type") == "literal_error" for e in detail), detail)
+
+    def test_mixed_union_round_trips_all_four_archetypes(self):
+        """Gap E — discriminator-matrix round-trip. Persist a graph with all
+        four node archetypes and GET it back; each must survive the
+        TypeAdapter discrimination + disk serialization. (Today only the
+        conditional round-trip is asserted.)"""
+        nodes = [_node_query(), _node_fanout(), _node_ai(), _node_conditional()]
+        edges = [
+            {"source": "q1", "target": "f1", "source_handle": "loop"},
+            {"source": "f1", "target": "c1", "source_handle": "loop"},
+            {"source": "f1", "target": "a1", "source_handle": "loop"},
+        ]
+        payload = {
+            "name": "matrix",
+            "nodes": nodes,
+            "edges": edges,
+            "cron_enabled": False,
+            "undefined_queue_cap": 100,
+            "max_run_logs": 50,
+        }
+        r = self.client.post("/api/studio/graphs", json=payload)
+        self.assertEqual(r.status_code, 201, r.text)
+        gid = r.json()["graph_id"]
+
+        g = self.client.get(f"/api/studio/graphs/{gid}").json()
+        archetypes = {n["archetype"] for n in g["nodes"]}
+        self.assertEqual(
+            archetypes,
+            {"query", "fan_out", "ai_transform", "conditional_action"},
+            f"all four archetypes must round-trip; got {archetypes}",
+        )
+        # fan_out preserves its loop_over spec through serialization
+        fan = next(n for n in g["nodes"] if n["archetype"] == "fan_out")
+        self.assertEqual(fan["loop_over"], {"source": "items", "iterator_var": "ticket"})
+        # ai_transform preserves script + input/output refs
+        ai = next(n for n in g["nodes"] if n["archetype"] == "ai_transform")
+        self.assertEqual(ai["input_ref"], "items")
+        self.assertEqual(ai["output_ref"], "enriched")
+        self.assertEqual(ai["execution_mode"], "script")
 
 
 if __name__ == "__main__":

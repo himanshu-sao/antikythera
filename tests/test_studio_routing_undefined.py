@@ -32,14 +32,17 @@ from unittest.mock import Mock
 from api.execution.studio_graph_engine import (
     PathStepGraphEngine,
     _condition_field,
+    _condition_snapshot,
     _iterator_var,
 )
 from api.models.studio import (
     ConditionalActionNode,
     ExecutionState,
+    FanOutNode,
     GraphRunLog,
     NodeArchetype,
     Condition,
+    ConditionLogic,
     ConditionType,
     RoutingStrategy,
 )
@@ -184,6 +187,17 @@ class TestUndefinedQueue(unittest.TestCase):
         # Jira fields-fallback: _get_nested_value resolves ticket.fields.status
         self.assertEqual(queued["state_snapshot"], {"ticket.fields.status": "Backlog"})
 
+    def test_queued_item_is_none_without_loop_context(self):
+        """When the conditional runs outside a FanOut there is no loop item to
+        buffer — the queued item's ``item`` field must be the None sentry
+        (the ``_iterator_var`` ternary at the append site), not an AttributeError."""
+        node = _cond_node(true_action="jira_adapter", condition_value="New")  # no false_action
+        es = self._drive({"ticket": {"status": "WIP"}}, node, loop_context=None)
+        self.assertEqual(len(es.undefined_queue), 1)
+        self.assertIsNone(es.undefined_queue[0]["item"], "no loop_context → no iterable item to queue")
+        # condition_field + state_snapshot still populate for the reviewer
+        self.assertEqual(es.undefined_queue[0]["condition_field"], "ticket.status")
+
     def test_finalize_undefined_count_rolls_up(self):
         node = _cond_node(true_action="jira_adapter", condition_value="New")
         es = self._drive({"ticket": {"status": "WIP"}}, node)
@@ -233,8 +247,71 @@ class TestHelpersPure(unittest.TestCase):
             _condition_field(Condition(type=ConditionType.EQUALS, field="t.s", value="x")),
             "t.s",
         )
-        from api.models.studio import ConditionLogic
         self.assertIsNone(_condition_field(ConditionLogic(logic="AND", conditions=[])))
+
+    def test_condition_snapshot_simple_condition(self):
+        """The simple-Condition branch resolves the single field from state."""
+        engine, _ = _make_engine()
+        cond = Condition(type=ConditionType.EQUALS, field="ticket.status", value="New")
+        snap = _condition_snapshot(cond, {"ticket": {"status": "WIP"}}, None, engine._get_nested_value)
+        self.assertEqual(snap, {"ticket.status": "WIP"})
+
+    def test_condition_snapshot_compound_AND_walks_each_conjunct(self):
+        """The ConditionLogic (AND/OR) branch — currently untested — must
+        resolve each conjunct's field and merge snapshots. This is the path
+        _condition_field returns None for (compound has no single field), so
+        only the snapshot carries the diagnostic."""
+        engine, _ = _make_engine()
+        compound = ConditionLogic(logic="AND", conditions=[
+            Condition(type=ConditionType.EQUALS, field="ticket.status", value="New"),
+            Condition(type=ConditionType.EQUALS, field="ticket.priority", value="P1"),
+        ])
+        state = {"ticket": {"status": "WIP", "priority": "P2"}}
+        snap = _condition_snapshot(compound, state, None, engine._get_nested_value)
+        # both conjunct fields resolved and merged
+        self.assertEqual(snap, {"ticket.status": "WIP", "ticket.priority": "P2"})
+
+    def test_condition_snapshot_loop_context_overrides_state(self):
+        """loop_context scope must shadow exec state for the resolver (the
+        per-item view beats the run-global view inside a FanOut)."""
+        engine, _ = _make_engine()
+        cond = Condition(type=ConditionType.EQUALS, field="ticket.status", value="New")
+        state = {"ticket": {"status": "WIP"}}                       # run-global
+        loop = {"ticket": {"status": "Backlog"}}                   # per-item shadows
+        snap = _condition_snapshot(cond, state, loop, engine._get_nested_value)
+        self.assertEqual(snap, {"ticket.status": "Backlog"}, "loop_context must win over state")
+
+
+class TestFanOutNoOutputRef(unittest.TestCase):
+    """``_execute_node`` reads ``node.output_ref`` defensively via getattr —
+    FanOut/ConditionalAction don't declare output_ref. Driving a FanOut must
+    NOT AttributeError at the post-handler state-write block, and must NOT
+    write a state key (FanOut has no output_ref). The (existing) conditional
+    tests exercise this branch implicitly; this test asserts it directly for
+    the FanOut archetype."""
+
+    def setUp(self):
+        self.engine, _ = _make_engine()
+
+    def test_fan_out_node_does_not_crash_or_write_state(self):
+        fanout = FanOutNode(
+            node_id="f1", name="f1",
+            archetype=NodeArchetype.FAN_OUT,
+            loop_over={"source": "items", "iterator_var": "ticket"},
+        )
+        exec_state = ExecutionState(
+            graph_id="g", run_id="r", state={}, run_log=[],
+            undefined_queue=[], loop_stack=[], dry_run=True,
+        )
+        # No AttributeError, no exception => the getattr(node, "output_ref", None)
+        # guard held; FanOut has no output_ref so nothing is written to state.
+        _run(self.engine._execute_node(
+            exec_state, graph=_graph_with(fanout), node_id="f1",
+            adjacency={"f1": []}, loop_context=None,
+        ))
+        self.assertEqual(exec_state.state, {}, "FanOut must not write to state (no output_ref)")
+        self.assertEqual(len(exec_state.run_log), 1)
+        self.assertEqual(exec_state.run_log[0]["status"], "success")
 
 
 if __name__ == "__main__":
