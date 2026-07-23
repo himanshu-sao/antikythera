@@ -19,6 +19,7 @@ Shares model defs via api.models.studio import (dec #17).
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -392,11 +393,30 @@ class PathStepGraphEngine:
         node: QueryNode,
         loop_context: Optional[Dict[str, Any]] = None,
     ) -> Any:
-        """Execute a Query node - fetch list/vector data from adapter."""
+        """Execute a Query node - fetch list/vector data from adapter.
+
+        dec #28: Query actions are list/vector adapter methods (list_tickets,
+        list_projects, list_repos, list_pull_requests, list_items). The legacy
+        OperatorRegistry dispatches on operator_id (-> fetch) and never consults
+        node.action, so list/vector actions were unreachable there. Resolve the
+        adapter directly and call the named action coroutine; fall back to the
+        fetch_resource->fetch path only for single-resource (non-list) actions.
+        """
         # Resolve params from state
         params = self._resolve_params(node.params, exec_state.state, loop_context)
 
-        # Build step config for OperatorRegistry
+        # List/vector dispatch: call the adapter's action coroutine directly.
+        adapter = self.operator_registry.adapters.get(node.adapter)
+        if adapter is not None and self._is_list_vector_action(adapter, node.action):
+            method = getattr(adapter, node.action)
+            result = await method(**params) if inspect.iscoroutinefunction(method) else method(**params)
+            logger.info(
+                f"QueryNode {node.node_id}: dispatched list/vector action "
+                f"{node.action} on {node.adapter} -> output_ref {node.output_ref}"
+            )
+            return result
+
+        # Single-resource fallback: route through OperatorRegistry (fetch_resource).
         step_config = {
             "step_id": node.node_id,
             "operator_id": "fetch_resource",
@@ -414,6 +434,22 @@ class PathStepGraphEngine:
         if hasattr(result, 'result_data'):
             return result.result_data
         return result
+
+    @staticmethod
+    def _is_list_vector_action(adapter: Any, action: str) -> bool:
+        """True if `action` is a list/vector adapter method (dec #28), i.e. a
+        real callable attribute on the adapter that is neither a single-resource
+        OperatorRegistry operator (fetch/update/create/delete) nor a private
+        dunder name. Single-resource actions keep the legacy fetch_resource path.
+        """
+        if not action or action.startswith("_"):
+            return False
+        if action in {"fetch", "update", "create", "delete"}:
+            return False
+        method = getattr(adapter, action, None)
+        return callable(method) and (
+            inspect.iscoroutinefunction(method) or inspect.isfunction(method)
+        )
 
     async def _execute_fan_out_node(
         self,
