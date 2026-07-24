@@ -147,6 +147,160 @@ class TestQueryNodeActionDispatch(unittest.TestCase):
         result = _run(self.engine._execute_query_node(exec_state, node))
         self.assertEqual(result, {"key": "PROJ-1"})
 
+    # --- SC-Q1a extension: sync list/vector dispatch ---------------------------
+    # The 3 tests above exercise the *coroutine* half of line 510
+    # (`await method(**params) if inspect.iscoroutinefunction(method) else ...`).
+    # The list/vector actions shipped on the real adapters are all async
+    # coroutines, so the synchronous `else` branch (a plain-function adapter
+    # method) is unexercised, as are {{var}} param resolution and the
+    # adapter-absent fallback. These three tests close those gaps.
+
+    def test_sync_list_action_uses_non_coroutine_branch(self):
+        """A list/vector action that is a plain (non-coroutine) function must
+        take the `else method(**params)` branch — it is called synchronously,
+        not awaited. Pins the inspect.iscoroutinefunction()==False half of
+        the dispatch ternary at studio_graph_engine.py:510."""
+        adapter = self.registry.adapters["jira_adapter"]
+
+        def fake_list_projects(project_key="*"):  # plain function, NOT async
+            return [{"key": f"{project_key}-1"}, {"key": f"{project_key}-2"}]
+
+        adapter.list_projects = fake_list_projects
+
+        node = QueryNode(
+            node_id="q1",
+            name="q1",
+            archetype=NodeArchetype.QUERY,
+            adapter="jira_adapter",
+            action="list_projects",
+            params={"project_key": "ENG"},
+            output_ref="projects",
+        )
+        exec_state = ExecutionState(
+            graph_id="g", run_id="r", state={}, run_log=[], undefined_queue=[], loop_stack=[]
+        )
+        result = _run(self.engine._execute_query_node(exec_state, node))
+        self.assertEqual(result, [{"key": "ENG-1"}, {"key": "ENG-2"}])
+        # _is_list_vector_action must still recognize the sync function (it
+        # checks `inspect.isfunction(method)` — a coroutine is NOT a bare
+        # function, a plain def IS).
+        self.assertTrue(
+            self.engine._is_list_vector_action(adapter, "list_projects"),
+            "a plain function adapter method must qualify as a list/vector action",
+        )
+
+    def test_param_resolution_substitutes_state_and_loop_context(self):
+        """{{var}} placeholders in node.params are resolved from state (and
+        loop_context takes priority over state when both name a key). This
+        exercises _resolve_params at studio_graph_engine.py:504/843 — the
+        real-adapter tests above pass params literally, never templated."""
+        adapter = self.registry.adapters["jira_adapter"]
+
+        seen = {}
+
+        async def fake_list_tickets(**kwargs):
+            seen.update(kwargs)
+            return [{"key": "PROJ-1"}]
+
+        adapter.list_tickets = fake_list_tickets
+
+        node = QueryNode(
+            node_id="q1",
+            name="q1",
+            archetype=NodeArchetype.QUERY,
+            adapter="jira_adapter",
+            action="list_tickets",
+            # jql carries a {{project_key}} placeholder; max_results carries
+            # {{cap}}. project_key + cap both come from state, but project_key
+            # is ALSO loop_context — loop_context must win.
+            params={"jql": "project = {{project_key}}", "max_results": "{{cap}}"},
+            output_ref="tickets",
+        )
+        exec_state = ExecutionState(
+            graph_id="g",
+            run_id="r",
+            state={"project_key": "STATE-PROJ", "cap": 5},
+            run_log=[],
+            undefined_queue=[],
+            loop_stack=[],
+        )
+        # loop_context provides project_key (priority over state); cap is
+        # state-only.
+        loop_context = {"project_key": "LOOP-PROJ"}
+
+        result = _run(self.engine._execute_query_node(exec_state, node, loop_context))
+        self.assertEqual(result, [{"key": "PROJ-1"}])
+        self.assertEqual(seen["jql"], "project = LOOP-PROJ", "loop_context must win over state")
+        self.assertEqual(seen["max_results"], "5", "state-only var resolves from state")
+
+        # Edge: a {{var}} absent from both loop_context and state → _get_nested_value
+        # returns None → `str(None)` → "None" (the regex replacer falls back
+        # to that rather than dropping the placeholder). Pin this so a future
+        # refactor that changes the fallback is caught.
+        node2 = QueryNode(
+            node_id="q2",
+            name="q2",
+            archetype=NodeArchetype.QUERY,
+            adapter="jira_adapter",
+            action="list_tickets",
+            params={"jql": "x = {{missing}}"},
+            output_ref="t2",
+        )
+        exec_state2 = ExecutionState(
+            graph_id="g", run_id="r", state={}, run_log=[], undefined_queue=[], loop_stack=[]
+        )
+        _run(self.engine._execute_query_node(exec_state2, node2))
+        self.assertEqual(seen["jql"], "x = None", "unresolved var must become 'None', not be dropped")
+        # Dot-path state resolution: {{cfg.team}} reads state["cfg"]["team"].
+        node3 = QueryNode(
+            node_id="q3",
+            name="q3",
+            archetype=NodeArchetype.QUERY,
+            adapter="jira_adapter",
+            action="list_tickets",
+            params={"jql": "team = {{cfg.team}}"},
+            output_ref="t3",
+        )
+        exec_state3 = ExecutionState(
+            graph_id="g", run_id="r", state={"cfg": {"team": "CORE"}}, run_log=[],
+            undefined_queue=[], loop_stack=[],
+        )
+        _run(self.engine._execute_query_node(exec_state3, node3))
+        self.assertEqual(seen["jql"], "team = CORE", "dot-path var must resolve through nested state")
+
+    def test_adapter_not_registered_falls_through_to_fetch_and_raises(self):
+        """A Query node whose node.adapter is NOT in registry.adapters has
+        adapter==None, so _is_list_vector_action is skipped (its guard is
+        `adapter is not None and ...`). The handler then falls through to the
+        fetch_resource->fetch path, which (in _execute_single_step) raises
+        ValueError("Unsupported adapter: ...") — NOT a KeyError from the
+        list branch. Pins that the absent-adapter case is handled by the
+        fallback, not by dereferencing a None adapter."""
+        node = QueryNode(
+            node_id="q1",
+            name="q1",
+            archetype=NodeArchetype.QUERY,
+            adapter="ghost_adapter",  # not in registry.adapters
+            action="list_tickets",
+            params={"jql": "project = X"},
+            output_ref="tickets",
+        )
+        exec_state = ExecutionState(
+            graph_id="g", run_id="r", state={}, run_log=[], undefined_queue=[], loop_stack=[]
+        )
+
+        # The list branch guard fails on adapter is None, so it never touches
+        # _is_list_vector_action with a None adapter (that would be an
+        # AttributeError on getattr(None, action)). Confirm the dispatch
+        # reaches OperatorRegistry, which rejects the unknown adapter.
+        with self.assertRaises(ValueError) as cm:
+            _run(self.engine._execute_query_node(exec_state, node))
+        self.assertIn("ghost_adapter", str(cm.exception))
+        # And the engine genuinely skipped the list branch: confirm
+        # _is_list_vector_action would be a no-op here because the caller's
+        # `adapter is not None` guard short-circuits before it.
+        self.assertNotIn("ghost_adapter", self.registry.adapters)
+
 
 if __name__ == "__main__":
     unittest.main()
