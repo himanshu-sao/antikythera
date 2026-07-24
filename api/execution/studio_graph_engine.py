@@ -458,8 +458,11 @@ class PathStepGraphEngine:
             if result and output_ref:
                 self._write_to_state(exec_state.state, output_ref, result)
 
-            # Recurse to successors
+            # Recurse to successors, but skip "loop" edges — FanOut handler
+            # already executes those per-item with the correct child_loop_context.
             for edge in adjacency.get(node_id, []):
+                if edge.source_handle == "loop":
+                    continue
                 await self._execute_node(exec_state, graph, edge.target, adjacency, loop_context)
 
         except Exception as e:
