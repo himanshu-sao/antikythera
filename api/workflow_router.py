@@ -5,6 +5,22 @@ from typing import Dict, Any
 
 router = APIRouter(prefix="/api/workflows", tags=["Workflows"])
 
+# Server-side adapter allowlist for template saving (B1 hardening)
+# Excludes execution-capable adapters: 'shell' (not in registry, errors at runtime)
+# and 'bob_shell' (executes commands via BOB CLI).
+# The builder router generates lowercase adapter tokens; workflow_engine uses uppercase keys.
+ALLOWED_TEMPLATE_ADAPTERS = frozenset({"internal", "github", "jira", "ai"})
+
+
+def _validate_template_adapters(template: Dict[str, Any]) -> list[str]:
+    """Validate all step adapters against the allowlist. Returns list of violations."""
+    violations = []
+    for step in template.get("steps", []):
+        adapter = step.get("adapter", "").lower().strip()
+        if adapter and adapter not in ALLOWED_TEMPLATE_ADAPTERS:
+            violations.append(f"step {step.get('id', '?')}: adapter '{adapter}' not in allowlist {sorted(ALLOWED_TEMPLATE_ADAPTERS)}")
+    return violations
+
 
 
 # NOTE: GET /api/state is served by board_router.py — do not duplicate here.
@@ -54,6 +70,15 @@ async def save_template(request: Request, template: Dict[str, Any]):
     template_id = template.get("template_id")
     if not template_id:
         raise HTTPException(status_code=400, detail="template_id is required")
+
+    # B1: server-side adapter allowlist validation
+    violations = _validate_template_adapters(template)
+    if violations:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Template contains disallowed adapters", "violations": violations}
+        )
+
     try:
         state_manager = get_state_manager()
         if state_manager.templates.save_template(template_id, template):
