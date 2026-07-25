@@ -302,7 +302,7 @@ class NodeExecutionResult(BaseModel):
     """Result of executing a single node."""
     node_id: str
     status: Literal["success", "skipped", "failed", "undefined", "escalated"]
-    output: Optional[Dict[str, Any]] = None
+    output: Optional[Any] = None
     error: Optional[str] = None
     failure_flavor: Optional[FailureFlavor] = None
     execution_time_ms: int = 0
