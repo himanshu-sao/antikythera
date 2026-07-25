@@ -686,10 +686,15 @@ class PathStepGraphEngine:
                 f"branch={matched_branch} -> would_have_run={dry_run_summary['adapter']} "
                 f"action={dry_run_summary['action']!r}"
             )
+            # In dry_run mode, we still want the matched_branch recorded and
+            # undefined_queue populated for unmatched conditions with no false_action.
+            # Don't return early; let the normal flow handle accounting.
+            # The only suppression is the actual adapter execute_step call.
             return {
                 "matched": condition_met,
                 "dry_run": True,
                 "would_have_run": dry_run_summary,
+                "_dry_run_skip_execute": True,  # signal to caller to skip execute_step
             }
 
         # Execute the matching branch's adapter action if present
