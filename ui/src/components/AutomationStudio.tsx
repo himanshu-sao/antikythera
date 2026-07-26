@@ -10,7 +10,7 @@
 // Slice 1 scope: Query → Fan-out → AI-transform → Conditional-action → Save/Run.
 // No AuthModal/token-paste (dec #14); no Skill Brainstormer loop (dec #18).
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { TextHighlighter } from './TextHighlighter';
 import {
@@ -606,6 +606,60 @@ export function AutomationStudio() {
                         />
                       </label>
                     ))}
+                    {/* Action chips for param inputs */}
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const activeParam = chosen.params.find((p) => q.params[p] !== undefined && q.params[p] !== '') || chosen.params[0];
+                          if (activeParam) {
+                            setQ({ params: { ...q.params, [activeParam]: `${q.params[activeParam]} {{`.replace(/\s+\{\{$/, ' {{') } });
+                          }
+                        }}
+                        className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
+                        aria-label="Add context variable"
+                      >
+                        ⊕ Add context
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const activeParam = chosen.params.find((p) => q.params[p] !== undefined && q.params[p] !== '') || chosen.params[0];
+                          if (activeParam) {
+                            setQ({ params: { ...q.params, [activeParam]: `${q.params[activeParam]} {{`.replace(/\s+\{\{$/, ' {{') } });
+                          }
+                        }}
+                        className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
+                        aria-label="Use variable"
+                      >
+                        { '{ }' } Use variable
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const activeParam = chosen.params.find((p) => q.params[p] !== undefined && q.params[p] !== '') || chosen.params[0];
+                          if (activeParam) {
+                            const examples: Record<string, string> = {
+                              jql: 'project = OPS AND status = Open',
+                              max_results: '50',
+                              org: 'myorg',
+                              type: 'all',
+                              per_page: '30',
+                              owner: 'myorg',
+                              repo: 'myrepo',
+                              state: 'open',
+                              stage: 'BACKLOG',
+                            };
+                            const example = examples[activeParam] || 'example_value';
+                            setQ({ params: { ...q.params, [activeParam]: example } });
+                          }
+                        }}
+                        className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
+                        aria-label="Insert example"
+                      >
+                        ⊟ Examples
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -704,6 +758,33 @@ export function AutomationStudio() {
                       rows={6}
                       className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white resize-y"
                     />
+                    {/* Action chips for script textarea */}
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => setT({ script: t.script + (t.script ? '\n' : '') + '# {{context_var}}' })}
+                        className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
+                        aria-label="Add context variable"
+                      >
+                        ⊕ Add context
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setT({ script: t.script + (t.script ? '\n' : '') + 'item["{{field}}"]' })}
+                        className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
+                        aria-label="Use variable"
+                      >
+                        { '{ }' } Use variable
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setT({ script: t.script + (t.script ? '\n\n' : '') + '# Example: extract OS distro from summary\nresult = {"os_distro": "brotli", "version": "1.2.3"}' })}
+                        className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
+                        aria-label="Insert example"
+                      >
+                        ⊟ Examples
+                      </button>
+                    </div>
                   </label>
                 ) : (
                   <label className="block">
