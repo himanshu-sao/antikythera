@@ -118,7 +118,7 @@ A stop-the-bleed → wiring → real-LLM pass applied over 2026-07-11/12. Tracke
 
 ### Automation Studio
 - [ ] **UI Placeholders**: Implement "Add Context", "Use Variable", and "Examples" buttons.
-- [ ] **Validation**: Add unit/integration tests for new endpoints and UI components.
+- [x] **Validation**: Add unit/integration tests for new endpoints and UI components.
 
 #### Studio Engine/Router Coverage (T5-pre3 follow-up — branch-audit, 2026-07-23)
 The coverage assessment at commit `ee63ea1` closed 6 branch gaps in the `ce3360f` slice (ConditionalAction undefined-queue + save-Union 422), but deliberately scoped only the *changed* regions. **Numeric baseline established 2026-07-23 (SC-Q3, done)** — `coverage==7.15.2` + `pytest-cov==7.1.0` pinned in `requirements.txt`; the 4 existing Studio test files (`test_studio_dry_run.py`, `test_studio_graph_save_union.py`, `test_studio_query_dispatch.py`, `test_studio_routing_undefined.py`) over `--cov=api.execution.studio_graph_engine --cov=api.studio_router` = **58% total** (engine 51% / router 70%, 668 stmts / 279 miss). That number is the yardstick SC-Q1/Q2/Q4 fill against; run the same command after each gap test lands to track the delta.
