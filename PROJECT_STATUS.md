@@ -117,7 +117,7 @@ A stop-the-bleed → wiring → real-LLM pass applied over 2026-07-11/12. Tracke
 ## ⏳ Technical Gaps & Pending Tasks
 
 ### Automation Studio
-- [ ] **UI Placeholders**: Implement "Add Context", "Use Variable", and "Examples" buttons.
+- [x] **UI Placeholders**: Implement "Add Context", "Use Variable", and "Examples" buttons.
 - [x] **Validation**: Add unit/integration tests for new endpoints and UI components.
 
 #### Studio Engine/Router Coverage (T5-pre3 follow-up — branch-audit, 2026-07-23)
@@ -132,7 +132,7 @@ The coverage assessment at commit `ee63ea1` closed 6 branch gaps in the `ce3360f
 - [x] **SC-Q4 — Run path wiring**: the Studio `run_graph` → `start_run` → `_finalize_run` happy path with a 2-node graph (covered by `test_studio_dry_run` but only the dry-run short-circuit branch); add a non-dry (real-write) run through a mocked adapter to assert `total_matched`/`total_undefined`/`total_escalated` roll up + a `GraphRunLog` is persisted. **DONE 2026-07-25** — NEW `tests/test_studio_run_path.py` (6 tests) covers the non-dry run path with mocked adapter. Studio suite now **113 passed**; total coverage **87%** (engine 84% / router 92%, 670 stmts / 87 miss), up from SC-Q3 baseline 58% (279 miss).
 
 ### General System Gaps
-- [ ] **Backend**: Complete implementation of variable handling and context addition.
+- [x] **Backend**: Complete implementation of variable handling and context addition.
 - [x] **Stability**: ~~`SESSION_UPDATE.md` retired~~ (DONE 2026-07-19, commit `8446f14`) — replaced with a pointer notice redirecting to this document (see CLAUDE.md gotcha #9). Historical row preserved for archaeology only.
 
 ### Blueprint Architect Backend Hardening (security follow-up from `feat/phase4-workflow-architect`)
