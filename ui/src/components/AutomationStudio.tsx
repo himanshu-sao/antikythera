@@ -386,6 +386,15 @@ export function AutomationStudio() {
       };
     })();
 
+    // Only allow commit if preview succeeded (for turns that require preview).
+    // Query, AI-transform, and ConditionalAction require successful preview before commit.
+    // Fan-out doesn't strictly require preview but it's good practice.
+    // If preview was attempted and failed/undefined, block commit.
+    if (previewResult && previewResult.status !== 'success') {
+      toast.error('Preview must succeed before committing. Fix the preview and try again.');
+      return;
+    }
+
     setGraph((g) => ({
       ...g,
       nodes: [...g.nodes, committed],

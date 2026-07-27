@@ -682,10 +682,14 @@ describe('AutomationStudio (turn-UI compiler — T2a shell + T2b forms/handlers)
 
     await commitQuery('jira', 'jira_tickets');
     fireEvent.change(screen.getByLabelText('Source'), { target: { value: 'jira_tickets' } });
+    fireEvent.click(screen.getByRole('button', { name: /Preview/i }));
+    await waitFor(() => expect(screen.getByText('#1')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /Commit turn/i }));
     fireEvent.change(screen.getByLabelText('input_ref'), { target: { value: 'ticket' } });
     fireEvent.change(screen.getByLabelText('output_ref'), { target: { value: 'extracted_fields' } });
     fireEvent.change(screen.getByLabelText('script'), { target: { value: 'result = {}' } });
+    fireEvent.click(screen.getByRole('button', { name: /Preview/i }));
+    await waitFor(() => expect(screen.getByText('Live Sandbox')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /Commit turn/i }));
 
     // Turn 4: Only fill required field + true_action (no false_action) → should commit

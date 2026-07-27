@@ -31,7 +31,7 @@ This is the **single master document** for the Antikythera project. It tracks th
     - [x] **Implement "Workflow Architect" component** — delivered as two cohesive pieces (the original label conflated them): **(A)** `WorkflowArchitect.tsx` hardened as a Lifecycle Orchestrator (per-item 7-stage `DISCOVERY → HANDOVER` transitions via `/api/orchestrator/*`, mock proposals dropped, real `nextPhase` logic, full `WorkflowArchitect.test.tsx` suite); **(B)** new `BlueprintArchitect.tsx` as the NL-blueprint generator wiring the previously-unwired `/api/builder/generate` → `/api/builder/validate` → `POST /api/workflows/templates`, exposed via its own `BLUEPRINT` sidebar tab (`BlueprintArchitect.test.tsx`, 7 tests incl. client-side adapter gate). **Backend hardening deferred** — see "Blueprint Architect Backend Hardening" under Technical Gaps below.
     - [x] Verify Lifecycle Orchestrator End-to-End.
 - [x] **Phase 5: Integration Flow**
-    - [ ] Test component interactions and API flows.
+    - [x] Test component interactions and API flows.
     - [x] **Decouple "Compose Instruction" from Jira (Use Integration Hub selector)**.
     - [x] **Implement Structured Jira Configuration (URL, Password) in Integrations Hub**.
     - [x] **Fix Integration Connection Status UI/API**.
