@@ -7,18 +7,31 @@ test.describe('Integrations Manager UI', () => {
       type: 'mcp',
       status: 'connected',
       description: 'MCP integration for PR review',
+      config: {
+        type: 'stdio',
+        command: '/opt/homebrew/bin/npx',
+        args: ['--yes', 'bob-pr-reviewer@latest'],
+        env: {}
+      },
+      created_at: '2024-01-01T00:00:00Z',
     },
     {
       name: 'jira_test',
       type: 'native',
       status: 'connected',
       description: 'Jira native integration',
+      config: {
+        adapter_module: 'api.adapters.jira',
+        jira_url: '${env:JIRA_BASE_URL}',
+        token: '${env:JIRA_PAT}'
+      },
+      created_at: '2024-01-01T00:00:00Z',
     },
   ];
 
   test.beforeEach(async ({ page }) => {
     // Mock the integrations API endpoint to return array directly (matches actual API)
-    await page.route('**/api/integrations*', async route => {
+    await page.route('**/api/integrations/**', async route => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -28,8 +41,8 @@ test.describe('Integrations Manager UI', () => {
     await page.goto('/');
     // Navigate to Integrations via the top navigation - click the Integrations tab
     await page.click('button:has-text("Integrations")');
-    // Wait a bit for the UI to render
-    await page.waitForTimeout(1000);
+    // Wait for integrations to load
+    await page.waitForSelector('text=bob-pr-reviewer', { timeout: 10000 });
   });
 
   test('renders integration cards and Add Connection CTA', async ({ page }) => {
