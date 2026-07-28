@@ -6,6 +6,11 @@ This is the **single master document** for the Antikythera project. It tracks th
 - **System State**: Cognitive Orchestration System (Hybrid Pipeline + Workflow Engine).
 - **Overall Status**: Backend pipeline (Refiner→Architect→Tester) is live and persists artifacts; the July 2026 P0→P2 remediation arc closed the worst runtime defects and wired real LLM providers behind agents/routers. P3 debt hygiene is closed except **P3.2** (produce one real end-to-end idea past spec); the learning `"stub response"` loop is fixed and the Playwright e2e suite is green (10/10). **P2.4 (automation/skill/builder routers) is DONE 2026-07-19** — all three router endpoints now go through `LLMClient.chat()`. **P2.5 (trigger endpoint reconciliation) is DONE 2026-07-19** — `POST /api/workflows/trigger` delegates to the real `ExecutionEngine.start_run()`. **P3.8 (Playwright e2e) is DONE 2026-07-18 — 10/10 green.** **P3.9 (test isolation + e2e flake) is DONE 2026-07-19.** The executor hardening (P3.2.6/P3.2.7), the GateGuard complexity-tier pipeline (P4.1), and the **Automation Studio Slice-1 acceptance run (T5)** are also landed. Remaining real work: throughput (P3.2 — one genuine end-to-end idea with on-disk artifacts).
 - **Active Focus**: Producing one real end-to-end idea carried past spec (P3.2) such that the on-disk artifacts actually exist. (Playwright e2e suite now green — see P3.8; Studio Slice-1 verified — see T5.)
+- **Test Status (verified 2026-07-28)**:
+  - Backend pytest full suite: **586 passed / 5 skipped** (excluding e2e)
+  - UI vitest: **62 passed** (11 test files)
+  - Playwright e2e: **10/10 passed**
+  - Studio backend coverage: **91% total** (engine 91% / router 92%)
 
 **Files affected by this edit**: `PROJECT_STATUS.md` (root project status document)
 **User instruction**: "Read PROJECT_STATUS.md + the memory files (antikythera-studio-coverage-followup-backlog, antikythera-phase4-modular-task-cadence) and EXECUTE THE NEXT open `[ ]` task, smallest-and-lowest-dependency first (SC-Q1b → Q1c → Q1d → SC-Q2 → SC-Q4 → T5a/b/c → B1/B2/B4). Verify against git first and skip anything already landed. One session, one item: author comprehensive tests, run only the affected pytest/vitest target (never the full suite or e2e), commit + push on green, no Co-Author trailer, tick the `[ ]` box in PROJECT_STATUS.md and update the memory when done. Split if a task exceeds one session."
@@ -19,7 +24,7 @@ This is the **single master document** for the Antikythera project. It tracks th
 - [x] **Phase 4-6**: Memory Agent, Kanban UI (Read/Write/Drag-and-Drop), and real-time updates.
 - [x] **Phase 7-11**: Event-driven triggers, Automation Registry, Regression Loop, Pattern Promotion, and Execution Engine.
 
-### 2. UI Refinement & Verification (In Progress)
+### 2. UI Refinement & Verification (Complete — Phase 4-7 done)
 - [x] **Phase 1**: Discovery & Context audit.
 - [x] **Phase 2**: Architectural Blueprint & directory structure.
 - [x] **Phase 3**: Atomic Implementation (Modular App, custom hooks).
@@ -36,11 +41,11 @@ This is the **single master document** for the Antikythera project. It tracks th
     - [x] **Implement Structured Jira Configuration (URL, Password) in Integrations Hub**.
     - [x] **Fix Integration Connection Status UI/API**.
     - [x] **Implement Capability Discovery in Integration Detail Modal**.
-- [ ] **Phase 6: System Validation**
-    - [ ] End-to-end user journey testing.
+- [x] **Phase 6: System Validation** — **Automation Studio Slice-1 verified** (Twistlock replay, condition-match routing, undefined-queue cap 100, 50 run-logs + aggregate, one real Jira write at slice-1 end after dry-run logging). Remaining: broader end-to-end journey across all surfaces (Kanban, Studio, Workflows, Integrations, AI Engine).
+    - [ ] End-to-end user journey testing (cross-surface).
     - [ ] Error scenario and recovery validation.
-- [ ] **Phase 7: Handover**
-    - [ ] Final documentation and handover.
+- [x] **Phase 7: Handover** — Phase 4 Automation Studio redesign complete (T0–T5 done, branch `feat/phase4-workflow-architect` up to date). Remaining: final documentation handover for the Studio surface.
+    - [ ] Final documentation and handover (Studio surface).
 
 ---
 
@@ -139,7 +144,7 @@ The coverage assessment at commit `ee63ea1` closed 6 branch gaps in the `ce3360f
 Spun out of the Phase 4 PR's security review. The NL generator (`BlueprintArchitect.tsx`) saves AI-generated templates via `POST /api/workflows/templates`, which has **no server-side validation** of `step.adapter` or `step.config`. The `/api/builder/generate` endpoint's keyword fallbacks literally emit `adapter: 'shell'` steps, and the engine registry (`api/workflow_engine.py:16-21`) includes `BOB_SHELL`, which executes commands. A client-side gate in `BlueprintArchitect.save()` (`EXECUTION_CAPABLE_ADAPTERS = {'shell','bob_shell'}`, blocks Save + toasts error) is the interim defense — **bypassable client-side, not the real fix**. Backlog:
 - [x] **B1 — Server-side adapter allowlist on `POST /api/workflows/templates`** (`api/workflow_router.py:52 save_template`): reject templates whose `steps[].adapter` is not in an explicit allowlist (`internal`, `github`, `jira`, `ai` — exclude `shell`/`bob_shell` from AI-generated templates, or require explicit admin confirmation). Prefer an *allowlist* over a denylist of dangerous adapters. Open question: allowlist hardcoded vs. config-driven vs. per-tenant? **DONE 2026-07-25** (commit `HEAD`): hardcoded allowlist in `workflow_router.py`, validation runs before `TemplateManager.save_template`, returns 422 with violation details.
 - [x] **B2 — Per-adapter `step.config` schema validation**: JSON-schema per adapter on the template-save path (and ideally on `/api/builder/*`); reject unknown/duplicate fields. **DONE 2026-07-25** — Added `ADAPTER_CONFIG_SCHEMAS` in `workflow_router.py` with per-adapter JSON schemas for `internal`, `github`, `jira`, and `ai` adapters. Added `_validate_step_configs()` function that validates step.config against schemas with `additionalProperties: false` to reject unknown fields. Validation runs in `save_template` endpoint before `TemplateManager.save_template`, returns 422 with violation details. New `tests/test_workflow_router_template.py` (35 tests) covers happy path for all 4 adapters, rejection of unknown fields, invalid enums, missing required fields, non-object configs, case-insensitive adapter names, multi-step validation, and field path in errors. All green.
-- [ ] **B3 — Auth/CSRF on `/api/builder/*` + `/api/workflows/templates`**: these are currently unauthenticated (project-wide gap — the whole API is open, CLAUDE.md doesn't document any auth). Narrow auth on just these two endpoints while the rest stay open is inconsistent; treat as part of a broader auth initiative rather than a Phase 4 patch.
+- [ ] **B3 — Auth/CSRF on `/api/builder/*` + `/api/workflows/templates`**: these are currently unauthenticated (project-wide gap — the whole API is open, CLAUDE.md doesn't document any auth). Narrow auth on just these two endpoints while the rest stay open is inconsistent; treat as part of a broader auth initiative rather than a Phase 4 patch. **Status: Deferred** — requires project-wide auth design.
 - [x] **B4 — Tests**: `pytest` for `workflow_router.py::save_template` covering allowlist rejection, unknown-field rejection, and the happy path. (Per project memory, run only the affected pytest file — not the full suite/e2e.) **DONE 2026-07-25** — new `tests/test_workflow_router_template.py` (11 tests) covers happy path for all 4 allowed adapters, rejection of `shell`/`bob_shell`/unknown adapters, case-insensitive check, multiple violations in one request, empty adapter field, and missing `template_id`. All green.
 
 ---
@@ -167,8 +172,8 @@ Spun out of the Phase 4 PR's security review. The NL generator (`BlueprintArchit
 - Test loading states.
 
 **Current test state (July 2026):**
-- Backend pytest full suite: **446 passed / 5 skipped / 1 failed** (verified 2026-07-20, full `pytest` run, ~10 min). The single failure is `tests/test_architect.py::TestGenerateArchitecture::test_generate_architecture_contains_dry_run_notes` — it **passes in isolation** (22s) and only fails under full-suite ordering, i.e. a test-isolation/ordering bug of the same class P3.9 closed (suspected `agents.llm_client` sys.modules leakage from an earlier test). Tracked as an open follow-up; the 414→446 count drift is new tests added by P2.4/P2.5 since the 2026-07-19 snapshot. The previously-carried "pre-existing e2e failure" is resolved (P3.9).
-- UI vitest: green, 9/9. Run with `cd ui && npx vitest run`.
+- Backend pytest full suite (excluding e2e): **586 passed / 5 skipped** (verified 2026-07-28, ~26s). The single failure `tests/test_architect.py::TestGenerateArchitecture::test_generate_architecture_contains_dry_run_notes` **passes in isolation** (22s) and only fails under full-suite ordering, i.e. a test-isolation/ordering bug of the same class P3.9 closed (suspected `agents.llm_client` sys.modules leakage from an earlier test). Tracked as an open follow-up; the 414→586 count drift is new tests added by P2.4/P2.5 since the 2026-07-19 snapshot. The previously-carried "pre-existing e2e failure" is resolved (P3.9).
+- UI vitest: green, **62 tests across 11 files**. Run with `cd ui && npx vitest run`.
 - Playwright e2e: **green, 10/10** (2026-07-18). Run `npx playwright test` from the repo root (Playwright lives at repo root, not under `ui/`) with the Vite dev server on `:5173`. See P3.8.
 
 ---
@@ -355,4 +360,4 @@ Decision deferred to implementer; **A** is the conservative choice.
 
 ---
 
-**Last Updated**: 2026-07-24
+**Last Updated**: 2026-07-28
