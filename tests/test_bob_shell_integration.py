@@ -1,6 +1,7 @@
 import unittest
 import os
 import shutil
+import tempfile
 from unittest.mock import patch, MagicMock
 
 from api.workflow_state_manager import WorkflowStateManager
@@ -9,7 +10,7 @@ from api.workflow_engine import WorkflowEngine
 class TestBobShellIntegration(unittest.TestCase):
     def setUp(self):
         # Temporary directory for state and templates
-        self.test_dir = "./automation-ideas/test_bob_shell"
+        self.test_dir = tempfile.mkdtemp(prefix="antikythera_bob_")
         os.makedirs(self.test_dir, exist_ok=True)
         self.wf_mgr = WorkflowStateManager(self.test_dir)
         self.engine = WorkflowEngine(self.test_dir)
@@ -18,8 +19,7 @@ class TestBobShellIntegration(unittest.TestCase):
 
     def tearDown(self):
         # Clean up temporary directory and env var
-        if os.path.exists(self.test_dir):
-            shutil.rmtree(self.test_dir)
+        shutil.rmtree(self.test_dir, ignore_errors=True)
         os.environ.pop("IBM_BOB_SHELL_DEFAULT_KEY", None)
 
     @patch("api.adapters.bob_shell.subprocess.run")
