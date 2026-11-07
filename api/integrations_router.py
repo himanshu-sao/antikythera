@@ -81,13 +81,11 @@ async def test_integration(name: str, request: Request):
                         integration["config"].get("jira_url") or\
                         integration["config"].get("url")\
         ):
-            # Try to obtain token & URL from vault first, then fall back to environment vars
-            token = None
-            url_secret = None
-            
-            # --- RESOLVE ${env:VAR} PLACEHOLDERS FROM CONFIG ---
+            # Token and URL come from the integration config; ${env:VAR} placeholders are
+            # resolved from the environment. The hub has no vault (P2-19), so there is no
+            # further fallback. A missing value is a 404 below.
             config = integration.get("config", {})
-            
+
             def resolve_env_placeholder(val):
                 """Extracts variable name from ${env:VAR_NAME} and returns os.getenv value."""
                 if isinstance(val, str) and val.startswith("${env:") and val.endswith("}"):
@@ -95,62 +93,25 @@ async def test_integration(name: str, request: Request):
                     return os.getenv(var_name)
                 return val
 
-            # 1. Check Config for Placeholders (Always use config if present)
-            # Resolve token from config first – it should override any vault value
+            token = None
+            url_secret = None
             token_val = config.get("token") or config.get("access_token")
             if token_val:
                 resolved_token = resolve_env_placeholder(token_val)
                 if resolved_token:
                     token = {"token": resolved_token}
-            
-            # Resolve URL from config – overrides vault URL
+
             url_val = config.get("jira_url") or config.get("url")
             if url_val:
                 resolved_url = resolve_env_placeholder(url_val)
                 if resolved_url:
                     url_secret = resolved_url
 
-            # 2. Fallback to Direct Environment Variables (Legacy support)
-            # First, try to fetch credentials from the vault (if present)
-            if not token:
-                secret = hub.vault.get_secret("jira")
-                if secret:
-                    token = {"token": secret.get("access_token") or secret.get("token")}
-            if not url_secret:
-                secret_url = hub.vault.get_secret("jira_url")
-                if secret_url:
-                    url_secret = secret_url
-            # If still missing, fall back to environment variables
-            # Try to fetch credentials from the vault if not provided in config
-            if not token:
-                secret = hub.vault.get_secret("jira")
-                if secret:
-                    token = {"token": secret.get("access_token") or secret.get("token")}
-            if not url_secret:
-                secret_url = hub.vault.get_secret("jira_url")
-                if secret_url:
-                    url_secret = secret_url
-            # If after all attempts credentials are still missing, error out
             if not token or not url_secret:
                 await run_in_threadpool(hub.update_status, name, "error")
                 raise HTTPException(status_code=404, detail="Missing Jira credentials")
-            # If after all attempts credentials are still missing, error out
-            if not token or not url_secret:
-                await run_in_threadpool(hub.update_status, name, "error")
-                raise HTTPException(status_code=404, detail="Missing Jira credentials")
-            # ---------------------------------------------------------------
 
-            # Normalise token dict (allow plain string)
-            if token and not isinstance(token, dict):
-                token = {"token": token}
-            # Normalise URL
-            if isinstance(url_secret, dict):
-                base_url = url_secret.get("url") or url_secret.get("jira_url") or next(iter(url_secret.values()))
-            else:
-                base_url = url_secret
-            if not token or not base_url:
-                await run_in_threadpool(hub.update_status, name, "error")
-                raise HTTPException(status_code=404, detail="Missing Jira credentials")
+            base_url = url_secret
             # Perform a lightweight GET to the Jira "myself" endpoint to verify token
             headers = {"Authorization": f"Bearer {token.get('access_token') or token.get('token')}", "Accept": "application/json"}
             async with httpx.AsyncClient() as client:

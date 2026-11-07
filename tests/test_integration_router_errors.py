@@ -137,7 +137,7 @@ class TestGenericErrorsAreGeneric:
             "adapter_module": "api.adapters.jira", "jira_url": "https://x.invalid", "token": "fake-tok"})
         fake = AsyncMock()
         fake.__aenter__.return_value = fake
-        fake.__aexit__.return_value = AsyncMock()
+        fake.__aexit__.return_value = False  # a truthy value would swallow exceptions
         ok = AsyncMock(status_code=200)
         ok.json.return_value = {"self": "u"}
         fake.get.return_value = ok
