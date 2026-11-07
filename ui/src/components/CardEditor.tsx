@@ -19,8 +19,24 @@ interface CardEditorProps {
   onClose: () => void;
 }
 
+export const PRIORITY_OPTIONS = [
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'critical', label: 'Critical' },
+] as const;
+
+/** Stored priorities are lowercase (low|medium|high|critical); older data may be capitalised. */
+export function normalizePriority(value: string | null | undefined): string {
+  const v = (value ?? '').trim().toLowerCase();
+  return v || 'medium';
+}
+
 export function CardEditor({ itemId, initialData, onSave, onDelete, onClose }: CardEditorProps) {
-  const [formData, setFormData] = useState(initialData);
+  const [formData, setFormData] = useState({
+    ...initialData,
+    priority: normalizePriority(initialData.priority),
+  });
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -82,15 +98,19 @@ export function CardEditor({ itemId, initialData, onSave, onDelete, onClose }: C
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+            <label htmlFor="card-editor-priority" className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
             <select
+              id="card-editor-priority"
               value={formData.priority}
               onChange={e => setFormData({ ...formData, priority: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
             >
-              <option value="High">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
+              {!PRIORITY_OPTIONS.some(o => o.value === formData.priority) && (
+                <option value={formData.priority}>{formData.priority}</option>
+              )}
+              {PRIORITY_OPTIONS.map(o => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
             </select>
           </div>
           <div>
