@@ -143,3 +143,23 @@ The Obsidian vault notes remain the personal knowledge base; these are the shipp
 - The D9 setup wizard remains the first-run flow; the Settings tab is the ongoing editor for the same values.
 
 **Tests:** GET/PATCH validation and bounds; secrets never read back; defaults unchanged with no file; at least one consumer actually honours a changed value (e.g. retry delays read from settings in a unit test); Studio form writes the graph fields; the whole router requires the token.
+
+---
+
+# Session execution decisions (2026-11-07, Q/A round 2)
+
+**Arc split — two arcs, plumbing then features:**
+- **Arc A (plumbing):** D1 (auth/token/CORS/loopback), D8 (ports 18006/15173 + tunnel docs), D9 (setup wizard), D14 *backend* (settings store + `/api/settings` router + hardcoded tunables reading it), D2 (step schema `adapter`+`action`), D5 (review API + gated `/api/move`), D7 (terminal allowlist, path confinement, SafeExecutor subprocess). Stop; the user reviews.
+- **Arc B (features and completion):** D14 *frontend* (Settings tab, Studio per-graph form), D10 (Slack notifications), D13 (model tiers), D11 (`docs/studio/` set), D12 (backup schedule docs), the Phase 6 journey tests (Playwright + backend integration), and the remaining P6 docs items.
+
+**Branch:** stay on `feat/phase4-workflow-architect`; push on green at the end of each arc. No merge to main yet.
+
+**Vault:** each arc ends by updating the Obsidian vault notes (`/Users/himanshusao/Documents/Work/ObsidianVault/ibm-verify/local-automation/antikythera/`): statuses in `Todo-detailed.md` and `Backlog.md`, refresh `Testing.md`, and add a note per major new surface (decisions, settings, notifications). If a vault write is denied, fall back to a repo file under `docs/` and say so in the final report.
+
+**P2-13 (retry timers) — closed as accepted:** timers stay in-memory; on restart the boot reaper marks in-flight runs FAILED with "orphaned: server restart" and the user resumes manually. Do not build deadline persistence.
+
+**Cleanup list extended (user-approved):** in addition to the earlier list (VirtualBoard.tsx, test_data/, tmp_test_dir/, ID-999 debris, root test_operator_registry_simple.py), also delete the untracked `Users/` (nested git repo — remove the path mentions in docker/docs that target it), `hermes/`, the empty root directories `config/`, `interceptors/`, `reporters/`, `utils/`, `requirements/`, `audit/`, and `screen-capture.log`. `.opencode/` is ignored plan history: leave it.
+
+**Playwright (arc B):** the session may start the app locally to run the journey specs — uvicorn on `127.0.0.1` with a test token, and the Vite dev server on the D8 port — run `npx playwright test`, then stop both. Loopback only; fake LLM and adapters wherever the spec allows; the real backend where the spec needs it. Kill both processes afterwards and confirm the ports are free.
+
+**D13 default tier structure:** three tiers — `light`, `standard`, `heavy` — where `heavy` maps to the configured default model (Gemma) and `light`/`standard` initially map to the same default until the user maps them in the AI Engine UI. Everything works out of the box; unmapped tiers fall back to the default and log once.
