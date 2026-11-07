@@ -37,6 +37,7 @@ import { IntegrationsManager } from './components/IntegrationsManager';
 import { BlueprintArchitect } from './components/BlueprintArchitect';
 import type { Pipeline, PipelineState } from './types';
 import { apiUrl } from './config';
+import { computeDragAction } from './utils/dragAction';
 import { usePipelineState } from './hooks/usePipelineState';
 import { CreateItemModal } from './components/modals/CreateItemModal';
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
@@ -161,57 +162,17 @@ export default function App() {
     setActiveId(null);
     const { active, over } = event;
     if (!over) return;
-    const itemId = String(active.id);
-    const overId = String(over.id);
-    if (!itemId || !overId) return;
-
-    const activeItem = state.items[itemId];
-    if (!activeItem) return;
-
-    let targetStage = '';
-    let targetOrder = 0;
-
-    const isStage = STAGES.includes(overId);
-    if (isStage) {
-      targetStage = overId;
-      const columnItems = Object.entries(state.items)
-        .map(([id, item]) => ({ ...item, id }))
-        .filter(item => item.stage === targetStage && item.id !== itemId)
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      targetOrder = columnItems.length;
-    } else {
-      const overItem = state.items[overId];
-      if (!overItem) return;
-      targetStage = overItem.stage;
-      const columnItems = Object.entries(state.items)
-        .map(([id, item]) => ({ ...item, id }))
-        .filter(item => item.stage === targetStage && item.id !== itemId)
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      const overIndex = columnItems.findIndex(item => item.id === overId);
-      targetOrder = overIndex === -1 ? columnItems.length : overIndex;
+    const action = computeDragAction({
+      items: state.items,
+      stages: STAGES,
+      activeId: String(active.id),
+      overId: String(over.id),
+    });
+    if (action.type === 'reorder') {
+      await handleReorder(action.stage, action.orderedIds);
+    } else if (action.type === 'move') {
+      await handleMoveItem(action.itemId, action.stage, action.order);
     }
-
-    // Intra-column reorder (same stage): persist the new full ordering via the
-    // bulk /api/items/reorder endpoint. Cross-stage moves go through /api/move.
-    if (activeItem.stage === targetStage) {
-      // Build the reordered id list: drop the dragged item, then insert it at
-      // targetOrder. This matches the backend's ReorderRequest{stage, ordered_ids}.
-      const orderedIds = Object.entries(state.items)
-        .map(([id, item]) => ({ ...item, id }))
-        .filter(item => item.stage === targetStage)
-        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-        .map(item => item.id);
-      const fromIndex = orderedIds.indexOf(itemId);
-      if (fromIndex !== -1) orderedIds.splice(fromIndex, 1);
-      orderedIds.splice(Math.min(targetOrder, orderedIds.length), 0, itemId);
-      // No-op guard: identical ordering shouldn't fire a network call.
-      if (fromIndex === orderedIds.indexOf(itemId)) return;
-      await handleReorder(targetStage, orderedIds);
-      return;
-    }
-
-    if ((activeItem.order ?? 0) === targetOrder) return;
-    await handleMoveItem(itemId, targetStage, targetOrder);
   };
 
   const handleCardClick = async (id: string) => {
