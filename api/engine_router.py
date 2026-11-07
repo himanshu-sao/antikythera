@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Dict, Any
+from api.managers.base import CorruptStateError, public_message
 
 router = APIRouter(prefix="/api/engine", tags=["execution_engine"])
 
@@ -16,6 +17,9 @@ async def start_workflow_run(request: StartRunRequest, req: Request):
         return {"status": "success", "run_id": run_id}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except CorruptStateError as e:
+        # The message names absolute paths; the client gets the safe text only.
+        raise HTTPException(status_code=500, detail=public_message(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from api.main import get_state_manager
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from pydantic import BaseModel
 from api.workflow_state_manager import WorkflowStateManager
 import os

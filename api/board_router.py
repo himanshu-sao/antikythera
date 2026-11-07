@@ -1,14 +1,15 @@
 import json
+import logging
 from fastapi import APIRouter, HTTPException, Response, Request, Body
 from fastapi.responses import FileResponse
-from typing import List, Dict, Any, Optional
 import os
 import re
 from api.schemas import CreateItemRequest, MoveRequest, ReorderRequest, UpdateItemRequest, CommentRequest
 from api.constants import VALID_ARTIFACTS
 from api.utils import get_timeline_path
-from api.workflow_state_manager import WorkflowStateManager
+from api.managers.base import CorruptStateError, public_message
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["Board Items"])
 
 # Per-item artifact directory. Module-level so tests can redirect it.
@@ -22,6 +23,9 @@ from api.main import get_state_manager
 async def get_state(request: Request):
     try:
         return get_state_manager().load_state()
+    except CorruptStateError as e:
+        logger.error("Pipeline state is corrupt: %s", e)
+        raise HTTPException(status_code=500, detail=public_message(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to load state: {str(e)}")
 
@@ -35,15 +39,11 @@ async def create_item(request: Request, item_request: CreateItemRequest):
         source_type=item_request.source_type,
         source_value=item_request.source_value,
         due_date=item_request.due_date,
-        complexity=item_request.complexity
+        complexity=item_request.complexity,
+        priority=item_request.priority,
     )
     if not success:
         raise HTTPException(status_code=400, detail="Item already exists")
-    # The WorkflowStateManager.create_item facade does not forward priority, so
-    # a non-default priority is applied with a follow-up update on the new item.
-    # TODO: forward priority through the facade and drop this second write.
-    if item_request.priority and item_request.priority != "medium":
-        get_state_manager().update_item(item_request.item_id.upper(), {"priority": item_request.priority})
     return {"status": "success", "message": f"Item {item_request.item_id} created"}
 
 @router.patch("/item/{item_id}", summary="Update item details")
@@ -162,12 +162,16 @@ async def update_artifact_content(item_id: str, artifact_name: str, request: dic
 @router.post("/item/{item_id}/inline-output", summary="Update inline output")
 async def update_inline_output(item_id: str, content: str):
     normalized_id = item_id.upper()
-    from agents.state import load_state, save_state
-    state = load_state()
-    if normalized_id not in state["items"]:
-        raise HTTPException(status_code=404, detail="Item not found")
-    state["items"][normalized_id]["inline_output"] = content
-    save_state(state)
+    from agents.state import load_state, save_state, state_lock
+    # Hold the shared state lock across the whole read-modify-write. Without it,
+    # an orchestrator commit or API edit that lands between the load and the
+    # save would be overwritten. The lock is reentrant, so load/save may take it.
+    with state_lock():
+        state = load_state()
+        if normalized_id not in state["items"]:
+            raise HTTPException(status_code=404, detail="Item not found")
+        state["items"][normalized_id]["inline_output"] = content
+        save_state(state)
     return {"message": "Inline output updated"}
 
 @router.post("/item/{item_id}/promote-pattern", summary="Promote artifact to pattern")
