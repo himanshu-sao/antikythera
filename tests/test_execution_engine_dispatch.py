@@ -313,3 +313,34 @@ class TestMissingActionFailsCleanly:
         assert hub.calls == []
         assert _run(sm, run_id)["status"] == "BLOCKED"
         assert escalator.escalations and escalator.escalations[-1]["step_name"] == "NoAdapter"
+
+
+# ---------------------------------------------------------------------------
+# Validator: one clear violation per bad step (regression)
+# ---------------------------------------------------------------------------
+
+class TestValidatorReportsOneViolationPerBadStep:
+    def _violations(self, steps):
+        import api.main  # noqa: F401  (import order: workflow_router imports api.main)
+        from api.workflow_router import _validate_step_shape, _validate_template_adapters
+        return _validate_template_adapters({"steps": steps}), _validate_step_shape({"steps": steps})
+
+    def test_ui_action_type_reports_only_the_type_violation(self):
+        adapter_v, shape_v = self._violations(
+            [{"id": 1, "type": "action", "action": "list_items", "config": {"action": "list_items"}}])
+        assert adapter_v == []  # no misleading "adapter 'action' not in allowlist"
+        assert len(shape_v) == 1 and "type 'action'" in shape_v[0]
+
+    def test_legacy_integration_type_is_not_a_violation_in_the_allowlist(self):
+        adapter_v, _ = self._violations([{"id": 2, "type": "github", "config": {}}])
+        assert adapter_v == []
+
+    def test_execution_capable_type_is_still_blocked_by_sec13(self):
+        adapter_v, _ = self._violations(
+            [{"id": 3, "type": "bob_shell", "action": "run", "config": {}}])
+        assert adapter_v and "bob_shell" in adapter_v[0]
+
+    def test_hitl_step_has_no_shape_violation(self):
+        adapter_v, shape_v = self._violations(
+            [{"id": 4, "type": HITL_STEP_TYPE, "target_phase": "X"}])
+        assert shape_v == [] and adapter_v == []

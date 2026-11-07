@@ -132,15 +132,14 @@ def _validate_template_adapters(template: Dict[str, Any]) -> list[str]:
         step = migrate_step(raw_step)
         step_id = step.get("id", "?")
         config = step.get("config")
-        config_adapter = config.get("adapter") if isinstance(config, dict) else None
 
         # (field name, present?, raw value). A key that is absent is not checked;
         # a key that is present with a null/non-string value is a violation.
         checks = []
-        if "adapter" in step:
-            checks.append(("adapter", step["adapter"]))
-        if "type" in step and step["type"] is not None:
-            checks.append(("type", step["type"]))
+        if "adapter" in raw_step:
+            checks.append(("adapter", raw_step["adapter"]))
+        if "type" in raw_step and raw_step["type"] is not None:
+            checks.append(("type", raw_step["type"]))
         if isinstance(config, dict) and "adapter" in config:
             checks.append(("config.adapter", config["adapter"]))
 
