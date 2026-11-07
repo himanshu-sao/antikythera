@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 # SecretVault import removed – credentials are now read from environment
@@ -37,7 +38,9 @@ async def call_tool(name: str, request: Request, req: ToolCallRequest):
     hub: IntegrationHub = request.app.state.hub
     try:
         # For MCP, the action is 'tools/call' and the tool name/args are in the params
-        res = hub.execute_action(name, "tools/call", {"name": req.name, "arguments": req.arguments})
+        # R12/P2-5: hub calls block (MCP subprocess up to 30 s), so they run in the threadpool.
+        res = await run_in_threadpool(hub.execute_action, name, "tools/call",
+                                      {"name": req.name, "arguments": req.arguments})
         return {"status": "success", "data": res}
     except Exception as e:
         raise _server_error(e, "INTEGRATION_CALL_FAILED", "Tool call")
@@ -46,7 +49,7 @@ async def call_tool(name: str, request: Request, req: ToolCallRequest):
 async def list_integrations(request: Request):
     hub: IntegrationHub = request.app.state.hub
     try:
-        return hub.list_integrations()
+        return await run_in_threadpool(hub.list_integrations)
     except Exception as e:
         raise _server_error(e, "INTEGRATION_LIST_FAILED", "Listing integrations")
 
@@ -54,7 +57,7 @@ async def list_integrations(request: Request):
 async def add_integration(request: Request, req: IntegrationCreateRequest):
     hub: IntegrationHub = request.app.state.hub
     try:
-        if hub.add_integration(req.name, req.type, req.config):
+        if await run_in_threadpool(hub.add_integration, req.name, req.type, req.config):
             return {"status": "success", "message": f"Integration {req.name} added"}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
@@ -65,7 +68,7 @@ async def add_integration(request: Request, req: IntegrationCreateRequest):
 async def test_integration(name: str, request: Request):
     hub: IntegrationHub = request.app.state.hub
     try:
-        integration = hub.get_integration(name)
+        integration = await run_in_threadpool(hub.get_integration, name)
     except Exception as e:
         raise _server_error(e, "INTEGRATION_READ_FAILED", "Reading the integration")
     if not integration:
@@ -129,11 +132,11 @@ async def test_integration(name: str, request: Request):
                     url_secret = secret_url
             # If after all attempts credentials are still missing, error out
             if not token or not url_secret:
-                hub.update_status(name, "error")
+                await run_in_threadpool(hub.update_status, name, "error")
                 raise HTTPException(status_code=404, detail="Missing Jira credentials")
             # If after all attempts credentials are still missing, error out
             if not token or not url_secret:
-                hub.update_status(name, "error")
+                await run_in_threadpool(hub.update_status, name, "error")
                 raise HTTPException(status_code=404, detail="Missing Jira credentials")
             # ---------------------------------------------------------------
 
@@ -146,7 +149,7 @@ async def test_integration(name: str, request: Request):
             else:
                 base_url = url_secret
             if not token or not base_url:
-                hub.update_status(name, "error")
+                await run_in_threadpool(hub.update_status, name, "error")
                 raise HTTPException(status_code=404, detail="Missing Jira credentials")
             # Perform a lightweight GET to the Jira "myself" endpoint to verify token
             headers = {"Authorization": f"Bearer {token.get('access_token') or token.get('token')}", "Accept": "application/json"}
@@ -154,32 +157,32 @@ async def test_integration(name: str, request: Request):
                 try:
                     resp = await client.get(f"{base_url}/rest/api/2/myself", headers=headers, timeout=10)
                 except httpx.RequestError as err:
-                    hub.update_status(name, "error")
+                    await run_in_threadpool(hub.update_status, name, "error")
                     logger.warning("Jira test request for %s failed: %s", name, err)
                     raise HTTPException(status_code=502, detail="Could not reach the Jira server (error code INTEGRATION_UPSTREAM_UNREACHABLE)")
                 if resp.status_code == 200:
-                    hub.update_status(name, "connected")
+                    await run_in_threadpool(hub.update_status, name, "connected")
                     json_body = resp.json()
                     if callable(getattr(json_body, '__await__', None)):
                         json_body = await json_body
                     return {"status": "success", "data": {"principal": json_body}}
                 else:
-                    hub.update_status(name, "error")
+                    await run_in_threadpool(hub.update_status, name, "error")
                     detail_msg = f"Jira authentication failed (status {resp.status_code})"
                     raise HTTPException(status_code=resp.status_code, detail=detail_msg)
         # For MCP integrations, use 'tools/list' as a standard way to verify an MCP server is alive
         if integration["type"] == "mcp":
-            res = hub.execute_action(name, "tools/list", {})
+            res = await run_in_threadpool(hub.execute_action, name, "tools/list", {})
             return {"status": "success", "data": res}
         # Fallback for other native integrations – assume connection is fine
-        hub.update_status(name, "connected")
+        await run_in_threadpool(hub.update_status, name, "connected")
         return {"status": "success", "data": {"message": "Native integration assumed reachable"}}
     except HTTPException as he:
         # Propagate known HTTP errors
         raise he
     except Exception as e:
         try:
-            hub.update_status(name, "error")
+            await run_in_threadpool(hub.update_status, name, "error")
         except Exception:
             logger.exception("Could not record error status for integration %s", name)
         raise _server_error(e, "INTEGRATION_TEST_FAILED", "Testing the integration")
@@ -188,7 +191,7 @@ async def test_integration(name: str, request: Request):
 async def list_integration_tools(name: str, request: Request):
     hub: IntegrationHub = request.app.state.hub
     try:
-        res = hub.execute_action(name, "tools/list", {})
+        res = await run_in_threadpool(hub.execute_action, name, "tools/list", {})
         return {"status": "success", "data": res}
     except Exception as e:
         raise _server_error(e, "INTEGRATION_TOOLS_FAILED", "Listing tools")
@@ -197,7 +200,7 @@ async def list_integration_tools(name: str, request: Request):
 async def delete_integration(name: str, request: Request):
     hub: IntegrationHub = request.app.state.hub
     try:
-        deleted = hub.delete_integration(name)
+        deleted = await run_in_threadpool(hub.delete_integration, name)
     except Exception as e:
         raise _server_error(e, "INTEGRATION_DELETE_FAILED", "Deleting the integration")
     if deleted:
@@ -208,7 +211,7 @@ async def delete_integration(name: str, request: Request):
 async def update_integration(name: str, request: Request, req: IntegrationUpdateRequest):
     hub: IntegrationHub = request.app.state.hub
     try:
-        hub.update_integration(name, req.config)
+        await run_in_threadpool(hub.update_integration, name, req.config)
         return {"status": "success", "message": f"Integration {name} updated"}
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
