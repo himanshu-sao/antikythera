@@ -129,3 +129,143 @@ def test_network_marked_test_is_not_guarded(network_guard):
 def test_live_llm_marked_test_is_not_guarded(network_guard):
     assert not _is_guarded()
     assert network_guard == []
+
+
+# ----------------------------------------------------------------------
+# P1-9: the guard also covers connect_ex, UDP sendto, DNS lookups and asyncio
+# sock_connect. Every case below targets a documentation-range address or a
+# host name and never reaches the network (the guard refuses first).
+# ----------------------------------------------------------------------
+def test_new_guards_are_installed_by_default():
+    assert getattr(socket.socket.connect_ex, root_conftest._GUARD_FLAG, False)
+    assert getattr(socket.socket.sendto, root_conftest._GUARD_FLAG, False)
+    assert getattr(socket.getaddrinfo, root_conftest._GUARD_FLAG, False)
+
+
+def test_connect_ex_to_remote_is_refused_and_recorded(network_guard):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        result = s.connect_ex(("203.0.113.9", 443))  # TEST-NET-3, never reached
+    finally:
+        s.close()
+    assert result != 0  # reported as a failure, not a success
+    assert network_guard == ["203.0.113.9"]
+    network_guard.clear()
+
+
+def test_connect_ex_to_hostname_is_recorded(network_guard):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        assert s.connect_ex(("remote.example.invalid", 80)) != 0
+    finally:
+        s.close()
+    assert network_guard == ["remote.example.invalid"]
+    network_guard.clear()
+
+
+def test_connect_ex_to_loopback_is_delegated():
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(0.5)
+    try:
+        # Port 1 on loopback is refused locally; the real connect_ex answers.
+        assert s.connect_ex(("127.0.0.1", 1)) != 0
+    finally:
+        s.close()
+
+
+def test_sendto_remote_udp_is_refused_and_recorded(network_guard):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        with pytest.raises(OSError, match="network blocked"):
+            s.sendto(b"ping", ("203.0.113.9", 53))
+    finally:
+        s.close()
+    assert network_guard == ["203.0.113.9"]
+    network_guard.clear()
+
+
+def test_sendto_with_flags_argument_is_checked(network_guard):
+    """sendto(data, flags, address) must read the address from the last argument."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        with pytest.raises(OSError, match="network blocked"):
+            s.sendto(b"ping", 0, ("203.0.113.10", 53))
+    finally:
+        s.close()
+    assert network_guard == ["203.0.113.10"]
+    network_guard.clear()
+
+
+def test_sendto_loopback_is_delegated():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # UDP to loopback needs no listener; the real sendto returns the byte count.
+        assert s.sendto(b"x", ("127.0.0.1", 9)) == 1
+    finally:
+        s.close()
+
+
+def test_getaddrinfo_remote_name_is_refused_and_recorded(network_guard):
+    with pytest.raises(OSError, match="network blocked"):
+        socket.getaddrinfo("remote.example.invalid", 443)
+    assert network_guard == ["remote.example.invalid"]
+    network_guard.clear()
+
+
+def test_getaddrinfo_remote_address_literal_is_refused(network_guard):
+    with pytest.raises(OSError, match="network blocked"):
+        socket.getaddrinfo("203.0.113.9", 443)
+    assert network_guard == ["203.0.113.9"]
+    network_guard.clear()
+
+
+def test_getaddrinfo_localhost_is_allowed_by_name():
+    """localhost is matched by name and never resolved by the guard."""
+    infos = socket.getaddrinfo("localhost", 80, type=socket.SOCK_STREAM)
+    assert infos  # resolves through the real resolver, to loopback addresses
+
+
+def test_getaddrinfo_loopback_literal_is_allowed():
+    infos = socket.getaddrinfo("127.0.0.1", 80, type=socket.SOCK_STREAM)
+    assert infos[0][4][0] == "127.0.0.1"
+
+
+def test_getaddrinfo_none_host_is_allowed():
+    """A None host (wildcard lookup used by bind helpers) is not a network lookup."""
+    assert root_conftest._is_allowed_lookup(None) is True
+
+
+def test_sock_connect_remote_is_refused_and_recorded(network_guard):
+    import asyncio
+
+    loop = asyncio.new_event_loop()
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setblocking(False)
+    try:
+        with pytest.raises(OSError, match="network blocked"):
+            loop.run_until_complete(loop.sock_connect(s, ("203.0.113.9", 443)))
+    finally:
+        s.close()
+        loop.close()
+    assert network_guard == ["203.0.113.9"]
+    network_guard.clear()
+
+
+@pytest.mark.parametrize(
+    "host, allowed",
+    [
+        ("localhost", True),
+        ("LOCALHOST", True),
+        ("127.0.0.1", True),
+        ("127.5.5.5", True),
+        ("::1", True),
+        ("::ffff:127.0.0.1", True),
+        ("203.0.113.9", False),
+        ("0.0.0.0", False),
+        ("remote.example.invalid", False),
+        ("localhost.example.invalid", False),
+        (b"localhost", True),
+    ],
+)
+def test_is_loopback_host_matrix(host, allowed):
+    assert root_conftest._is_loopback_host(host) is allowed

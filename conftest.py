@@ -70,6 +70,26 @@ _GUARD_FLAG = "_antikythera_network_guard"
 _UNGUARDED_MARKERS = ("network", "live_llm")
 
 
+def _is_loopback_host(host):
+    """True for ``localhost`` (matched by name, never resolved) and for numeric
+    loopback addresses (127.0.0.0/8, ::1, ::ffff:127.x). Anything else, including
+    other host names, is not loopback."""
+    import ipaddress
+
+    if isinstance(host, bytes):
+        host = host.decode("ascii", "ignore")
+    host = str(host).strip().lower()
+    if host in _LOOPBACK_HOSTS:
+        return True
+    host = host.split("%", 1)[0]  # drop an IPv6 zone id such as ::1%lo0
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    mapped = getattr(ip, "ipv4_mapped", None)
+    return (mapped or ip).is_loopback
+
+
 def _connect_host(address):
     """Host of an AF_INET/AF_INET6 address tuple, or None for non-IP addresses
     (AF_UNIX paths are strings and are not network traffic)."""
@@ -80,7 +100,14 @@ def _connect_host(address):
 
 def _is_allowed_connect(address):
     host = _connect_host(address)
-    return host is None or host in _LOOPBACK_HOSTS
+    return host is None or _is_loopback_host(host)
+
+
+def _is_allowed_lookup(host):
+    """getaddrinfo host argument: None/empty (wildcard bind) and loopback pass."""
+    if host is None or host == "" or host == b"":
+        return True
+    return _is_loopback_host(host)
 
 
 def _guard_applies(node):
@@ -90,6 +117,7 @@ def _guard_applies(node):
 
 @pytest.fixture(autouse=True)
 def network_guard(request, monkeypatch):
+    import errno
     import socket
 
     attempts = []
@@ -98,21 +126,69 @@ def network_guard(request, monkeypatch):
         return
 
     real_connect = socket.socket.connect
+    real_connect_ex = socket.socket.connect_ex
+    real_sendto = socket.socket.sendto
+    real_getaddrinfo = socket.getaddrinfo
+
+    def _block(what, host):
+        attempts.append(host)
+        return OSError(f"network blocked in tests: {what} {host!r}")
 
     def guarded_connect(self, address):
         if _is_allowed_connect(address):
             return real_connect(self, address)
-        host = _connect_host(address)
-        attempts.append(host)
-        raise OSError(f"network blocked in tests: connect to {host!r}")
+        raise _block("connect to", _connect_host(address))
 
-    setattr(guarded_connect, _GUARD_FLAG, True)
+    def guarded_connect_ex(self, address):
+        if _is_allowed_connect(address):
+            return real_connect_ex(self, address)
+        _block("connect_ex to", _connect_host(address))
+        # connect_ex reports failure by return value, not by raising.
+        return errno.ENETUNREACH
+
+    def guarded_sendto(self, data, *args):
+        # sendto(data, address) or sendto(data, flags, address)
+        address = args[-1] if args else None
+        if _is_allowed_connect(address):
+            return real_sendto(self, data, *args)
+        raise _block("sendto", _connect_host(address))
+
+    def guarded_getaddrinfo(host, *args, **kwargs):
+        if _is_allowed_lookup(host):
+            return real_getaddrinfo(host, *args, **kwargs)
+        raise _block("DNS lookup of", host if isinstance(host, str) else str(host))
+
+    for fn in (guarded_connect, guarded_connect_ex, guarded_sendto, guarded_getaddrinfo):
+        setattr(fn, _GUARD_FLAG, True)
     monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", guarded_connect_ex)
+    monkeypatch.setattr(socket.socket, "sendto", guarded_sendto)
+    monkeypatch.setattr(socket, "getaddrinfo", guarded_getaddrinfo)
+
+    # asyncio's selector loop resolves and connects through the socket calls
+    # above, but guard sock_connect itself so a loop whose internals change
+    # still cannot reach a remote host.
+    try:
+        from asyncio import selector_events
+        real_sock_connect = selector_events.BaseSelectorEventLoop.sock_connect
+
+        async def guarded_sock_connect(self, sock, address):
+            if not _is_allowed_connect(address):
+                raise _block("sock_connect to", _connect_host(address))
+            return await real_sock_connect(self, sock, address)
+
+        setattr(guarded_sock_connect, _GUARD_FLAG, True)
+        monkeypatch.setattr(
+            selector_events.BaseSelectorEventLoop, "sock_connect", guarded_sock_connect
+        )
+    except (ImportError, AttributeError):  # pragma: no cover
+        pass
+
     yield attempts
     if attempts:
         pytest.fail(
-            "test attempted non-loopback network connect(s) to "
-            f"{sorted(set(attempts))}; mark the test 'network' if this is intended",
+            "test attempted non-loopback network access to "
+            f"{sorted(set(map(str, attempts)))}; mark the test 'network' if this is intended",
             pytrace=False,
         )
 
