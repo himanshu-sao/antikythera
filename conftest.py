@@ -68,6 +68,64 @@ def event_loop():
     yield loop
     loop.close()
 
+# ----------------------------------------------------------------------
+# Network guard (autouse). Any TCP connect to a non-loopback host is refused
+# with OSError and recorded; the test fails at teardown if one was attempted,
+# even when the code under test swallowed the OSError. Tests marked ``network``
+# or ``live_llm`` are not guarded (they opt in to real network use).
+# ----------------------------------------------------------------------
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+_GUARD_FLAG = "_antikythera_network_guard"
+_UNGUARDED_MARKERS = ("network", "live_llm")
+
+
+def _connect_host(address):
+    """Host of an AF_INET/AF_INET6 address tuple, or None for non-IP addresses
+    (AF_UNIX paths are strings and are not network traffic)."""
+    if isinstance(address, tuple) and address:
+        return str(address[0])
+    return None
+
+
+def _is_allowed_connect(address):
+    host = _connect_host(address)
+    return host is None or host in _LOOPBACK_HOSTS
+
+
+def _guard_applies(node):
+    """False when the node carries a marker that opts out of the guard."""
+    return not any(node.get_closest_marker(m) for m in _UNGUARDED_MARKERS)
+
+
+@pytest.fixture(autouse=True)
+def network_guard(request, monkeypatch):
+    import socket
+
+    attempts = []
+    if not _guard_applies(request.node):
+        yield attempts
+        return
+
+    real_connect = socket.socket.connect
+
+    def guarded_connect(self, address):
+        if _is_allowed_connect(address):
+            return real_connect(self, address)
+        host = _connect_host(address)
+        attempts.append(host)
+        raise OSError(f"network blocked in tests: connect to {host!r}")
+
+    setattr(guarded_connect, _GUARD_FLAG, True)
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
+    yield attempts
+    if attempts:
+        pytest.fail(
+            "test attempted non-loopback network connect(s) to "
+            f"{sorted(set(attempts))}; mark the test 'network' if this is intended",
+            pytrace=False,
+        )
+
+
 # Autouse fixture: every test gets its own ``automation-ideas`` tree under
 # tmp_path. Modules that hold the real data path as a module-level constant
 # (agents.state, the memory agent, board/studio routers, the integration hub)
