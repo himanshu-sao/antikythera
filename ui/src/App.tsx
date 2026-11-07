@@ -42,6 +42,9 @@ import { WorkflowGuideModal } from './components/modals/WorkflowGuideModal';
 import { AutomationStudio } from './components/AutomationStudio';
 import { BuilderModal } from './components/modals/ManagementModals';
 import AIEngineSettings from './components/AIEngineSettings';
+import { apiFetch } from './api/client';
+import { SetupScreen } from './components/SetupScreen';
+import { TokenGate } from './components/TokenGate';
 
 const STAGES = [
   "INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE",
@@ -59,9 +62,48 @@ interface Tab {
   pipelineName?: string;
 }
 
+type SetupGate = 'checking' | 'setup' | 'ready';
+
+// First-run gate (D9). The status check is a plain fetch: it runs before any token exists.
+// Setup incomplete (or the backend refuses a non-local client with 403) shows the wizard.
+// A 404 means the setup marker exists, and an unreachable backend falls through to the app.
 export default function App() {
-  const { 
-    state, 
+  const [gate, setGate] = useState<SetupGate>('checking');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/setup/status`);
+        if (cancelled) return;
+        if (res.status === 403) return setGate('setup');
+        if (!res.ok) return setGate('ready');
+        const body = await res.json();
+        setGate(body && body.complete === false ? 'setup' : 'ready');
+      } catch {
+        if (!cancelled) setGate('ready');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (gate === 'setup') {
+    // Reload after setup so the app boots clean with the saved token and no stale 401s.
+    return <SetupScreen onComplete={() => window.location.reload()} />;
+  }
+  return (
+    <>
+      <AppShell />
+      <TokenGate />
+    </>
+  );
+}
+
+function AppShell() {
+  const {
+    state,
     loading, 
     error, 
     handleUpdateItem,
@@ -178,7 +220,7 @@ export default function App() {
     setSelectedId(id);
     setEditMode(false);
     try {
-      const res = await fetch(`${apiUrl}/api/workflows/items/${id}/run`);
+      const res = await apiFetch(`${apiUrl}/api/workflows/items/${id}/run`);
       if (res.ok) {
         const data = await res.json();
         if (data.run_id) setSelectedRunId(data.run_id);
