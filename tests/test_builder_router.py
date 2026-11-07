@@ -36,9 +36,9 @@ VALID_TEMPLATE = {
     "description": "from the model",
     "trigger": {"type": "webhook", "provider": "github", "config": {}},
     "steps": [
-        {"id": 1, "type": "action", "adapter": "github", "action": "list_repos",
+        {"id": 1, "adapter": "github", "action": "list_repos",
          "config": {"org": "acme"}, "board_stage": "EXECUTING"},
-        {"id": 2, "type": "action", "adapter": "internal", "action": "add_comment",
+        {"id": 2, "adapter": "internal", "action": "add_comment",
          "config": {"action": "add_comment", "body": "done"}, "board_stage": "DONE"},
     ],
 }
@@ -226,7 +226,7 @@ class TestValidateEndpoint:
 
     def test_shell_template_is_invalid_with_violation(self, client):
         bad = copy.deepcopy(VALID_TEMPLATE)
-        bad["steps"][0] = {"id": 1, "type": "action", "adapter": "shell", "action": "run",
+        bad["steps"][0] = {"id": 1, "adapter": "shell", "action": "run",
                            "config": {"script": "build.sh"}, "board_stage": "EXECUTING"}
         r = client.post("/api/builder/validate", json={"template_data": bad})
         assert r.status_code == 200
@@ -236,7 +236,7 @@ class TestValidateEndpoint:
 
     def test_bad_jira_config_is_invalid(self, client):
         bad = copy.deepcopy(VALID_TEMPLATE)
-        bad["steps"][0] = {"id": 1, "type": "action", "adapter": "jira", "action": "list_tickets",
+        bad["steps"][0] = {"id": 1, "adapter": "jira", "action": "list_tickets",
                            "config": {"not_a_field": 1}, "board_stage": "INTAKE"}
         r = client.post("/api/builder/validate", json={"template_data": bad})
         body = r.json()

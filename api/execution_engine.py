@@ -8,6 +8,7 @@ from api.workflow_state_manager import WorkflowStateManager
 from api.integration_hub import IntegrationHub
 from api.escalation_manager import EscalationManager
 from api.retry_manager import RetryManager
+from api.models.automation import HITL_STEP_TYPE, migrate_step
 
 logger = logging.getLogger(__name__)
 
@@ -195,25 +196,33 @@ class ExecutionEngine:
             self.run_manager.log_event(run_id, "RUN_COMPLETED", {})
             return
 
-        step = steps[idx]
+        # Legacy templates name the integration in ``type``; migrate them in code
+        # so already-saved templates keep running (the stored file is not rewritten).
+        step = migrate_step(steps[idx])
         step_name = step.get("name", f"Step {idx}")
-        
+
         # 1. Resolve Context
         resolved_config = self._resolve_context(step.get("config", {}), run)
 
         # 2. Dispatch to Adapter
-        step_type = step.get("type", "HTTP")
         try:
-            self.run_manager.log_event(run_id, "STEP_START", {"step": step_name, "type": step_type})
-            
-            # Check if this is an Orchestrator Task (HITL)
-            if step_type == "ORCHESTRATOR_TASK":
+            # Check if this is an Orchestrator Task (HITL). This is the only step
+            # kind that ``type`` marks; it never touches the hub.
+            if step.get("type") == HITL_STEP_TYPE:
+                self.run_manager.log_event(run_id, "STEP_START", {"step": step_name, "type": HITL_STEP_TYPE})
                 self._handle_hitl_step(run_id, step)
                 return
 
-            # Otherwise, execute via the hub
-            # The hub expects execute_action(action_type, params)
-            result = self.hub.execute_action(step_type, resolved_config)
+            adapter = step.get("adapter")
+            action = step.get("action")
+            if not (isinstance(adapter, str) and adapter.strip()):
+                raise ValueError(f"Step '{step_name}' has no adapter; a step must name the adapter it runs on")
+            if not (isinstance(action, str) and action.strip()):
+                raise ValueError(f"Step '{step_name}' has no action; a step must name the action to run")
+            self.run_manager.log_event(run_id, "STEP_START", {"step": step_name, "adapter": adapter, "action": action})
+
+            # Dispatch on the step's adapter and action
+            result = self.hub.execute_action(adapter, action, resolved_config)
             
             # 3. Record Outcome
             self.run_manager.log_event(run_id, "STEP_END", {"step": step_name, "result": result})

@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from api.main import get_state_manager
 from api.integration_hub import public_error_detail
+from api.models.automation import HITL_STEP_TYPE, migrate_step
 from typing import Dict, Any, List, Optional
 from jsonschema import validate, ValidationError
 
@@ -107,10 +108,15 @@ def _normalise_adapter_token(value: Any) -> Optional[str]:
 def _validate_template_adapters(template: Dict[str, Any]) -> list[str]:
     """Validate step adapters against the allowlist. Returns list of violations.
 
-    SEC-13: checks ``step.adapter``, ``step.type`` and ``step.config.adapter``
-    (the engines dispatch on the latter two). A null or non-string adapter is a
-    violation, not a server error. Execution-capable adapters are rejected by name
-    in any of those fields even though they are not in the allowlist anyway.
+    SEC-13: checks ``step.adapter``, ``step.type`` and ``step.config.adapter``.
+    A null or non-string adapter is a violation, not a server error. Execution-
+    capable adapters are rejected by name in any of those fields even though they
+    are not in the allowlist anyway.
+
+    D2: every step is read after ``migrate_step``, so a legacy ``type``-named
+    adapter is checked as the adapter it becomes. A ``type`` left after migration
+    must be ORCHESTRATOR_TASK; any other value, and a missing action, is a
+    violation (see ``_validate_step_shape``).
     """
     violations = []
     steps = template.get("steps")
@@ -119,10 +125,11 @@ def _validate_template_adapters(template: Dict[str, Any]) -> list[str]:
     if not isinstance(steps, list):
         # P1-3: an object/string/number here used to skip every check and be saved.
         return [f"steps must be a list, got {type(steps).__name__}"]
-    for step in steps:
-        if not isinstance(step, dict):
+    for raw_step in steps:
+        if not isinstance(raw_step, dict):
             violations.append("step ?: must be an object")
             continue
+        step = migrate_step(raw_step)
         step_id = step.get("id", "?")
         config = step.get("config")
         config_adapter = config.get("adapter") if isinstance(config, dict) else None
@@ -149,9 +156,43 @@ def _validate_template_adapters(template: Dict[str, Any]) -> list[str]:
                     f"step {step_id}: {field_name} '{token}' is an execution-capable adapter and is not allowed in templates"
                 )
             elif field_name == "type":
-                continue  # step.type is metadata; only execution-capable names are blocked for it
+                continue  # a non-HITL type is reported by _validate_step_shape
             elif token not in ALLOWED_TEMPLATE_ADAPTERS:
                 violations.append(f"step {step_id}: {field_name} '{token}' not in allowlist {sorted(ALLOWED_TEMPLATE_ADAPTERS)}")
+    return violations
+
+
+def _validate_step_shape(template: Dict[str, Any]) -> list[str]:
+    """D2: a step dispatches on ``adapter`` + ``action``. Returns list of violations.
+
+    A step's ``type`` must be absent (or null) or ORCHESTRATOR_TASK; any other
+    value is a violation. Every non-HITL step needs a non-blank ``action`` after
+    ``migrate_step``. An absent or empty adapter is still allowed here (legacy
+    behaviour, pinned by the SEC-13 tests); the engine fails such a step at run
+    time through the retry path.
+    """
+    violations = []
+    steps = template.get("steps")
+    if not isinstance(steps, list):
+        return violations  # reported by _validate_template_adapters
+    for raw_step in steps:
+        if not isinstance(raw_step, dict):
+            continue  # reported by _validate_template_adapters
+        step = migrate_step(raw_step)
+        step_id = step.get("id", "?")
+        # Read the raw type: migrate_step consumes a legacy type that names an adapter.
+        raw_type = raw_step.get("type")
+        if raw_type is not None and raw_type != HITL_STEP_TYPE:
+            violations.append(
+                f"step {step_id}: type '{raw_type}' is not allowed; the only step type is {HITL_STEP_TYPE}"
+                " (a step names its adapter and action)"
+            )
+            continue
+        if raw_type == HITL_STEP_TYPE:
+            continue
+        action = step.get("action")
+        if not isinstance(action, str) or not action.strip():
+            violations.append(f"step {step_id}: action must be a non-empty string")
     return violations
 
 
@@ -164,9 +205,10 @@ def _validate_step_configs(template: Dict[str, Any]) -> list[str]:
     steps = template.get("steps")
     if not isinstance(steps, list):
         return violations  # absent/null is allowed; a wrong type is reported by _validate_template_adapters
-    for step in steps:
-        if not isinstance(step, dict):
+    for raw_step in steps:
+        if not isinstance(raw_step, dict):
             continue  # reported by _validate_template_adapters
+        step = migrate_step(raw_step)  # D2: a legacy type-named adapter gets its schema too
         adapter = _normalise_adapter_token(step.get("adapter")) or ""
         config = step.get("config", {})
         if not adapter and isinstance(config, dict):
@@ -262,6 +304,14 @@ async def save_template(request: Request, template: Dict[str, Any]):
         raise HTTPException(
             status_code=422,
             detail={"message": "Template contains disallowed adapters", "violations": violations}
+        )
+
+    # D2: step type and action (adapter + action dispatch)
+    shape_violations = _validate_step_shape(template)
+    if shape_violations:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Template step shape is invalid", "violations": shape_violations}
         )
 
     # B2: per-adapter step.config schema validation

@@ -28,9 +28,9 @@ _GENERATION_SYSTEM = (
     "You are the Antikythera Blueprint Architect. Reply with ONE JSON object and nothing else. "
     "It must have the keys \"name\" (string), \"description\" (string), \"trigger\" (object with "
     "\"type\", \"provider\" and \"config\") and \"steps\" (a non-empty list). Each step has \"id\", "
-    "\"type\" (action|decision|approval), \"adapter\" (one of internal, github, jira, ai), "
-    "\"action\" (string), \"config\" (object) and \"board_stage\" (string). Do not use a shell "
-    "adapter. Do not wrap the JSON in prose."
+    "\"adapter\" (one of internal, github, jira, ai), \"action\" (non-empty string naming the "
+    "operation on that adapter), \"config\" (object) and \"board_stage\" (string). Do not add a "
+    "\"type\" key to a step. Do not use a shell adapter. Do not wrap the JSON in prose."
 )
 
 
@@ -49,9 +49,13 @@ def _template_violations(template: Dict[str, Any]) -> List[str]:
     Imported lazily: ``workflow_router`` imports ``api.main``, which includes this
     module, so a module-level import would be circular.
     """
-    from api.workflow_router import _validate_step_configs, _validate_template_adapters
+    from api.workflow_router import _validate_step_configs, _validate_step_shape, _validate_template_adapters
 
-    return _validate_template_adapters(template) + _validate_step_configs(template)
+    return (
+        _validate_template_adapters(template)
+        + _validate_step_shape(template)
+        + _validate_step_configs(template)
+    )
 
 
 def _parse_template_reply(raw: Any) -> Optional[Dict[str, Any]]:
@@ -104,12 +108,12 @@ def _fallback_template(request: GenerationRequest) -> Dict[str, Any]:
             "description": "Triggered on PR merge: reads the merged PR, summarises it and asks for sign-off.",
             "trigger": {"type": "webhook", "provider": "github", "config": {"event": "pull_request.closed"}},
             "steps": [
-                {"id": 1, "type": "action", "adapter": "github", "action": "list_pull_requests",
+                {"id": 1, "adapter": "github", "action": "list_pull_requests",
                  "config": {"state": "closed"}, "board_stage": "EXECUTING"},
-                {"id": 2, "type": "action", "adapter": "ai", "action": "analyze",
+                {"id": 2, "adapter": "ai", "action": "analyze",
                  "config": {"prompt": "Summarise the merged pull request and flag any risk."},
                  "board_stage": "REVIEW_TEST"},
-                {"id": 3, "type": "approval", "adapter": "internal", "action": "add_comment",
+                {"id": 3, "adapter": "internal", "action": "add_comment",
                  "config": {"action": "add_comment", "body": "Release sign-off requested."},
                  "board_stage": "APPROVED"},
             ],
@@ -120,12 +124,12 @@ def _fallback_template(request: GenerationRequest) -> Dict[str, Any]:
             "description": "Polls Jira for new tickets, classifies them and moves them on.",
             "trigger": {"type": "poll", "provider": "jira", "config": {"jql": "created > -1h", "interval": 60}},
             "steps": [
-                {"id": 1, "type": "action", "adapter": "jira", "action": "list_tickets",
+                {"id": 1, "adapter": "jira", "action": "list_tickets",
                  "config": {"jql": "created > -1h", "max_results": 50}, "board_stage": "INTAKE"},
-                {"id": 2, "type": "action", "adapter": "ai", "action": "analyze",
+                {"id": 2, "adapter": "ai", "action": "analyze",
                  "config": {"prompt": "Classify this ticket by urgency and component."},
                  "board_stage": "REFINEMENT"},
-                {"id": 3, "type": "action", "adapter": "jira", "action": "update",
+                {"id": 3, "adapter": "jira", "action": "update",
                  "config": {"transition": "Triage Done"}, "board_stage": "DONE"},
             ],
         }
@@ -134,9 +138,9 @@ def _fallback_template(request: GenerationRequest) -> Dict[str, Any]:
         "description": "AI generated generic workflow.",
         "trigger": {"type": "webhook", "provider": "generic", "config": {}},
         "steps": [
-            {"id": 1, "type": "action", "adapter": "ai", "action": "analyze",
+            {"id": 1, "adapter": "ai", "action": "analyze",
              "config": {"prompt": request.prompt}, "board_stage": "REFINEMENT"},
-            {"id": 2, "type": "action", "adapter": "internal", "action": "add_comment",
+            {"id": 2, "adapter": "internal", "action": "add_comment",
              "config": {"action": "add_comment", "body": "Workflow complete."}, "board_stage": "DONE"},
         ],
     }

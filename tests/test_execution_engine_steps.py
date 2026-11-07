@@ -21,8 +21,8 @@ class FakeHub:
         self.calls = []
         self.fail_times = fail_times
 
-    def execute_action(self, action_type, params):
-        self.calls.append((action_type, params))
+    def execute_action(self, adapter, action, params):
+        self.calls.append((adapter, action, params))
         if self.fail_times > 0:
             self.fail_times -= 1
             raise RuntimeError("upstream unavailable")
@@ -204,8 +204,8 @@ def _live(timers):
 
 
 class AlwaysFailHub(FakeHub):
-    def execute_action(self, action_type, params):
-        self.calls.append((action_type, params))
+    def execute_action(self, adapter, action, params):
+        self.calls.append((adapter, action, params))
         raise RuntimeError("upstream down")
 
 
@@ -344,8 +344,8 @@ class TestRunClaim:
         release = threading.Event()
 
         class BlockingHub(FakeHub):
-            def execute_action(self, action_type, params):
-                self.calls.append(action_type)
+            def execute_action(self, adapter, action, params):
+                self.calls.append(adapter)
                 if len(self.calls) == 2:
                     entered.set()
                     release.wait(timeout=10)
@@ -517,8 +517,9 @@ class TestResolveContext:
                                  "config": {"body": "{{payload}}", "q": "x \"{{payload}}\""}}])
         engine = ExecutionEngine(sm, hub, escalator)
         engine.start_run("sec12", {"payload": 'a"b\\c'})
-        (action, params) = hub.calls[0]
-        assert action == "HTTP"
+        (adapter, action, params) = hub.calls[0]
+        assert adapter == "HTTP"
+        assert action == "fetch_resource"
         assert params == {"body": 'a"b\\c', "q": 'x "a"b\\c"'}
 
 
@@ -684,8 +685,8 @@ class FlakyOnceHub:
         self.seen = set()
         self.calls = []
 
-    def execute_action(self, action_type, params):
-        self.calls.append((action_type, params))
+    def execute_action(self, adapter, action, params):
+        self.calls.append((adapter, action, params))
         key = params.get("key")
         if key not in self.seen:
             self.seen.add(key)

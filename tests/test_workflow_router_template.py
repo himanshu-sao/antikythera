@@ -33,7 +33,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "list_items",
                     "config": {"action": "list_items", "stage": "INTAKE"},
@@ -61,7 +60,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "github",
                     "action": "list_repos",
                     "config": {"org": "test-org"},
@@ -88,7 +86,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "jira",
                     "action": "list_tickets",
                     "config": {"jql": "project=TEST"},
@@ -115,7 +112,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "ai",
                     "action": "analyze",
                     "config": {},
@@ -142,7 +138,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "shell",
                     "action": "run_build",
                     "config": {"script": "build.sh"},
@@ -170,7 +165,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "bob_shell",
                     "action": "execute",
                     "config": {"command": "echo hello"},
@@ -198,7 +192,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "unknown_adapter",
                     "action": "do_something",
                     "config": {},
@@ -226,7 +219,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "shell",
                     "action": "run",
                     "config": {},
@@ -234,7 +226,6 @@ class TestSaveTemplateAllowlist:
                 },
                 {
                     "id": 2,
-                    "type": "action",
                     "adapter": "bob_shell",
                     "action": "exec",
                     "config": {},
@@ -242,7 +233,6 @@ class TestSaveTemplateAllowlist:
                 },
                 {
                     "id": 3,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "list_items",
                     "config": {},
@@ -275,7 +265,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "SHELL",
                     "action": "run",
                     "config": {},
@@ -303,7 +292,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "",
                     "action": "list_items",
                     "config": {},
@@ -327,7 +315,6 @@ class TestSaveTemplateAllowlist:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "list_items",
                     "config": {},
@@ -354,7 +341,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "move_item",
                     "config": {"action": "move_item", "item_id": "ITEM-123", "new_stage": "DONE"},
@@ -381,7 +367,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "add_comment",
                     "config": {"action": "add_comment", "item_id": "ITEM-123", "author": "Bot", "body": "Done!"},
@@ -408,7 +393,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "list_items",
                     "config": {"action": "list_items", "stage": "INTAKE"},
@@ -435,7 +419,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "move_item",
                     "config": {"action": "invalid_action", "item_id": "ITEM-123"},
@@ -463,7 +446,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "move_item",
                     "config": {"action": "move_item", "item_id": "ITEM-123", "new_stage": "INVALID_STAGE"},
@@ -491,7 +473,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "move_item",
                     "config": {"action": "move_item", "item_id": "ITEM-123", "new_stage": "DONE", "unknown_field": "bad"},
@@ -519,7 +500,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "config": {"item_id": "ITEM-123", "new_stage": "DONE"},
                     "board_stage": "EXECUTING",
@@ -530,8 +510,10 @@ class TestSaveTemplateConfigValidation:
             response = client.post("/api/workflows/templates", json=payload)
             assert response.status_code == 422, response.json()
             body = response.json()
-            assert body["detail"]["message"] == "Template step config validation failed"
-            assert any("action" in v and "required" in v.lower() for v in body["detail"]["violations"])
+            # The D2 shape check runs before the B2 schema check; a step with no
+            # step-level action is reported as a shape violation.
+            assert body["detail"]["message"] == "Template step shape is invalid"
+            assert any("action" in v for v in body["detail"]["violations"])
         finally:
             _cleanup_template(client, template_id)
 
@@ -546,7 +528,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "github",
                     "action": "list_repos",
                     "config": {"org": "myorg", "type": "all", "per_page": 50},
@@ -573,7 +554,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "github",
                     "action": "list_pull_requests",
                     "config": {"owner": "myorg", "repo": "myrepo", "state": "open", "per_page": 30},
@@ -600,7 +580,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "github",
                     "action": "create",
                     "config": {"name": "new-repo", "description": "Created by Antikythera", "private": True},
@@ -627,7 +606,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "github",
                     "action": "list_repos",
                     "config": {"org": "myorg", "unknown_field": "bad"},
@@ -655,7 +633,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "github",
                     "action": "list_repos",
                     "config": {"org": "myorg", "type": "invalid_type"},
@@ -683,7 +660,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "jira",
                     "action": "list_tickets",
                     "config": {"jql": "project = TEST", "max_results": 25},
@@ -710,7 +686,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "jira",
                     "action": "create",
                     "config": {
@@ -742,7 +717,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "jira",
                     "action": "list_tickets",
                     "config": {"jql": "project = TEST", "unknown_field": "bad"},
@@ -770,7 +744,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "jira",
                     "action": "list_tickets",
                     "config": {"jql": "project = TEST", "max_results": 200},
@@ -798,7 +771,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "ai",
                     "action": "analyze",
                     "config": {
@@ -829,7 +801,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "ai",
                     "action": "analyze",
                     "config": {"prompt": "test", "unknown_field": "bad"},
@@ -857,7 +828,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "list_items",
                     "config": {"action": "list_items", "stage": "INTAKE"},
@@ -865,7 +835,6 @@ class TestSaveTemplateConfigValidation:
                 },
                 {
                     "id": 2,
-                    "type": "action",
                     "adapter": "github",
                     "action": "list_repos",
                     "config": {"org": "myorg"},
@@ -873,7 +842,6 @@ class TestSaveTemplateConfigValidation:
                 },
                 {
                     "id": 3,
-                    "type": "action",
                     "adapter": "jira",
                     "action": "list_tickets",
                     "config": {"jql": "project = TEST"},
@@ -881,7 +849,6 @@ class TestSaveTemplateConfigValidation:
                 },
                 {
                     "id": 4,
-                    "type": "action",
                     "adapter": "ai",
                     "action": "analyze",
                     "config": {"prompt": "Analyze"},
@@ -908,7 +875,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "move_item",
                     "config": {"action": "move_item", "item_id": "ITEM-1", "new_stage": "DONE"},
@@ -916,7 +882,6 @@ class TestSaveTemplateConfigValidation:
                 },
                 {
                     "id": 2,
-                    "type": "action",
                     "adapter": "github",
                     "action": "list_repos",
                     "config": {"org": "myorg", "invalid_field": "bad"},
@@ -924,7 +889,6 @@ class TestSaveTemplateConfigValidation:
                 },
                 {
                     "id": 3,
-                    "type": "action",
                     "adapter": "jira",
                     "action": "list_tickets",
                     "config": {"jql": "project = TEST", "another_invalid": "bad"},
@@ -958,7 +922,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "ai",  # Has schema, but we can test empty config
                     "action": "analyze",
                     "config": {},  # Empty config is valid for ai (no required fields)
@@ -985,7 +948,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "move_item",
                     "config": "not an object",
@@ -1013,7 +975,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "INTERNAL",  # Uppercase
                     "action": "move_item",
                     "config": {"action": "move_item", "item_id": "ITEM-1", "new_stage": "DONE"},
@@ -1040,7 +1001,6 @@ class TestSaveTemplateConfigValidation:
             "steps": [
                 {
                     "id": 1,
-                    "type": "action",
                     "adapter": "internal",
                     "action": "move_item",
                     "config": {"action": "move_item", "item_id": "ITEM-1", "new_stage": "NOT_A_STAGE"},
@@ -1081,7 +1041,7 @@ class TestSec13ExecutionCapableAdapters:
     @pytest.mark.parametrize("bad", ["shell", "bob_shell", "bob_shell_adapter", "SHELL", " Bob_Shell "])
     def test_config_adapter_execution_capable_rejected(self, client, bad):
         tid = "sec13_cfg_adapter"
-        step = {"id": 1, "type": "action", "action": "x", "config": {"adapter": bad}, "board_stage": "INTAKE"}
+        step = {"id": 1, "action": "x", "config": {"adapter": bad}, "board_stage": "INTAKE"}
         try:
             r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
             assert r.status_code == 422, r.status_code
@@ -1100,7 +1060,7 @@ class TestSec13ExecutionCapableAdapters:
 
     def test_config_adapter_checked_even_when_adapter_field_is_safe(self, client):
         tid = "sec13_mixed"
-        step = {"id": 1, "type": "action", "adapter": "internal", "action": "list_items",
+        step = {"id": 1, "adapter": "internal", "action": "list_items",
                 "config": {"action": "list_items", "adapter": "shell"}, "board_stage": "INTAKE"}
         try:
             r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
@@ -1110,7 +1070,7 @@ class TestSec13ExecutionCapableAdapters:
 
     def test_safe_type_and_config_adapter_still_accepted(self, client):
         tid = "sec13_safe"
-        step = {"id": 1, "type": "action", "action": "x",
+        step = {"id": 1, "action": "x",
                 "config": {"adapter": "internal", "action": "list_items"},
                 "board_stage": "INTAKE"}
         try:
@@ -1138,7 +1098,7 @@ class TestSec13NullAndNonStringAdapter:
     @pytest.mark.parametrize("adapter", [None, 123, ["internal"], {"name": "internal"}, True])
     def test_non_string_adapter_is_422_not_500(self, client, adapter):
         tid = "sec13_nonstr"
-        step = {"id": 1, "type": "action", "adapter": adapter, "action": "x",
+        step = {"id": 1, "adapter": adapter, "action": "x",
                 "config": {}, "board_stage": "INTAKE"}
         try:
             r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
@@ -1153,7 +1113,7 @@ class TestSec13NullAndNonStringAdapter:
 
     def test_non_string_config_adapter_is_422(self, client):
         tid = "sec13_cfg_nonstr"
-        step = {"id": 1, "type": "action", "action": "x", "config": {"adapter": None},
+        step = {"id": 1, "action": "x", "config": {"adapter": None},
                 "board_stage": "INTAKE"}
         try:
             r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
@@ -1164,7 +1124,7 @@ class TestSec13NullAndNonStringAdapter:
     def test_missing_adapter_is_still_allowed(self, client):
         # Existing behaviour preserved: no adapter key -> not rejected by the allowlist.
         tid = "sec13_missing"
-        step = {"id": 1, "type": "action", "action": "x", "config": {}, "board_stage": "INTAKE"}
+        step = {"id": 1, "action": "x", "config": {}, "board_stage": "INTAKE"}
         try:
             r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
             assert r.status_code == 200, r.json()

@@ -83,7 +83,7 @@ class TestStepsShapeRoute:
     def test_valid_list_still_saves(self, client):
         tid = "shape_ok"
         try:
-            r = _post(client, tid, steps=[{"id": 1, "adapter": "internal",
+            r = _post(client, tid, steps=[{"id": 1, "adapter": "internal", "action": "list_items",
                                            "config": {"action": "list_items"}}])
             assert r.status_code == 200, r.json()
             assert tid in _saved_ids(client)  # proves _saved_ids can see a saved template
@@ -148,7 +148,7 @@ class TestConfigAdapterSchema:
 
     def test_route_rejects_bad_config_for_config_adapter(self, client):
         tid = "shape_cfg_adapter"
-        step = {"id": 1, "type": "action", "action": "x",
+        step = {"id": 1, "action": "x",
                 "config": {"adapter": "internal", "action": "nope"}, "board_stage": "INTAKE"}
         try:
             r = _post(client, tid, steps=[step])
@@ -159,7 +159,7 @@ class TestConfigAdapterSchema:
 
     def test_route_accepts_good_config_for_config_adapter(self, client):
         tid = "shape_cfg_adapter_ok"
-        step = {"id": 1, "type": "action", "action": "x",
+        step = {"id": 1, "action": "x",
                 "config": {"adapter": "internal", "action": "list_items"}, "board_stage": "INTAKE"}
         try:
             r = _post(client, tid, steps=[step])

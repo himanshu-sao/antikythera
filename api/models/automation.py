@@ -115,3 +115,60 @@ class PipelineRun(BaseModel):
     error: Optional[str] = None
     duration_ms: Optional[int] = None
     logs: List[ExecutionLog] = []  # Updated to use new ExecutionLog model
+
+# --- Workflow step shape (D2) ---
+# A workflow step dispatches on ``adapter`` + ``action``:
+#   {step_id, name, adapter, action, config, next_step}
+# ``type`` marks exactly one thing: a human-in-the-loop step (HITL_STEP_TYPE).
+HITL_STEP_TYPE = "ORCHESTRATOR_TASK"
+# Action given to a migrated step that has none and whose adapter is not "internal".
+LEGACY_DEFAULT_ACTION = "fetch_resource"
+
+
+def _is_blank(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and not value.strip())
+
+
+def _legacy_action(step: Dict[str, Any], adapter: str) -> str:
+    """The action a migrated step runs: its own action, else config.action for an
+    internal adapter, else fetch_resource."""
+    own = step.get("action")
+    if isinstance(own, str) and own.strip():
+        return own
+    config = step.get("config")
+    config_action = config.get("action") if isinstance(config, dict) else None
+    if adapter.strip().lower() == "internal" and isinstance(config_action, str) and config_action.strip():
+        return config_action
+    return LEGACY_DEFAULT_ACTION
+
+
+def migrate_step(step: Any) -> Any:
+    """Return ``step`` in the adapter + action shape. Never mutates the input.
+
+    A legacy step names its integration in ``type`` and has no adapter of its
+    own (the ``adapter`` key is absent or blank): ``{"type": "github", ...}``
+    becomes ``adapter="github"`` with ``type`` dropped. ``action`` is the step's
+    own non-blank action, else ``config.action`` for an internal adapter, else
+    ``fetch_resource``. ``config`` and the other fields are kept.
+
+    Returned unchanged (as a copy): ORCHESTRATOR_TASK steps, steps that already
+    name an adapter (including an explicit null, which the validator reports),
+    and steps whose ``type`` is absent, null, blank or not a string. Non-dict
+    entries are returned as given.
+    """
+    if not isinstance(step, dict):
+        return step
+    migrated = dict(step)
+    if migrated.get("type") == HITL_STEP_TYPE:
+        return migrated
+    if "adapter" in migrated and not _is_blank(migrated["adapter"]):
+        return migrated
+    if "adapter" in migrated and migrated["adapter"] is None:
+        return migrated
+    step_type = migrated.get("type")
+    if not (isinstance(step_type, str) and step_type.strip()):
+        return migrated
+    migrated.pop("type")
+    migrated["adapter"] = step_type
+    migrated["action"] = _legacy_action(migrated, step_type)
+    return migrated
