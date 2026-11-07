@@ -8,6 +8,7 @@ from agents import state as state_module
 from agents.constants import REVIEW_STAGES, STAGE_AGENTS, STAGE_HANDLERS
 from agents.notifications import notify_stage_transition
 from agents.handlers import StageHandler
+from api.settings_store import get_setting
 # Expose sub‑modules for test patches
 import agents.refiner as refiner
 import agents.architect as architect
@@ -28,6 +29,8 @@ _UNKNOWN_PRIORITY_RANK = 4
 _MISSING = object()
 
 # P2-12: consecutive handler failures after which an item is blocked and skipped.
+# The live threshold is the ``poison_strikes`` setting (D14, default 3), read on
+# every failure. This constant is the default, kept for import compatibility.
 MAX_CONSECUTIVE_FAILURES = 3
 
 
@@ -202,7 +205,7 @@ class Orchestrator:
         return processed
 
     def _record_failure(self, item_id, stage, before, exc):
-        """Count a handler failure; after MAX_CONSECUTIVE_FAILURES block the item (P2-12).
+        """Count a handler failure; after ``poison_strikes`` failures block the item (P2-12).
 
         Counters live in memory only. Blocking sets ``blocked_reason`` through
         ``_commit_item`` (a merge of just that key) and skips the item until its
@@ -212,7 +215,7 @@ class Orchestrator:
         prev_stage, count = self._failures.get(key, (stage, 0))
         count = count + 1 if prev_stage == stage else 1
         self._failures[key] = (stage, count)
-        if count < MAX_CONSECUTIVE_FAILURES:
+        if count < int(get_setting("poison_strikes")):
             return
         self._blocked[key] = stage
         self._failures.pop(key, None)
