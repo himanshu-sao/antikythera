@@ -103,7 +103,7 @@ class UpdateItemRequest(BaseModel):
     def validate_priority(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and v.lower() not in VALID_PRIORITIES:
             raise ValueError(f'Invalid priority. Must be one of: {VALID_PRIORITIES}')
-        return v
+        return v.lower() if v is not None else None
 
     @field_validator('complexity')
     @classmethod

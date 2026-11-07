@@ -39,6 +39,11 @@ async def create_item(request: Request, item_request: CreateItemRequest):
     )
     if not success:
         raise HTTPException(status_code=400, detail="Item already exists")
+    # The WorkflowStateManager.create_item facade does not forward priority, so
+    # a non-default priority is applied with a follow-up update on the new item.
+    # TODO: forward priority through the facade and drop this second write.
+    if item_request.priority and item_request.priority != "medium":
+        get_state_manager().update_item(item_request.item_id.upper(), {"priority": item_request.priority})
     return {"status": "success", "message": f"Item {item_request.item_id} created"}
 
 @router.patch("/item/{item_id}", summary="Update item details")

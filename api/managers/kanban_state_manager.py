@@ -24,7 +24,7 @@ class KanbanStateManager(BaseJSONManager):
         # so stale fixtures and older writers don't leak to the UI/API.
         return sanitize_state(state)
 
-    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None, complexity: Optional[str] = None) -> bool:
+    def create_item(self, item_id: str, title: str, goal: Optional[str] = None, description: Optional[str] = None, source_type: Optional[str] = None, source_value: Optional[str] = None, due_date: Optional[str] = None, complexity: Optional[str] = None, priority: Optional[str] = None) -> bool:
         with self.lock:
             state = self.load_state()
             normalized_id = item_id.upper()
@@ -35,7 +35,7 @@ class KanbanStateManager(BaseJSONManager):
                 "goal": goal,
                 "description": description,
                 "stage": "INTAKE",
-                "priority": "medium",
+                "priority": priority.lower() if priority else "medium",
                 "complexity": complexity,
                 "source_type": source_type,
                 "source_value": source_value,
