@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
-from .models.automation import Pipeline, Path, PathStep, PipelineRun
+from .models.automation import Pipeline, Path, PathStep, PipelineRun, ExecutionLog, ExecutionStatus
 import uuid
 from datetime import datetime
 import os
@@ -128,20 +128,28 @@ async def trigger_pipeline_run(pipeline_id: str):
     
     pipeline = pipelines_db[pipeline_id]
     run_id = f"run_{uuid.uuid4().hex[:8]}"
-    
-    # Create initial run record
+    started_at = datetime.utcnow()
+
+    # Create the run record. The first log is a real ExecutionLog (it requires
+    # step_id) so the model validates. The run is only recorded here; nothing is
+    # executed. The execution engine is not wired to this endpoint yet.
+    # TODO: hand the run to the execution engine once pipeline execution is wired up.
     run = PipelineRun(
         run_id=run_id,
         pipeline_id=pipeline_id,
-        started_at=datetime.utcnow(),
+        started_at=started_at,
         status="RUNNING",
-        logs=[{"timestamp": datetime.utcnow().isoformat(), "level": "INFO", "message": f"Pipeline execution started: {pipeline.name}"}]
+        logs=[ExecutionLog(
+            run_id=run_id,
+            pipeline_id=pipeline_id,
+            step_id="pipeline",
+            started_at=started_at,
+            status=ExecutionStatus.RUNNING,
+            execution_reason=f"Pipeline execution recorded (not executed): {pipeline.name}",
+        )],
     )
     runs_db[run_id] = run
-    
-    # TODO: In production, this would trigger the actual execution_engine
-    # For now, we just return the run_id
-    
+
     return {
         "status": "running",
         "run_id": run_id,
