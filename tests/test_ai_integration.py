@@ -1,64 +1,36 @@
+"""Live-LLM smoke test of LLMClient against Gemma 4 (deselected by default).
+
+Run with: pytest -m live_llm tests/test_ai_integration.py
+Needs GOOGLE_API_KEY_KANBAN and network. Offline coverage of LLMClient lives in
+tests/test_llm_client.py.
+"""
 import os
-import sys
+
+import pytest
 from dotenv import load_dotenv
 
-# Load .env at the very beginning so os.getenv works throughout the script
-load_dotenv()
+pytestmark = pytest.mark.live_llm
 
-# Add current directory to sys.path to allow importing from 'agents'
-sys.path.append(os.getcwd())
+MODELS = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"]
 
-from agents.llm_client import LLMClient
 
-def test_llm_with_gemma_4():
-    print("--- AI Integration Test (Gemma 4) ---")
-    
-    # Check if Google API Key is present in env
-    google_key = os.getenv("GOOGLE_API_KEY_KANBAN")
-    if not google_key:
-        print("ERROR: GOOGLE_API_KEY_KANBAN not found in environment variables.")
-        return False
-    else:
-        print(f"SUCCESS: Found GOOGLE_API_KEY_KANBAN (length: {len(google_key)})")
-    
-    # Try both 26B and 31B if the first one fails
-    models_to_try = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"]
-    
-    for model_name in models_to_try:
-        print(f"\n>>> Attempting with model: {model_name}")
-        try:
-            print("Initializing LLMClient...")
-            config_path = os.path.join(os.getcwd(), "config.yaml")
-            client = LLMClient(config_path=config_path)
-            client.model = model_name
-            print(f"Client initialized with model: {client.model}")
+@pytest.mark.parametrize("model_name", MODELS)
+def test_llm_with_gemma_4(model_name):
+    load_dotenv()
+    if not os.getenv("GOOGLE_API_KEY_KANBAN"):
+        pytest.skip("GOOGLE_API_KEY_KANBAN not set")
 
-            print("Sending test prompt: 'What is 2 + 2?'")
-            response = client.chat(
-                system_prompt="You are a helpful assistant. Answer very briefly.",
-                user_prompt="What is 2 + 2?"
-            )
-            
-            print(f"AI Response: {response}")
-            
-            if "4" in response:
-                print(f"TEST RESULT: PASSED ✅ for {model_name}")
-                return True
-            else:
-                print(f"TEST RESULT: FAILED ❌ for {model_name} (Unexpected response)")
-        
-        except Exception as e:
-            print(f"TEST RESULT: FAILED ❌ for {model_name}")
-            print(f"Error details: {str(e)}")
-            # If it's a quota error (429), we probably won't succeed with the next one either
-            if "429" in str(e):
-                print("Detected 429 (Quota Exceeded). Stopping tests.")
-                break
-            print("Moving to next model...")
+    from agents.llm_client import LLMClient
 
-    print("\nALL ATTEMPTS FAILED.")
-    return False
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    client = LLMClient(config_path=os.path.join(root, "config.yaml"))
+    client.model = model_name
 
-if __name__ == "__main__":
-    success = test_llm_with_gemma_4()
-    sys.exit(0 if success else 1)
+    response = client.chat(
+        system_prompt="You are a helpful assistant. Answer very briefly.",
+        user_prompt="What is 2 + 2?",
+    )
+
+    assert isinstance(response, str)
+    assert not LLMClient.is_stub(response), f"{model_name}: degraded to stub: {response[:120]}"
+    assert "4" in response

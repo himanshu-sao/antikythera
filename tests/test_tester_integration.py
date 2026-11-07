@@ -1,88 +1,54 @@
+"""Live-LLM check of the tester agent (deselected by default).
+
+Run with: pytest -m live_llm tests/test_tester_integration.py
+Needs GOOGLE_API_KEY_KANBAN and network. Writes only under the per-test tmp
+data dir provided by the autouse ``isolate_data_dir`` fixture. Offline coverage
+of the same function lives in tests/test_tester.py.
+"""
 import os
-import sys
+
+import pytest
 from dotenv import load_dotenv
 
-# Load .env at the very beginning so os.getenv works throughout the script
-load_dotenv()
+pytestmark = pytest.mark.live_llm
 
-# Add current directory to sys.path to allow importing from 'agents'
-sys.path.append(os.getcwd())
+SPEC = (
+    "# Spec\n\n## Overview\nTest spec.\n\n## Requirements\n- Req 1\n\n"
+    "## Scope\n- Scope 1\n\n## Edge Cases\n- Edge 1\n\n## Constraints\n- Const 1\n\n"
+    "## PII / Secret Handling Notes\n- None"
+)
+ARCH = (
+    "# Arch\n\n## Architecture Diagram\n```mermaid\ngraph TD\nA --> B\n```\n\n"
+    "## Tech Stack Decisions\n- Python\n\n## Risk Flags\n- Low\n\n"
+    "## Dry-Run Notes\n- None\n\n## Constraints and Assumptions\n- None"
+)
 
-from agents.llm_client import LLMClient
 
-def test_tester_integration():
-    print("--- Tester AI Integration Test ---")
-    
-    # Check if Google API Key is present in env
-    google_key = os.getenv("GOOGLE_API_KEY_KANBAN")
-    if not google_key:
-        print("ERROR: GOOGLE_API_KEY_KANBAN not found in environment variables.")
-        return False
-    else:
-        print(f"SUCCESS: Found GOOGLE_API_KEY_KANBAN (length: {len(google_key)})")
-    
-    # Create a dummy spec and arch for testing
+def test_tester_integration(isolate_data_dir, monkeypatch):
+    load_dotenv()
+    if not os.getenv("GOOGLE_API_KEY_KANBAN"):
+        pytest.skip("GOOGLE_API_KEY_KANBAN not set")
+
+    import agents.tester as tester
+    from agents.llm_client import LLMClient
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    client = LLMClient(config_path=os.path.join(root, "config.yaml"))
+    client.model = "gemma-4-26b-a4b-it"
+    monkeypatch.setattr(tester, "llm", client)
+
     test_id = "TEST-TEST-001"
-    test_dir = os.path.join(os.getcwd(), "automation-ideas", "requirements", test_id)
-    os.makedirs(test_dir, exist_ok=True)
-    
-    spec_path = os.path.join(test_dir, "spec.md")
-    arch_path = os.path.join(test_dir, "architecture.md")
-    
-    with open(spec_path, "w") as f:
-        f.write("# Spec\n\n## Overview\nTest spec.\n\n## Requirements\n- Req 1\n\n## Scope\n- Scope 1\n\n## Edge Cases\n- Edge 1\n\n## Constraints\n- Const 1\n\n## PII / Secret Handling Notes\n- None")
-    
-    with open(arch_path, "w") as f:
-        f.write("# Arch\n\n## Architecture Diagram\n```mermaid\ngraph TD\nA --> B\n```\n\n## Tech Stack Decisions\n- Python\n\n## Risk Flags\n- Low\n\n## Dry-Run Notes\n- None\n\n## Constraints and Assumptions\n- None")
+    req_dir = isolate_data_dir / "requirements" / test_id
+    req_dir.mkdir(parents=True)
+    (req_dir / "spec.md").write_text(SPEC)
+    (req_dir / "architecture.md").write_text(ARCH)
 
-    try:
-        print("Initializing LLMClient...")
-        config_path = os.path.join(os.getcwd(), "config.yaml")
-        client = LLMClient(config_path=config_path)
-        client.model = "gemma-4-26b-a4b-it"
-        print(f"Client initialized with model: {client.model}")
+    confidence = tester.tester_idea(test_id)
 
-        from agents.tester import tester_idea
-        print(f"Running tester_idea for {test_id}...")
-        confidence = tester_idea(test_id)
-        
-        print(f"Tester confidence: {confidence}")
-
-        # Verify file creation
-        test_path = os.path.join(test_dir, "tests.md")
-        if os.path.exists(test_path):
-            print(f"SUCCESS: tests.md created at {test_path}")
-            with open(test_path, "r") as f:
-                content = f.read()
-                print("\n--- Generated Test Plan Content (Preview) ---")
-                print(content[:300] + "...")
-                
-                if "given" in content.lower() and "when" in content.lower() and "then" in content.lower():
-                    print("SUCCESS: 'Given/When/Then' format found in content.")
-                else:
-                    print("FAILED: 'Given/When/Then' format NOT found in content.")
-            
-            if confidence > 0:
-                print("\nTEST RESULT: PASSED ✅")
-                return True
-            else:
-                print("\nTEST RESULT: FAILED ❌ (Low confidence)")
-                return False
-        else:
-            print(f"FAILED: tests.md NOT found at {test_path}")
-            return False
-
-    except Exception as e:
-        print(f"\nTEST RESULT: FAILED ❌ (Exception occurred)")
-        print(f"Error details: {str(e)}")
-        return False
-    finally:
-        # Cleanup
-        import shutil
-        if os.path.exists(os.path.join(os.getcwd(), "automation-ideas", "requirements", "TEST-TEST-001")):
-             shutil.rmtree(os.path.join(os.getcwd(), "automation-ideas", "requirements", "TEST-TEST-001"))
-             print("Cleanup complete.")
-
-if __name__ == "__main__":
-    success = test_tester_integration()
-    sys.exit(0 if success else 1)
+    tests_path = req_dir / "tests.md"
+    assert tests_path.is_file(), "tests.md was not written"
+    content = tests_path.read_text()
+    assert not LLMClient.is_stub(content), "LLM returned a stub response"
+    lowered = content.lower()
+    assert "given" in lowered and "when" in lowered and "then" in lowered
+    assert isinstance(confidence, int) and confidence > 0
