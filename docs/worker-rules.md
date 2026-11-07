@@ -18,7 +18,9 @@ Repo: FastAPI backend `api/`, agent pipeline `agents/`, React UI `ui/`, JSON sta
 6. **Delete only what your brief lists.**
 7. **Git.** Commit each item separately: `git add <your paths>` then `git commit -m "<msg>" -- <explicit paths>`. Never `git add -A`, `git add .`, `git commit -a`, amend, rebase, reset, stash, checkout of other files, or push. If `.git/index.lock` exists, wait 5 s and retry (up to 6 times). Conventional commit messages that mention the item ID. No Co-Authored-By trailer.
 8. **Do not edit `docs/`, the vault, or any file you do not own** (except where your brief says so). W1 owns `conftest.py` and `pytest.ini` and may be editing them while you work. If you see fixture or collection errors you did not cause, wait 60 s and re-run (up to 3 times), then report.
-9. **Held decisions: do not implement or change behaviour.**
+9. **Decisions.** `docs/decisions.md` (2026-11-07) answers D1, D2, D3, D4, D5 and D7 and several other topics. Implement only what your brief assigns from it. The list below is what was held BEFORE those answers; anything not answered in `docs/decisions.md` is still held.
+
+   **Previously held (now see `docs/decisions.md`):**
    - D1 authentication.
    - D2 workflow step dispatch and schema (`api/execution_engine.py` `hub.execute_action` call and step `type` handling).
    - D3 what happens when refiner, architect or tester fail or return stub text.
