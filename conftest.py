@@ -24,6 +24,20 @@ if "ANTIKYTHERA_BOB_STUB" not in os.environ:
 
 
 # ----------------------------------------------------------------------
+# D1 auth: every /api/* route requires a bearer token (api/security.py).
+# The suite sets a known token for the whole session so nothing generates a
+# token file under the real ~/.antikythera, and pins the CORS/docs env vars so
+# api.main builds the same app regardless of the developer's shell.
+# ``bypass_api_token`` (autouse, below) overrides the dependency so the
+# existing tests need no Authorization header; tests/test_auth.py removes the
+# override to exercise the real dependency.
+# ----------------------------------------------------------------------
+os.environ["ANTIKYTHERA_API_TOKEN"] = "test-token"
+os.environ.pop("ANTIKYTHERA_ENABLE_DOCS", None)
+os.environ.pop("ANTIKYTHERA_CORS_ORIGINS", None)
+
+
+# ----------------------------------------------------------------------
 # 1. Ensure a default asyncio event loop exists for any code that calls
 #    asyncio.get_event_loop() outside of a test context.
 # ----------------------------------------------------------------------
@@ -369,3 +383,17 @@ def _redirect_state_holders(monkeypatch, api_main, sm):
     monkeypatch.setattr(api_main.escalator, "state_manager", sm, raising=False)
     monkeypatch.setattr(api_main.retry_manager, "state_manager", sm, raising=False)
     monkeypatch.setattr(api_main.scheduler, "state_manager", sm, raising=False)
+
+
+# D1: bypass the bearer-token dependency for the whole suite (see the D1 note near the top).
+# Function scope so each test gets a clean override map; tests/test_auth.py
+# pops the override in its own fixture to test the real ``require_token``.
+@pytest.fixture(autouse=True)
+def bypass_api_token(monkeypatch):
+    monkeypatch.setenv("ANTIKYTHERA_API_TOKEN", "test-token")
+    import api.main as api_main
+    from api.security import require_token
+
+    api_main.app.dependency_overrides[require_token] = lambda: None
+    yield
+    api_main.app.dependency_overrides.pop(require_token, None)

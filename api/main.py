@@ -5,7 +5,7 @@ try:
     asyncio.get_event_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -46,6 +46,7 @@ from api.builder_router import router as builder_router
 from api.workflow_router import router as workflow_router
 from api.routers.ai_engine_config_router import router as ai_engine_config_router
 from api.studio_router import router as studio_router
+from api.security import require_token
 
 # Assuming other routers exist, if not I'll add placeholders or just the ones I've built
 # Include Jira integration routes
@@ -74,7 +75,29 @@ async def lifespan(app: FastAPI):
     if scheduler is not None:
         scheduler.stop()
 
-app = FastAPI(title="Antikythera API", lifespan=lifespan)
+_TRUTHY = {"1", "true", "yes", "on"}
+DEFAULT_CORS_ORIGINS = "http://localhost:15173"
+
+
+def docs_enabled() -> bool:
+    """D1: Swagger/ReDoc/OpenAPI are served only when ANTIKYTHERA_ENABLE_DOCS is truthy."""
+    return os.environ.get("ANTIKYTHERA_ENABLE_DOCS", "").strip().lower() in _TRUTHY
+
+
+def docs_kwargs() -> dict:
+    """FastAPI constructor kwargs that switch the docs endpoints off unless enabled."""
+    if docs_enabled():
+        return {}
+    return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+
+
+def cors_origins() -> list:
+    """Allowed CORS origins from ANTIKYTHERA_CORS_ORIGINS (comma separated)."""
+    raw = os.environ.get("ANTIKYTHERA_CORS_ORIGINS", "").strip() or DEFAULT_CORS_ORIGINS
+    return [o.strip() for o in raw.split(",") if o.strip()]
+
+
+app = FastAPI(title="Antikythera API", lifespan=lifespan, **docs_kwargs())
 
 
 @app.exception_handler(CorruptStateError)
@@ -88,17 +111,15 @@ async def corrupt_state_handler(request: Request, exc: CorruptStateError):
     logging.getLogger("antikythera.api").error("Corrupt state file on %s %s: %s", request.method, request.url.path, exc)
     return JSONResponse(status_code=500, content={"detail": public_message(exc)})
 
-# Enable CORS for frontend development.
-# allow_origins=["*"] cannot be combined with allow_credentials=True (per spec,
-# browsers reject the response), and the UI does not send cookies/credentials,
-# so credentials are left disabled here. For a production deploy, set explicit
-# origins and re-enable credentials only if actually needed.
+# CORS (D1): restricted to the UI origin(s) from ANTIKYTHERA_CORS_ORIGINS
+# (comma separated, default http://localhost:15173). The UI authenticates with
+# a bearer header, not cookies, so credentials stay off.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins(),
     allow_credentials=False,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Setup Directories and Services
@@ -119,21 +140,33 @@ app.state.engine = engine
 app.state.retry_manager = retry_manager
 app.state.scheduler = scheduler
 
-# Register Routers
-app.include_router(automation_router, prefix="/api/automation", tags=["Automation Compiler"])
-app.include_router(skill_router, prefix="/api/skills", tags=["Skill Brainstormer"])
-app.include_router(pipeline_router, prefix="/api/pipelines", tags=["Pipeline Management"])
-app.include_router(brain_router)
-app.include_router(board_router)
-app.include_router(integrations_router)
-app.include_router(jira_router)
-app.include_router(orchestrator_router)
-app.include_router(engine_router)
-app.include_router(trigger_router)
-app.include_router(builder_router)
-app.include_router(workflow_router)
-app.include_router(ai_engine_config_router, prefix="/api/ai-engine", tags=["AI Engine Configuration"])
-app.include_router(studio_router)
+# Register Routers (D1): every router requires the bearer token. The setup
+# router is the one exception: it protects itself with a loopback-only check
+# while setup is incomplete (it must be reachable before a token is known) and
+# requires the token itself where the decision says so.
+_auth = [Depends(require_token)]
+app.include_router(automation_router, prefix="/api/automation", tags=["Automation Compiler"], dependencies=_auth)
+app.include_router(skill_router, prefix="/api/skills", tags=["Skill Brainstormer"], dependencies=_auth)
+app.include_router(pipeline_router, prefix="/api/pipelines", tags=["Pipeline Management"], dependencies=_auth)
+app.include_router(brain_router, dependencies=_auth)
+app.include_router(board_router, dependencies=_auth)
+app.include_router(integrations_router, dependencies=_auth)
+app.include_router(jira_router, dependencies=_auth)
+app.include_router(orchestrator_router, dependencies=_auth)
+app.include_router(engine_router, dependencies=_auth)
+app.include_router(trigger_router, dependencies=_auth)
+app.include_router(builder_router, dependencies=_auth)
+app.include_router(workflow_router, dependencies=_auth)
+app.include_router(ai_engine_config_router, prefix="/api/ai-engine", tags=["AI Engine Configuration"], dependencies=_auth)
+app.include_router(studio_router, dependencies=_auth)
+
+# Arc A routers. The setup router carries no token dependency: it is reachable
+# before a token is known and protects itself with a loopback-only check while
+# setup is incomplete (D9).
+from api.settings_router import router as settings_router
+from api.setup_router import router as setup_router
+app.include_router(settings_router, dependencies=_auth)
+app.include_router(setup_router)
 
 # SEC-2: the automation-ideas/ data directory is intentionally NOT served as
 # static files. It holds the vault key, the secrets vault and integrations.json.
