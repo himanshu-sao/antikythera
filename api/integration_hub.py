@@ -404,6 +404,7 @@ class IntegrationHub:
             with self._lock():
                 current = self._load_config()
                 current[name] = {
+                    "name": name,
                     "type": type,
                     "config": config,
                     "created_at": os.popen('date -u +"%Y-%m-%dT%H:%M:%SZ"').read().strip()
@@ -489,12 +490,37 @@ class IntegrationHub:
             if not integration:
                 module = CANONICAL_ADAPTERS.get(lowered)
                 if module:
-                    integration = {
-                        "name": lowered,
-                        "type": "native",
-                        "config": {"adapter_module": module},
-                        "status": "canonical",
-                    }
+                    # Prefer a UI-configured integration that uses the same
+                    # adapter module, so its credentials (token, jira_url, ...)
+                    # reach the adapter. Deterministic pick when several match.
+                    matches = sorted(
+                        ((key, rec) for key, rec in self._load_config().items()
+                         if isinstance(rec, dict)
+                         and rec.get("type") == "native"
+                         and isinstance(rec.get("config"), dict)
+                         and rec["config"].get("adapter_module") == module),
+                        key=lambda pair: pair[0],
+                    )
+                    if matches:
+                        integration = dict(matches[0][1])
+                        integration["name"] = matches[0][0]
+                        if len(matches) > 1:
+                            logger.warning(
+                                "Canonical adapter %r: %d integrations use module %s; "
+                                "using %r (first by name)",
+                                lowered, len(matches), module, integration.get("name"))
+                        else:
+                            logger.info(
+                                "Integration %r not configured; using integration %r "
+                                "(adapter module %s) for its credentials",
+                                integration_name, integration.get("name"), module)
+                    else:
+                        integration = {
+                            "name": lowered,
+                            "type": "native",
+                            "config": {"adapter_module": module},
+                            "status": "canonical",
+                        }
                     if lowered == "bob_shell":
                         logger.warning(
                             "Integration %r not configured; using the canonical "
@@ -588,6 +614,33 @@ class IntegrationHub:
                 return getattr(mod, attr)
         raise ImportError(f"No *Adapter class found in {module_path}")
 
+    _CREDENTIAL_KEYS = ("token", "access_token", "api_key", "password",
+                        "jira_url", "url", "base_url")
+
+    def _extract_credentials(self, integration: Dict[str, Any]) -> Dict[str, str]:
+        """Credential-ish values from an integration record, safe to hand over.
+
+        ``${env:X}`` references are resolved from the environment; ``*****``
+        masked placeholders (SEC-5 list responses) and empty values are
+        dropped. Only the known credential keys are considered.
+        """
+        config = integration.get("config")
+        if not isinstance(config, dict):
+            return {}
+        creds: Dict[str, str] = {}
+        for key in self._CREDENTIAL_KEYS:
+            value = config.get(key)
+            if not isinstance(value, str) or not value.strip():
+                continue
+            if "*" in value:  # masked placeholder, never a real credential
+                continue
+            if value.startswith("${env:") and value.endswith("}"):
+                value = os.getenv(value[6:-1]) or ""
+                if not value:
+                    continue
+            creds[key] = value
+        return creds
+
     def _execute_native(self, integration: Dict[str, Any], action: str, params: Dict[str, Any],
                         secrets: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         adapter_module = integration["config"].get("adapter_module")
@@ -610,6 +663,18 @@ class IntegrationHub:
             return {"status": "error",
                     "result": f"Failed to construct {adapter_cls.__name__}: {exc}",
                     "logs": str(exc)}
+
+        # Hand the integration record's credentials to the adapter (instance
+        # values win over the environment). ``${env:X}`` references are
+        # resolved; masked ``*****`` values are never passed through.
+        creds = self._extract_credentials(integration)
+        if creds and hasattr(adapter_instance, "configure"):
+            try:
+                adapter_instance.configure(creds)
+            except Exception as exc:
+                return {"status": "error",
+                        "result": f"Failed to configure {adapter_cls.__name__}: {exc}",
+                        "logs": str(exc)}
 
         # --- map action to method name --------------------------------------------
         # tools/call: the caller provides {"name": "<tool>", "arguments": {...}}
