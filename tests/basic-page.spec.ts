@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 // Define the target URL for our local development server
-const TARGET_URL = 'http://localhost:5173/';
+const TARGET_URL = 'http://localhost:15173/';
 
 test('Website should load successfully on localhost', async ({ page }) => {
   // Navigate to the specified URL

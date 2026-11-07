@@ -5,7 +5,7 @@
 set -e
 
 API_URL="${API_URL:-http://localhost:8000}"
-FRONTEND_URL="${FRONTEND_URL:-http://localhost:5173}"
+FRONTEND_URL="${FRONTEND_URL:-http://localhost:15173}"
 
 echo "=========================================="
 echo "Antikythera E2E Test Suite"

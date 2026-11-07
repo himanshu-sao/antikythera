@@ -6,8 +6,8 @@ export default defineConfig(({ mode }) => {
   // dev-server proxy target can be set without a VITE_ prefix (it is server-side only).
   const env = loadEnv(mode, process.cwd(), '');
   // Where the Vite dev server forwards /api (and websocket) requests.
-  // Local dev: http://localhost:8006. Docker compose: http://backend:8006.
-  const apiProxyTarget = env.API_PROXY_TARGET || 'http://localhost:8006';
+  // Local dev: http://localhost:18006 (D8). Docker compose: http://backend:8006 (container port).
+  const apiProxyTarget = env.API_PROXY_TARGET || 'http://localhost:18006';
 
   return {
     plugins: [react()],
@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
       exclude: ['**/node_modules/**', '**/dist/**', '**/e2e-tests/**', '**/.{idea,git,cache,output,temp}/**'],
     },
     server: {
+      port: 15173,
       proxy: {
         '/api': {
           target: apiProxyTarget,
