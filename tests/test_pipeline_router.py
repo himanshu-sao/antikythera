@@ -46,13 +46,25 @@ class TestTriggerRun:
         r = client.post(f"/api/pipelines/{pid}/run")
         assert r.status_code == 200, r.text
         body = r.json()
-        assert body["status"] == "running"
+        # Nothing is executed, so the response must not claim the run is running.
+        assert body["status"] == "recorded"
+        assert body["executed"] is False
         assert body["pipeline_id"] == pid
         run_id = body["run_id"]
         assert run_id in pr.runs_db
         run = pr.runs_db[run_id]
         assert run.pipeline_id == pid
         assert run.status == "RUNNING"
+
+    def test_run_response_never_says_running(self, client):
+        # Regression for P2-18: the old response said "running" for a run that
+        # never executes. Every recorded run must be reported as "recorded".
+        pid = _add_pipeline()
+        for _ in range(2):
+            body = client.post(f"/api/pipelines/{pid}/run").json()
+            assert body["status"] != "running"
+            assert body["status"] == "recorded"
+            assert body["executed"] is False
 
     def test_first_log_is_a_valid_execution_log_with_step_id(self, client):
         pid = _add_pipeline()

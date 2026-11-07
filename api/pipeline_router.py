@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 from .models.automation import Pipeline, Path, PathStep, PipelineRun, ExecutionLog, ExecutionStatus
@@ -131,8 +131,10 @@ async def trigger_pipeline_run(pipeline_id: str):
     started_at = datetime.utcnow()
 
     # Create the run record. The first log is a real ExecutionLog (it requires
-    # step_id) so the model validates. The run is only recorded here; nothing is
-    # executed. The execution engine is not wired to this endpoint yet.
+    # step_id) so the model validates. The run is only recorded here, not
+    # executed, so the response says "recorded" with executed=False. The stored
+    # run keeps status RUNNING so the complete endpoint and the UI badge still
+    # work. The execution engine is not wired to this endpoint yet.
     # TODO: hand the run to the execution engine once pipeline execution is wired up.
     run = PipelineRun(
         run_id=run_id,
@@ -151,7 +153,8 @@ async def trigger_pipeline_run(pipeline_id: str):
     runs_db[run_id] = run
 
     return {
-        "status": "running",
+        "status": "recorded",
+        "executed": False,
         "run_id": run_id,
         "pipeline_id": pipeline_id
     }
