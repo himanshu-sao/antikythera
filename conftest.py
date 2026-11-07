@@ -193,6 +193,63 @@ def network_guard(request, monkeypatch):
         )
 
 
+# ----------------------------------------------------------------------
+# Provider / credential isolation (autouse). A test must never pick up the
+# developer's real keys, project ``.env`` or ``~/.antikythera`` config:
+#   * ``agents.llm_client.load_dotenv`` (LLMClient() calls it) is a no-op;
+#   * provider and credential variables are removed from os.environ;
+#   * the AI engine config service reads/writes a per-test home under tmp_path
+#     (config file and persisted ``.ai_env``), and its process-wide singleton is
+#     replaced by an instance on that tmp home.
+# ``live_llm`` tests need their explicit environment and are left alone.
+# ----------------------------------------------------------------------
+_CREDENTIAL_ENV_VARS = (
+    "GOOGLE_API_KEY",
+    "GOOGLE_API_KEY_KANBAN",
+    "NVIDIA_API_KEY",
+    "OPENROUTER_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "JIRA_PAT",
+    "JIRA_TOKEN",
+    "GITHUB_TOKEN",
+    "IBM_BOB_SHELL_DEFAULT_KEY",
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_provider_env(request, tmp_path, monkeypatch):
+    if request.node.get_closest_marker("live_llm"):
+        yield None
+        return
+
+    import agents.llm_client as llm_client
+    import api.services.ai_engine_config as aec
+
+    monkeypatch.setattr(llm_client, "load_dotenv", lambda *a, **k: False)
+
+    for name in _CREDENTIAL_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+    home = tmp_path / "antikythera-home"
+    home.mkdir(parents=True, exist_ok=True)
+    config_path = str(home / "ai_config.json")
+    env_path = str(home / ".ai_env")
+    monkeypatch.setattr(
+        aec.AIEngineConfigService, "_get_default_config_path", lambda self: config_path
+    )
+    monkeypatch.setattr(
+        aec.AIEngineConfigService, "_persistent_env_path", lambda self: env_path
+    )
+    # A fresh singleton on the tmp home (built after the patches above, so its
+    # constructor reads nothing from the real ~/.antikythera). Deep-copied so a
+    # test that mutates the config cannot change the module-wide default.
+    svc = aec.AIEngineConfigService()
+    svc.config = svc.config.model_copy(deep=True)
+    monkeypatch.setattr(aec, "_ai_engine_config_service", svc)
+    yield svc
+
+
 # Autouse fixture: every test gets its own ``automation-ideas`` tree under
 # tmp_path. Modules that hold the real data path as a module-level constant
 # (agents.state, the memory agent, board/studio routers, the integration hub)

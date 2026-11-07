@@ -95,3 +95,75 @@ def test_no_separate_reset_fixture(request):
 def test_each_test_gets_its_own_tmp_manager(tmp_path):
     # The manager must be rooted at this test's tmp_path, not a previous test's.
     assert _under(api_main.state_manager.base_dir, tmp_path)
+
+
+# ----------------------------------------------------------------------
+# P1-10: provider env, project .env and AI engine config are isolated
+# ----------------------------------------------------------------------
+_CREDS = (
+    "GOOGLE_API_KEY", "GOOGLE_API_KEY_KANBAN", "NVIDIA_API_KEY",
+    "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+    "JIRA_PAT", "JIRA_TOKEN", "GITHUB_TOKEN", "IBM_BOB_SHELL_DEFAULT_KEY",
+)
+
+
+def test_credential_env_vars_are_absent_inside_tests():
+    for name in _CREDS:
+        assert name not in os.environ, f"{name} leaked into a test"
+
+
+def test_credential_env_vars_removed_then_restored_by_monkeypatch(monkeypatch):
+    """Values set by one test are rolled back by monkeypatch, so the next starts clean."""
+    for name in _CREDS:
+        monkeypatch.setenv(name, "placeholder")
+    assert all(os.environ.get(n) == "placeholder" for n in _CREDS)
+
+
+def test_llm_client_load_dotenv_is_stubbed(monkeypatch, tmp_path):
+    import dotenv
+    import agents.llm_client as llm_client
+    assert llm_client.load_dotenv is not dotenv.load_dotenv
+    monkeypatch.chdir(str(tmp_path))
+    (tmp_path / ".env").write_text("ISO_SHOULD_NOT_LOAD=1\n")
+    assert llm_client.load_dotenv() is False
+    assert "ISO_SHOULD_NOT_LOAD" not in os.environ
+
+
+def test_llm_client_construction_does_not_read_dotenv(monkeypatch, tmp_path):
+    import agents.llm_client as llm_client
+    monkeypatch.chdir(str(tmp_path))
+    (tmp_path / ".env").write_text("ISO_DOTENV_MARKER=should-not-load\n")
+    cfg = tmp_path / "config.yaml"
+    cfg.write_text("llm:\n  provider: mock\n  model: mock\n")
+    monkeypatch.setattr(llm_client, "_resolve_from_config_service", lambda: None)
+    monkeypatch.setattr(llm_client.LLMClient, "_initialize_client", lambda self: None)
+    llm_client.LLMClient(config_path=str(cfg))
+    assert "ISO_DOTENV_MARKER" not in os.environ
+
+
+def test_ai_engine_config_singleton_is_on_tmp_home(isolate_provider_env, isolate_data_dir):
+    import api.services.ai_engine_config as aec
+    svc = aec.get_ai_engine_config()
+    assert svc is isolate_provider_env
+    assert _under(svc.config_path, isolate_data_dir.parent)
+    assert _under(svc._persistent_env_path(), isolate_data_dir.parent)
+    assert os.path.basename(svc._persistent_env_path()) == ".ai_env"
+
+
+def test_new_ai_engine_service_uses_tmp_home(tmp_path):
+    import api.services.ai_engine_config as aec
+    svc = aec.AIEngineConfigService()
+    assert _under(svc.config_path, tmp_path)
+    assert _under(svc._persistent_env_path(), tmp_path)
+
+
+def test_ai_engine_persistent_env_write_stays_in_tmp(isolate_provider_env, tmp_path):
+    svc = isolate_provider_env
+    os.environ["NVIDIA_API_KEY"] = "iso-test-value"
+    try:
+        svc._write_persistent_env()
+    finally:
+        os.environ.pop("NVIDIA_API_KEY", None)
+    env_path = svc._persistent_env_path()
+    assert os.path.isfile(env_path)
+    assert _under(env_path, tmp_path)
