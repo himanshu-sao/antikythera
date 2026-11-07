@@ -30,17 +30,114 @@ def test_load_state_file_not_found():
         assert result["items"] == {}
 
 
-def test_save_state_writes_json():
+def test_save_state_writes_json(tmp_path):
     """save_state should write valid JSON to the state file."""
     state_data = {"last_heartbeat": None, "items": {}}
-    with patch("agents.state.STATE_FILE", new_callable=lambda: "/fake/path.json"):
-        with patch("builtins.open", mock_open()) as mock_file:
-            with patch("os.makedirs"):
-                state.save_state(state_data)
-                handle = mock_file()
-                written_content = "".join(call[0][0] for call in handle.write.call_args_list)
-                parsed = json.loads(written_content)
-                assert parsed == state_data
+    target = tmp_path / "pipeline-state.json"
+    with patch("agents.state.STATE_FILE", str(target)):
+        state.save_state(state_data)
+    assert json.loads(target.read_text()) == state_data
+
+
+def _dir_listing(path):
+    return sorted(p.name for p in path.iterdir() if not p.name.endswith(".lock"))
+
+
+def _own_dir(tmp_path):
+    """A fresh dir so the autouse data-dir fixture's files don't pollute listings."""
+    d = tmp_path / "atomic-save"
+    d.mkdir()
+    return d
+
+
+def test_save_state_failure_mid_dump_keeps_previous_file(tmp_path):
+    """2.10 / T-atomic: a crash during json.dump must not corrupt the old file
+    and must not leave a temp file behind."""
+    tmp_path = _own_dir(tmp_path)
+    target = tmp_path / "pipeline-state.json"
+    old = {"last_heartbeat": "old", "items": {"ID-001": {"title": "keep me"}}}
+    target.write_text(json.dumps(old))
+
+    def boom(obj, fp, **kw):
+        fp.write('{"partial": ')  # half-written payload
+        raise RuntimeError("disk exploded")
+
+    with patch("agents.state.STATE_FILE", str(target)), \
+         patch("agents.state.json.dump", side_effect=boom):
+        with pytest.raises(RuntimeError, match="disk exploded"):
+            state.save_state({"items": {"ID-002": {}}})
+
+    assert json.loads(target.read_text()) == old
+    assert _dir_listing(tmp_path) == ["pipeline-state.json"]
+
+
+def test_save_state_failure_when_no_previous_file_leaves_nothing(tmp_path):
+    tmp_path = _own_dir(tmp_path)
+    target = tmp_path / "pipeline-state.json"
+    with patch("agents.state.STATE_FILE", str(target)), \
+         patch("agents.state.json.dump", side_effect=RuntimeError("nope")):
+        with pytest.raises(RuntimeError):
+            state.save_state({"items": {}})
+    assert _dir_listing(tmp_path) == []
+
+
+def test_save_state_success_leaves_no_temp_file_and_replaces(tmp_path):
+    tmp_path = _own_dir(tmp_path)
+    target = tmp_path / "pipeline-state.json"
+    target.write_text(json.dumps({"items": {"ID-001": {}}}))
+    new = {"last_heartbeat": None, "items": {"ID-002": {"title": "new"}}}
+    with patch("agents.state.STATE_FILE", str(target)):
+        state.save_state(new)
+    assert json.loads(target.read_text()) == new
+    assert _dir_listing(tmp_path) == ["pipeline-state.json"]
+
+
+def test_save_state_uses_replace_and_fsync(tmp_path):
+    """The write goes to a temp file in the same dir, is fsynced, then os.replace'd."""
+    target = tmp_path / "pipeline-state.json"
+    calls = []
+    real_replace, real_fsync = os.replace, os.fsync
+
+    def spy_replace(src, dst):
+        calls.append(("replace", os.path.dirname(src), dst))
+        return real_replace(src, dst)
+
+    def spy_fsync(fd):
+        calls.append(("fsync",))
+        return real_fsync(fd)
+
+    with patch("agents.state.STATE_FILE", str(target)), \
+         patch("agents.state.os.replace", side_effect=spy_replace), \
+         patch("agents.state.os.fsync", side_effect=spy_fsync):
+        state.save_state({"items": {}})
+
+    kinds = [c[0] for c in calls]
+    assert kinds == ["fsync", "replace"]
+    assert calls[1][1] == str(tmp_path)      # temp file lives beside the target
+    assert calls[1][2] == str(target)
+
+
+def test_save_state_creates_missing_parent_dir(tmp_path):
+    target = tmp_path / "nested" / "dir" / "pipeline-state.json"
+    with patch("agents.state.STATE_FILE", str(target)):
+        state.save_state({"items": {}})
+    assert json.loads(target.read_text()) == {"items": {}}
+
+
+def test_save_state_holds_the_state_lock(tmp_path):
+    """The write happens while the shared lock is held."""
+    target = tmp_path / "pipeline-state.json"
+    held = []
+    real_replace = os.replace
+
+    def check(src, dst):
+        held.append(state._lock.is_locked)
+        return real_replace(src, dst)
+
+    with patch("agents.state.STATE_FILE", str(target)), \
+         patch("agents.state.os.replace", side_effect=check):
+        state.save_state({"items": {}})
+    assert held == [True]
 
 
 def test_get_item_returns_correct_item():

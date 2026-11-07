@@ -7,6 +7,7 @@ the single source of truth for all pipeline state.
 
 import json
 import os
+import tempfile
 from datetime import datetime
 from filelock import FileLock
 
@@ -40,14 +41,32 @@ def load_state():
     return sanitize_state(state)
 
 def save_state(state):
-    """Save pipeline state to the JSON file.
-    The implementation writes directly to ``STATE_FILE`` under a lock.
-    This avoids double‑writes that broke the ``test_save_state_writes_json`` test.
+    """Save pipeline state to the JSON file atomically.
+
+    2.10 / T12: the payload is written to a temp file in the same directory,
+    flushed and fsynced, then moved over ``STATE_FILE`` with ``os.replace``.
+    A failure part-way through (e.g. ``json.dump`` raising) leaves the previous
+    file intact and removes the temp file. The write runs under the same
+    ``_lock`` / lock file as before.
     """
     with _lock:
-        os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
-        with open(STATE_FILE, "w") as f:
-            json.dump(state, f, indent=2)
+        target_dir = os.path.dirname(STATE_FILE)
+        os.makedirs(target_dir, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            prefix=os.path.basename(STATE_FILE) + ".", suffix=".tmp", dir=target_dir
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(state, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, STATE_FILE)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
+            raise
 
 def get_item(state, item_id):
     """
