@@ -12,6 +12,18 @@ from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger("backend")
 
+# Canonical adapter names (the template validator's allowlist plus the
+# execution-capable bob_shell, which only pre-existing stored templates use).
+# Used as a fallback when no integration with that name exists in
+# integrations.json; synthetic records are never persisted.
+CANONICAL_ADAPTERS = {
+    "internal": "api.adapters.internal",
+    "github": "api.adapters.github",
+    "jira": "api.adapters.jira",
+    "ai": "api.adapters.ai",
+    "bob_shell": "api.adapters.bob_shell",
+}
+
 MASK_PLACEHOLDER = "*****"
 
 # Name segments that mark a secret. Matching is on whole segments after splitting
@@ -468,6 +480,30 @@ class IntegrationHub:
         Returns a dict with 'result' and 'logs'.
         """
         integration = self.get_integration(integration_name)
+        if not integration and isinstance(integration_name, str):
+            # Stored templates and the validator use canonical adapter names
+            # (internal, github, jira, ai, bob_shell); integrations.json holds
+            # free-form names. Fall back to the canonical adapter module.
+            lowered = integration_name.strip().lower()
+            integration = self.get_integration(lowered)
+            if not integration:
+                module = CANONICAL_ADAPTERS.get(lowered)
+                if module:
+                    integration = {
+                        "name": lowered,
+                        "type": "native",
+                        "config": {"adapter_module": module},
+                        "status": "canonical",
+                    }
+                    if lowered == "bob_shell":
+                        logger.warning(
+                            "Integration %r not configured; using the canonical "
+                            "bob_shell adapter (execution-capable)", integration_name)
+                    else:
+                        logger.info(
+                            "Integration %r not configured; using the canonical "
+                            "adapter %s (no credentials resolved from an "
+                            "integration record)", integration_name, module)
         if not integration:
             raise Exception(f"Integration {integration_name} not found")
         
@@ -528,6 +564,13 @@ class IntegrationHub:
     _ACTION_MAP = {
         "fetch_resource": "fetch",
         "update_resource": "update",
+        # Internal-adapter verbs (workflow steps and Studio graphs) dispatch
+        # through the adapter's execute(), which switches on config["action"].
+        "move_item": "execute",
+        "add_comment": "execute",
+        "list_items": "execute",
+        # AI adapter (api.adapters.ai) — builder templates emit analyze steps.
+        "analyze": "analyze",
         "create_resource": "create",
         "delete_resource": "delete",
         "tools/call": None,      # resolved from params["name"] at call time
@@ -596,8 +639,13 @@ class IntegrationHub:
                 result = _run_coroutine_sync(
                     lambda: method(resource_id if method_name == "delete" else None, payload))
             elif method_name == "execute":
-                # synchronous mock path (used by tests)
-                result = method(run_id=params.get("run_id", ""), config=call_args, context={})
+                # Workflow steps pass their config at the top level (there is
+                # no "arguments" wrapper); tools/call keeps using arguments.
+                result = method(run_id=params.get("run_id", ""),
+                                config=call_args if call_args else params, context={})
+            elif method_name == "analyze":
+                result = _run_coroutine_sync(
+                    lambda: method(None, **(call_args if call_args else params)))
             else:
                 result = _run_coroutine_sync(lambda: method(resource_id, **call_args))
 
