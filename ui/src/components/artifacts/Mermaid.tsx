@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import mermaid from 'mermaid';
 
 // securityLevel 'strict' keeps diagram text from injecting HTML/JS (mermaid's 'loose' allows

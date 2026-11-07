@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   DndContext,
   DragEndEvent,
@@ -31,7 +31,7 @@ import { PipelineDashboard } from './components/PipelineDashboard';
 import { WorkflowManager } from './components/WorkflowManager';
 import { IntegrationsManager } from './components/IntegrationsManager';
 import { BlueprintArchitect } from './components/BlueprintArchitect';
-import type { Pipeline, PipelineState } from './types';
+import type { Pipeline } from './types';
 import { apiUrl } from './config';
 import { computeDragAction } from './utils/dragAction';
 import { InitialsAvatar } from './components/ui/InitialsAvatar';
