@@ -43,7 +43,8 @@ class TestRunPipeline:
         assert result == 2
         assert state["items"]["ID-001"]["stage"] == "REFINEMENT"
         assert state["items"]["ID-002"]["stage"] == "REFINEMENT"
-        mock_save.assert_called_once()
+        # one merge-commit per changed item + one heartbeat commit (2.11)
+        assert mock_save.call_count == 3
 
     @patch("agents.orchestrator.state_module.load_state")
     @patch("agents.orchestrator.state_module.save_state")

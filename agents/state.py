@@ -28,6 +28,14 @@ def _default_state():
         "items": {},
     }
 
+def state_lock():
+    """Return the shared (reentrant) state lock.
+
+    Callers doing a read-modify-write (re-read, merge, save) hold this across
+    the whole sequence. ``load_state``/``save_state`` take it reentrantly.
+    """
+    return _lock
+
 def load_state():
     """
     Load pipeline state from pipeline-state.json.

@@ -201,8 +201,8 @@ class StageHandler:
                 
                 result = executor.executor_idea(item_id, run_manager, run_id)
                 item['inline_output'] = result
-                from agents import state as state_module
-                state_module.save_state(state)
+                # No whole-state save here: the orchestrator commits this
+                # item's changes under the state lock (see run_pipeline).
                 self.orchestrator.transition_stage(item, 'DONE', state, item_id)
                 t_logger.info("executor", "EXECUTION_COMPLETE_INLINE", f"Inline execution successful")
                 return

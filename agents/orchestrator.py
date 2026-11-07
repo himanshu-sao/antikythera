@@ -1,3 +1,5 @@
+import copy
+import datetime
 import logging
 import asyncio
 from typing import Optional, Dict, Any, List, Tuple
@@ -21,6 +23,17 @@ logger = logging.getLogger(__name__)
 # VALID_PRIORITIES). Ranks are matched case-insensitively; lower rank runs first.
 PRIORITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 _UNKNOWN_PRIORITY_RANK = 4
+
+_MISSING = object()
+
+
+def _changed_keys(before, after):
+    """Top-level keys that were added, changed or removed between two item dicts."""
+    return {
+        key
+        for key in set(before) | set(after)
+        if before.get(key, _MISSING) != after.get(key, _MISSING)
+    }
 
 
 def _priority_rank(priority):
@@ -76,6 +89,28 @@ class Orchestrator:
             self.logger.warning("No handler for stage %s on item %s", stage, item_id)
 
     def run_pipeline(self):
+        """Process every actionable item once, then record a heartbeat.
+
+        Merge rule (2.11 / T1, decision D10). API edits can land on disk while
+        a run is in flight, so the pipeline never writes back a whole-state
+        snapshot taken at the start of the run:
+
+        1. Each item is processed against the snapshot loaded at the start of
+           the run. Before the handler runs, a deep copy ``before`` is taken.
+        2. The keys whose values differ between ``before`` and the processed
+           item (added, changed, or removed) are that item's *pipeline-owned*
+           changes. Everything else is not ours to write.
+        3. Under the state lock, the latest state is re-read from disk and only
+           those keys are applied onto the freshly read item. Keys the handler
+           did not change (e.g. a title edited by the API) keep their current
+           values. Values are replaced wholesale, so a list the handler
+           changed (``history``) is written as the handler left it.
+        4. If the item was deleted meanwhile, nothing is written, so it is not
+           resurrected.
+        5. The fresh state is saved.
+
+        Returns the number of items whose handler completed without raising.
+        """
         self.logger.info("Pipeline run starting")
         state = state_module.load_state()
         actionable = self.get_next_actionable_items(state)
@@ -83,14 +118,43 @@ class Orchestrator:
         processed = 0
         for item_id, item in actionable:
             self.logger.info("Processing item %s at stage %s", item_id, item.get("stage"))
+            before = copy.deepcopy(item)
             self.process_item(item, state, item_id)
             processed += 1
+            self._commit_item(item_id, before, item)
 
-        import datetime
-        state["last_heartbeat"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-        state_module.save_state(state)
+        self._commit_heartbeat()
         self.logger.info("Pipeline run complete. Processed %d items.", processed)
         return processed
+
+    def _commit_item(self, item_id, before, after):
+        """Merge one item's pipeline-owned changes into the latest on-disk state.
+
+        Returns True if something was written. See ``run_pipeline`` for the rule.
+        """
+        changed = _changed_keys(before, after)
+        if not changed:
+            return False
+        with state_module.state_lock():
+            fresh = state_module.load_state()
+            current = fresh.get("items", {}).get(item_id)
+            if current is None:
+                self.logger.info("Item %s was deleted during the run; not resurrecting it", item_id)
+                return False
+            for key in changed:
+                if key in after:
+                    current[key] = copy.deepcopy(after[key])
+                else:
+                    current.pop(key, None)
+            state_module.save_state(fresh)
+        return True
+
+    def _commit_heartbeat(self):
+        now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        with state_module.state_lock():
+            fresh = state_module.load_state()
+            fresh["last_heartbeat"] = now
+            state_module.save_state(fresh)
 
     def promote_artifact_to_pattern(self, item_id, artifact_name, content):
         """
