@@ -6,12 +6,15 @@ the watchdog observer, and the Orchestrator.
 
 import unittest
 import tempfile
+import pytest
 import os
 import time
 import shutil
 from unittest.mock import Mock
 from agents.watcher import FileWatcher
 from agents.orchestrator import Orchestrator
+
+pytestmark = pytest.mark.watcher
 
 class TestFileWatcherIntegration(unittest.TestCase):
 
