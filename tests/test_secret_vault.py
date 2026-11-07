@@ -1,16 +1,16 @@
 import unittest
 import os
 import shutil
+import tempfile
 from api.secret_vault import SecretVault
 
 class TestSecretVault(unittest.TestCase):
     def setUp(self):
-        self.test_dir = "tests/vault_test_dir"
-        os.makedirs(self.test_dir, exist_ok=True)
+        self.test_dir = tempfile.mkdtemp(prefix="antikythera_vault_")
         self.vault = SecretVault(self.test_dir)
 
     def tearDown(self):
-        shutil.rmtree(self.test_dir)
+        shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_store_and_retrieve(self):
         profile_id = "github_prod"

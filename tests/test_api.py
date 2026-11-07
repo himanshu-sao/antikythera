@@ -2,6 +2,7 @@ import unittest
 import json
 import os
 import shutil
+import tempfile
 from fastapi.testclient import TestClient
 from api.main import app
 from api.state_manager import StateManager
@@ -9,7 +10,8 @@ from api import board_router  # REQUIREMENTS_DIR is redirected to tmp by conftes
 
 class TestApi(unittest.TestCase):
     def setUp(self):
-        self.test_state_path = "tests/test_state_file.json"
+        self._tmp_dir = tempfile.mkdtemp(prefix="antikythera_api_")
+        self.test_state_path = os.path.join(self._tmp_dir, "test_state_file.json")
         self.client = TestClient(app)
 
         # Mock the state manager path in api.main
@@ -19,7 +21,7 @@ class TestApi(unittest.TestCase):
         # singleton and poisons later tests that rely on get_state_manager().
         self._prev_state_manager = api.main.state_manager
         # We must update the state_manager instance used by the app
-        api.main.state_manager = StateManager("tests")
+        api.main.state_manager = StateManager(self._tmp_dir)
         
         # Initial state (well-formed: every item carries a real ISO created_at,
         # so P3.6's load-time sanitizer leaves it untouched and the strict-
@@ -43,8 +45,7 @@ class TestApi(unittest.TestCase):
             json.dump(self.initial_state, f)
 
     def tearDown(self):
-        if os.path.exists(self.test_state_path):
-            os.remove(self.test_state_path)
+        shutil.rmtree(self._tmp_dir, ignore_errors=True)
         # Restore the state_manager singleton so this test's legacy
         # StateManager substitution doesn't leak into subsequent test files.
         import api.main

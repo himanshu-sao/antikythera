@@ -1,6 +1,7 @@
 import unittest
 import os
 import shutil
+import tempfile
 import json
 from unittest.mock import patch
 import agents.llm_client as _llm_mod  # bound module obj; patch.object uses it directly
@@ -13,8 +14,7 @@ from api.ai_adapter import AIAdapter
 
 class TestAntikytheraE2E(unittest.TestCase):
     def setUp(self):
-        self.test_dir = "tests/e2e_test_dir"
-        os.makedirs(self.test_dir, exist_ok=True)
+        self.test_dir = tempfile.mkdtemp(prefix="antikythera_e2e_")
 
         # Force the LLM to the deterministic stub path regardless of the ambient
         # ~/.antikythera/ai_config.json default — this test asserts the
@@ -53,7 +53,7 @@ class TestAntikytheraE2E(unittest.TestCase):
         self.ai = AIAdapter(api_key="test_key")
 
     def tearDown(self):
-        shutil.rmtree(self.test_dir)
+        shutil.rmtree(self.test_dir, ignore_errors=True)
 
     def test_full_workflow_lifecycle(self):
         # 1. Setup Integration & Secret
