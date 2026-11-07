@@ -64,7 +64,8 @@ export async function apiFetch(
     finalInit = { ...init, headers };
   }
   // Resolve fetch at call time so test mocks of globalThis.fetch keep working.
-  const res = await fetch(input, finalInit);
+  // Keep the exact call arity when there is nothing to add.
+  const res = await (finalInit === undefined ? fetch(input) : fetch(input, finalInit));
   if (res && res.status === 401) notifyAuthRequired();
   return res;
 }
