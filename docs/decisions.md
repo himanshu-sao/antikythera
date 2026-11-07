@@ -125,3 +125,21 @@ The Obsidian vault notes remain the personal knowledge base; these are the shipp
 - **Playwright e2e** for the golden paths across surfaces, API mocked with `page.route` (existing pattern): create idea → refine (mocked) → review via the new D5 review form → gated move rules; Studio: build a 2-node graph → preview → save → dry run; Integrations: add + test connection (mocked); AI Engine: set default model (mocked); the D9 setup screen first-run flow.
 - **Backend integration tests** for the cross-router flows the browser specs mock away: review endpoint → orchestrator gate advance; template save validation → trigger run (with the D2 dispatch fix); setup wizard status → config write → complete lock.
 - Update `playwright.config.ts` `baseURL` for the D8 port change.
+
+## D14 — Every setting configurable from the UI
+
+**Goal:** no config requires hand-editing a file on the Docker host. Inventory (2026-11-07): the AI Engine and Integrations surfaces already cover `ai_config.json` and `integrations.json`; Studio per-graph settings exist in the API (`cron_schedule`, `cron_enabled`, `undefined_queue_cap`, `max_run_logs`) but have no UI form; `config.yaml` (heartbeat, paths, LLM fallback) has no UI; and a set of tunables is hardcoded (orchestrator interval 30 s, executor `MAX_TASKS=6` / `MAX_TASK_ATTEMPTS=5` / workspace cap 60 / bob timeout 120 s, retry delays 5/10/15 min, reap age, poison strikes, digest cadence). The D1/D8/D10/D12 variables are set once by the D9 wizard but not editable afterwards.
+
+**Backend:**
+- New `~/.antikythera/settings.json` (honours `ANTIKYTHERA_HOME`), written atomically mode `0600` using the existing manager patterns, validated against a schema with **safe bounds** (e.g. orchestrator interval 5–3600 s, digest cadence 0.25–24 h, caps 1–1000). Defaults = today's hardcoded values, so an absent file changes nothing.
+- New `/api/settings` router (requires the D1 token): `GET` returns every setting with `value`, `default`, `bounds`, `source` (`settings.json` / `env` / `default`) and `restart_required`; `PATCH` validates and writes. Secret-bearing settings (Slack webhook, API token) return only `set: true/false` and are written through the existing safe env writer, never read back.
+- Refactor the hardcoded tunables to read from this service **with current values as defaults** (orchestrator loop, executor planner/tools, retry manager, reap age, poison strikes, digest cadence, Studio default caps). No behaviour change when the file is absent; each consumer re-reads on change where cheap, or is marked `restart_required`.
+- `config.yaml`'s heartbeat settings move into `settings.json`; `config.yaml` remains only as the LLM fallback block and is documented as legacy. Paths stay fixed (they are layout, not preference).
+- Env-file settings that the UI may edit (Slack webhook URL, CORS origins, enable-docs flag) are written via the safe env writer and flagged `restart_required`. `PORT` is shown read-only with its source.
+
+**Frontend:**
+- Restore a **Settings** tab (the dead nav entry was removed in run 2) as an aggregator: General (read-only runtime info: ports, host, restart-required items and where they are set), Notifications (webhook presence, cadence, digest interval), Pipeline (interval, retry delays, poison strikes, reap age), Executor (max tasks, attempts, workspace cap, bob timeout), Studio defaults (queue cap, max run logs), Backups (dir, keep, next-run info). Validated forms, save via `PATCH`, restart-required badge on affected fields.
+- A per-graph settings form in AutomationStudio (cron fields, `undefined_queue_cap`, `max_run_logs`) using the existing `GraphUpdateRequest`.
+- The D9 setup wizard remains the first-run flow; the Settings tab is the ongoing editor for the same values.
+
+**Tests:** GET/PATCH validation and bounds; secrets never read back; defaults unchanged with no file; at least one consumer actually honours a changed value (e.g. retry delays read from settings in a unit test); Studio form writes the graph fields; the whole router requires the token.
