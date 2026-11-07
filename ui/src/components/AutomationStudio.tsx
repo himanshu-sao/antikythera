@@ -111,6 +111,20 @@ const adapterKeyFor = (name: string): string => {
   return '';
 };
 
+// The engine looks adapters up by OperatorRegistry key (api/operator_registry.py),
+// not by integration name or catalog key. A Query node therefore carries the
+// registry key; the friendly integration name stays in the UI only (S4/P2).
+const REGISTRY_ADAPTER_KEYS: Record<string, string> = {
+  jira: 'jira_adapter',
+  github: 'github_adapter',
+  internal: 'internal_adapter',
+};
+
+export const registryKeyFor = (name: string): string => {
+  const key = adapterKeyFor(name);
+  return key ? REGISTRY_ADAPTER_KEYS[key] ?? '' : '';
+};
+
 // Build a fresh node_id. Deterministic + monotonic so commits are stable in
 // the graph outline (no Math.random — keeps snapshots/test output reproducible).
 const nextNodeId = (archetype: string, count: number): string =>
@@ -267,7 +281,7 @@ export function AutomationStudio() {
         node_id: nextNodeId('query', count),
         archetype: NodeArchetype.QUERY,
         name: q.name || `Query ${q.adapter}.${q.action}`,
-        adapter: q.adapter,
+        adapter: registryKeyFor(q.adapter) || q.adapter,
         action: q.action,
         params: Object.fromEntries(
           Object.entries(q.params).filter(([, v]) => v !== '' && v !== undefined),
