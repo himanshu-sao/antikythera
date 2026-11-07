@@ -4,7 +4,7 @@ import logging
 import asyncio
 from typing import Optional, Dict, Any, List, Tuple
 from agents import state as state_module
-from agents.constants import STAGE_AGENTS, STAGE_HANDLERS
+from agents.constants import REVIEW_STAGES, STAGE_AGENTS, STAGE_HANDLERS
 from agents.notifications import notify_stage_transition
 from agents.handlers import StageHandler
 # Expose sub‑modules for test patches
@@ -52,11 +52,12 @@ class Orchestrator:
         actionable = []
         for item_id, item in items.items():
             stage = item.get("stage", "INTAKE")
-            # Check if item is blocked by a review stage
-            from agents.constants import REVIEW_STAGES
+            # Review gates wait for the owner. Only a decision (APPROVED or
+            # NEEDS_REVISION) makes the item actionable, so the handler can
+            # advance it or send it back. PENDING / missing waits.
             if stage in REVIEW_STAGES:
                 review_status = item.get("review_status", "PENDING")
-                if review_status != "APPROVED":
+                if review_status not in ("APPROVED", "NEEDS_REVISION"):
                     continue
             actionable.append((item_id, item))
         
@@ -68,6 +69,10 @@ class Orchestrator:
         item["stage"] = new_stage
         agent = STAGE_AGENTS.get(new_stage)
         item["assigned_agent"] = agent
+        # 2.14: review_status belongs to the gate it was given at. A decision
+        # (APPROVED / NEEDS_REVISION) must not carry into the next stage, or an
+        # approval at REVIEW_SPEC would auto-pass REVIEW_ARCH.
+        item["review_status"] = "PENDING"
 
         if item_id:
             # Log history only if the item exists in the state; otherwise skip to avoid KeyError.

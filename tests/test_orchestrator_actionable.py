@@ -29,13 +29,13 @@ class TestGetNextActionableItems:
         actionable = orchestrator.get_next_actionable_items(state)
         assert len(actionable) == 1
 
-    def test_excludes_review_needs_revision(self):
-        """Items at REVIEW_SPEC with NEEDS_REVISION should NOT be actionable."""
+    def test_includes_review_needs_revision(self):
+        """2.14: NEEDS_REVISION must be actionable so the handler can send the item back."""
         state = make_items({
             "ID-001": make_item(stage="REVIEW_SPEC", review_status="NEEDS_REVISION"),
         })
         actionable = orchestrator.get_next_actionable_items(state)
-        assert len(actionable) == 0
+        assert len(actionable) == 1
 
     def test_sorts_by_priority(self):
         """Items should be sorted High first, then Medium, then Low."""
@@ -114,3 +114,25 @@ class TestPriorityOrdering:
         })
         ids = [i for i, _ in orchestrator.get_next_actionable_items(state)]
         assert ids[0] == "ID-002"
+
+
+class TestReviewGateActionable:
+    """2.14 — NEEDS_REVISION must reach the handler; APPROVED must not leak forward."""
+
+    def test_needs_revision_at_review_stage_is_actionable(self):
+        for stage in ("REVIEW_SPEC", "REVIEW_ARCH", "REVIEW_TEST"):
+            state = make_items({
+                "ID-001": make_item(stage=stage, review_status="NEEDS_REVISION"),
+            })
+            assert len(orchestrator.get_next_actionable_items(state)) == 1, stage
+
+    def test_pending_review_still_not_actionable(self):
+        for stage in ("REVIEW_SPEC", "REVIEW_ARCH", "REVIEW_TEST"):
+            state = make_items({"ID-001": make_item(stage=stage, review_status="PENDING")})
+            assert len(orchestrator.get_next_actionable_items(state)) == 0, stage
+
+    def test_missing_review_status_still_not_actionable(self):
+        item = make_item(stage="REVIEW_SPEC")
+        item.pop("review_status")
+        state = make_items({"ID-001": item})
+        assert orchestrator.get_next_actionable_items(state) == []

@@ -159,7 +159,7 @@ class TestTierTraversal:
         and return the ordered list of stages it lands on."""
         item = make_item(stage="INTAKE", title="t")
         item["complexity"] = tier
-        item["review_status"] = "APPROVED"   # auto-approve every review gate
+        item["review_status"] = "APPROVED"   # first gate; later gates are re-approved in the loop
         state = make_items({"ID-001": item})
         seen = []
         for _ in range(len(PIPELINE_STAGES) + 1):
@@ -168,6 +168,9 @@ class TestTierTraversal:
                 break
             stage = item["stage"]
             if stage.startswith("REVIEW_"):
+                # 2.14: review_status is reset on every transition, so the
+                # human approves each gate as the item reaches it.
+                item["review_status"] = "APPROVED"
                 if stage == "REVIEW_SPEC":
                     orchestrator.handle_review_spec(item, state, "ID-001")
                 elif stage == "REVIEW_ARCH":

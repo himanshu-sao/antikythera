@@ -84,3 +84,83 @@ class TestRunPipeline:
         with patch("agents.orchestrator.tester.tester_idea", return_value=85):
             orchestrator.run_pipeline()
         assert state["items"]["ID-001"]["stage"] == "REVIEW_TEST"
+
+
+class TestReviewStatusReset:
+    """2.14 — review_status is per-gate: approval at one gate must not auto-pass the next."""
+
+    def test_transition_clears_review_status(self):
+        item = make_item(stage="REVIEW_SPEC", review_status="APPROVED")
+        state = make_items({"ID-001": item})
+        orchestrator.transition_stage(item, "ARCHITECTURE", state, "ID-001")
+        assert item["review_status"] == "PENDING"
+
+    @patch("agents.orchestrator.state_module.save_state")
+    @patch("agents.orchestrator.state_module.load_state")
+    def test_approval_at_review_spec_does_not_auto_pass_review_arch(self, mock_load, mock_save):
+        state = make_items({
+            "ID-001": make_item(stage="REVIEW_SPEC", review_status="APPROVED"),
+        })
+        mock_load.return_value = state
+        with patch("agents.orchestrator.architect.architect_idea", return_value=90):
+            orchestrator.run_pipeline()   # REVIEW_SPEC (APPROVED) -> ARCHITECTURE
+            assert state["items"]["ID-001"]["stage"] == "ARCHITECTURE"
+            orchestrator.run_pipeline()   # ARCHITECTURE -> REVIEW_ARCH
+            assert state["items"]["ID-001"]["stage"] == "REVIEW_ARCH"
+            # The REVIEW_SPEC approval must NOT carry over: REVIEW_ARCH waits.
+            assert orchestrator.run_pipeline() == 0
+        item = state["items"]["ID-001"]
+        assert item["stage"] == "REVIEW_ARCH"
+        assert item["review_status"] == "PENDING"
+
+    @patch("agents.orchestrator.state_module.save_state")
+    @patch("agents.orchestrator.state_module.load_state")
+    def test_needs_revision_at_review_spec_sends_back_to_refinement(self, mock_load, mock_save):
+        state = make_items({
+            "ID-001": make_item(stage="REVIEW_SPEC", review_status="NEEDS_REVISION"),
+        })
+        mock_load.return_value = state
+        orchestrator.run_pipeline()
+        item = state["items"]["ID-001"]
+        assert item["stage"] == "REFINEMENT"
+        assert item["review_status"] == "PENDING"
+
+    @patch("agents.orchestrator.state_module.save_state")
+    @patch("agents.orchestrator.state_module.load_state")
+    def test_needs_revision_at_review_arch_sends_back_to_architecture(self, mock_load, mock_save):
+        state = make_items({
+            "ID-001": make_item(stage="REVIEW_ARCH", review_status="NEEDS_REVISION"),
+        })
+        mock_load.return_value = state
+        with patch("agents.orchestrator.architect.architect_idea", return_value=90) as arch:
+            orchestrator.run_pipeline()   # NEEDS_REVISION -> ARCHITECTURE
+            item = state["items"]["ID-001"]
+            assert item["stage"] == "ARCHITECTURE"
+            assert item["review_status"] == "PENDING"
+            assert arch.call_count == 0    # architect re-runs on the next cycle
+            orchestrator.run_pipeline()   # ARCHITECTURE -> REVIEW_ARCH (re-architected)
+            assert arch.call_count == 1
+        assert state["items"]["ID-001"]["stage"] == "REVIEW_ARCH"
+        assert state["items"]["ID-001"]["review_status"] == "PENDING"
+
+    @patch("agents.orchestrator.state_module.save_state")
+    @patch("agents.orchestrator.state_module.load_state")
+    def test_needs_revision_at_review_test_sends_back_to_testing(self, mock_load, mock_save):
+        state = make_items({
+            "ID-001": make_item(stage="REVIEW_TEST", review_status="NEEDS_REVISION"),
+        })
+        mock_load.return_value = state
+        orchestrator.run_pipeline()
+        item = state["items"]["ID-001"]
+        assert item["stage"] == "TESTING"
+        assert item["review_status"] == "PENDING"
+
+    @patch("agents.orchestrator.state_module.save_state")
+    @patch("agents.orchestrator.state_module.load_state")
+    def test_pending_review_is_not_processed(self, mock_load, mock_save):
+        state = make_items({
+            "ID-001": make_item(stage="REVIEW_ARCH", review_status="PENDING"),
+        })
+        mock_load.return_value = state
+        assert orchestrator.run_pipeline() == 0
+        assert state["items"]["ID-001"]["stage"] == "REVIEW_ARCH"
