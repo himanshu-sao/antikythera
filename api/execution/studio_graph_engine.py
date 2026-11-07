@@ -474,8 +474,18 @@ class PathStepGraphEngine:
 
             # Recurse to successors, but skip "loop" edges — FanOut handler
             # already executes those per-item with the correct child_loop_context.
+            # S3: a ConditionalAction follows only the edges of the branch that
+            # matched. Edges with no handle follow both branches (backward
+            # compatible); every other node follows all non-loop edges.
+            matched_branch = log_entry.get("matched_branch")
             for edge in adjacency.get(node_id, []):
                 if edge.source_handle == "loop":
+                    continue
+                if (
+                    matched_branch is not None
+                    and edge.source_handle
+                    and edge.source_handle != matched_branch
+                ):
                     continue
                 await self._execute_node(exec_state, graph, edge.target, adjacency, loop_context)
 
