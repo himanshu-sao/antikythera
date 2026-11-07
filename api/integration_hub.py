@@ -8,6 +8,69 @@ from typing import Dict, Any, Optional, List, Union
 
 logger = logging.getLogger("backend")
 
+MASK_PLACEHOLDER = "*****"
+
+# Config keys whose *segments* (split on _ - . or space) mark a secret.
+# Segment matching, not substring: "path" must not be treated as "pat".
+_SECRET_SEGMENTS = {
+    "token", "pat", "password", "passwd", "pwd", "secret", "key", "apikey",
+    "credential", "credentials",
+}
+
+
+def _is_secret_key(name: str) -> bool:
+    segments = re.split(r"[_\-. ]+", str(name).lower())
+    return any(seg in _SECRET_SEGMENTS for seg in segments)
+
+
+def mask_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a copy of *config* with secret-looking values replaced by MASK_PLACEHOLDER.
+
+    - Keys whose name marks a secret (token, pat, password, secret, api_key, key, ...)
+      are masked when they hold a non-empty value.
+    - Every value inside an ``env`` mapping (MCP environment) is masked.
+    Empty values are left as-is so the UI can show "not set".
+    """
+    masked: Dict[str, Any] = {}
+    for key, value in config.items():
+        if key == "env" and isinstance(value, dict):
+            masked[key] = {k: (MASK_PLACEHOLDER if v not in (None, "") else v) for k, v in value.items()}
+        elif _is_secret_key(key) and value not in (None, ""):
+            masked[key] = MASK_PLACEHOLDER
+        else:
+            masked[key] = value
+    return masked
+
+
+def merge_config_preserving_mask(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge *incoming* over *existing*, keeping stored values where *incoming* sends MASK_PLACEHOLDER.
+
+    A placeholder for a key with no stored value is dropped rather than stored as a literal.
+    The ``env`` mapping is merged key by key so a masked env value keeps its stored value.
+    """
+    merged: Dict[str, Any] = dict(existing)
+    for key, value in incoming.items():
+        if key == "env" and isinstance(value, dict) and isinstance(existing.get("env"), dict):
+            env = dict(existing["env"])
+            for env_key, env_val in value.items():
+                if env_val == MASK_PLACEHOLDER:
+                    if env_key in existing["env"]:
+                        env[env_key] = existing["env"][env_key]
+                    else:
+                        env.pop(env_key, None)
+                else:
+                    env[env_key] = env_val
+            merged["env"] = env
+        elif value == MASK_PLACEHOLDER:
+            if key in existing:
+                merged[key] = existing[key]
+            else:
+                merged.pop(key, None)
+        else:
+            merged[key] = value
+    return merged
+
+
 class IntegrationHub:
     """
     Manages external service connections.
@@ -71,12 +134,20 @@ class IntegrationHub:
         return self._load_config().get(name)
 
     def list_integrations(self) -> List[Dict[str, Any]]:
+        """List integrations with secret-looking config values masked (SEC-5).
+
+        Stored values are untouched; only the returned copies are masked.
+        Use get_integration() for the raw record needed for connections.
+        """
         config = self._load_config()
         results = []
         for name, data in config.items():
             # Ensure status exists, default to 'disconnected'
             status = data.get("status", "disconnected")
-            results.append({"name": name, **data, "status": status})
+            entry = {"name": name, **data, "status": status}
+            if isinstance(entry.get("config"), dict):
+                entry["config"] = mask_config(entry["config"])
+            results.append(entry)
         return results
 
     def delete_integration(self, name: str) -> bool:
@@ -99,11 +170,7 @@ class IntegrationHub:
         # Merge new config keys into existing config to avoid dropping required fields like 'adapter_module'
         existing_cfg = current[name].get("config", {}) or {}
         # Merge but preserve real secrets if placeholder values are supplied
-        merged_cfg = {**existing_cfg, **config}
-        # If token/secret fields are the placeholder ***** keep the old value
-        for secret_key in ["token", "access_token", "jira_url", "url"]:
-            if merged_cfg.get(secret_key) == "*****":
-                merged_cfg[secret_key] = existing_cfg.get(secret_key)
+        merged_cfg = merge_config_preserving_mask(existing_cfg, config)
         current[name]["config"] = merged_cfg
         self._save_config(current)
         # Validate credentials for known native adapters (e.g., Jira) and set status

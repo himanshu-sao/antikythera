@@ -61,7 +61,38 @@ class TestIntegrationsAPI(unittest.TestCase):
         # The config should include the original adapter_module plus the patched values
         self.assertEqual(jira_int["config"].get("adapter_module"), "api.adapters.jira")
         self.assertEqual(jira_int["config"].get("url"), "http://example.com")
-        self.assertEqual(jira_int["config"].get("token"), "secret")
+        # SEC-5: secret-looking fields are masked in list responses; the stored
+        # value is still the real one (checked via the hub, not the API body).
+        self.assertEqual(jira_int["config"].get("token"), "*****")
+        self.assertEqual(self.hub.get_integration("jira_test")["config"]["token"], "secret")
+
+    def test_patch_with_placeholder_keeps_stored_secret(self):
+        self.client.post(
+            "/api/integrations",
+            json={"name": "svc", "type": "native",
+                  "config": {"adapter_module": "api.adapters.github", "token": "real-token", "api_key": "real-key"}}
+        )
+        # UI round trip: GET (masked) then PATCH the masked config back with an edit.
+        listed = next(i for i in self.client.get("/api/integrations").json() if i["name"] == "svc")
+        self.assertEqual(listed["config"]["token"], "*****")
+        self.assertEqual(listed["config"]["api_key"], "*****")
+        edited = {**listed["config"], "enabled": False}
+        resp = self.client.patch("/api/integrations/svc", json={"config": edited})
+        self.assertEqual(resp.status_code, 200)
+        stored = self.hub.get_integration("svc")["config"]
+        self.assertEqual(stored["token"], "real-token")
+        self.assertEqual(stored["api_key"], "real-key")
+        self.assertEqual(stored["enabled"], False)
+
+    def test_list_response_never_contains_stored_secret_text(self):
+        self.client.post(
+            "/api/integrations",
+            json={"name": "svc", "type": "mcp",
+                  "config": {"command": "echo", "env": {"SOME_TOKEN": "literal-secret-xyz"}}}
+        )
+        resp = self.client.get("/api/integrations")
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotIn("literal-secret-xyz", resp.text)
 
     def test_patch_nonexistent_integration(self):
         # Attempt to patch an integration that does not exist
