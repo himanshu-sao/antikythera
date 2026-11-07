@@ -74,4 +74,7 @@ def test_trigger_workflow_engine_error_returns_500(client, engine):
         json={"template_id": "github_pr_release", "inputs": {}},
     )
     assert response.status_code == 500
-    assert "boom" in response.json()["detail"]
+    # Generic 500: the raw exception text is logged, not returned to the client.
+    detail = response.json()["detail"]
+    assert "WORKFLOW_TRIGGER_FAILED" in detail
+    assert "boom" not in detail
