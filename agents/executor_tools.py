@@ -44,6 +44,30 @@ def _is_stub_content(content: str) -> bool:
     return any(m.lower() in lowered for m in _STUB_MARKERS)
 
 
+# Root of the per-item requirements directories (``<root>/<item_id>/``).
+# ``None`` (the default) means "derive it from the process cwd at call time",
+# which is the historical behaviour: ``<cwd>/automation-ideas/requirements``.
+# Tests (conftest ``isolate_data_dir``) set it to a tmp dir so the executor can
+# never write into the real data folder; production code leaves it ``None``.
+REQUIREMENTS_ROOT = None
+
+
+def requirements_root() -> str:
+    """Directory holding the per-item requirement folders.
+
+    Returns :data:`REQUIREMENTS_ROOT` when set, else
+    ``<cwd>/automation-ideas/requirements`` (resolved at call time).
+    """
+    if REQUIREMENTS_ROOT:
+        return str(REQUIREMENTS_ROOT)
+    return os.path.join(os.getcwd(), "automation-ideas", "requirements")
+
+
+def item_requirements_dir(item_id: str) -> str:
+    """``requirements_root()/<item_id>``: where an item's artifacts live."""
+    return os.path.join(requirements_root(), item_id)
+
+
 def _resolve_item_path(path: str, item_id: str) -> str:
     """Anchor a *relative* tool path at the item's requirements directory.
 
@@ -66,7 +90,7 @@ def _resolve_item_path(path: str, item_id: str) -> str:
         return path
     if os.path.isabs(path):
         return path
-    item_dir = os.path.join(os.getcwd(), "automation-ideas", "requirements", item_id)
+    item_dir = item_requirements_dir(item_id)
     # SEC-7: a relative path may not escape the item dir ("../x", "a/../../x").
     # Normalise and check containment before anything is written or read.
     resolved = os.path.normpath(os.path.join(item_dir, path))

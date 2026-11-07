@@ -5,7 +5,9 @@ from typing import List, Dict, Any, Tuple
 from agents.llm_client import LLMClient
 from agents.executor_planner import ExecutorPlanner
 from agents.executor_diagnostics import ExecutorDiagnostics
-from agents.executor_tools import get_workspace_files, get_tools_description, execute_tool
+from agents.executor_tools import (
+    get_workspace_files, get_tools_description, execute_tool, item_requirements_dir,
+)
 from api.managers.run_manager import RunManager
 
 logger = logging.getLogger(__name__)
@@ -217,7 +219,7 @@ class ExecutorAgent:
     def _finalize_phase(self, item_id: str):
         logger.info(f"[{item_id}] Phase: FINALIZING")
         self._log_progress("Finalizing implementation and generating report...")
-        report_path = os.path.join(os.getcwd(), "automation-ideas", "requirements", item_id, "execution_report.md")
+        report_path = os.path.join(item_requirements_dir(item_id), "execution_report.md")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         with open(report_path, "w") as f:
             f.write(f"# Execution Report for {item_id}\n\n## Implementation Summary\n")
@@ -228,7 +230,7 @@ class ExecutorAgent:
     def _report_failure(self, item_id: str, error_message: str):
         logger.error(f"[{item_id}] Reporting FAILURE: {error_message}")
         self._log_progress(f"FAILURE: {error_message}")
-        report_path = os.path.join(os.getcwd(), "automation-ideas", "requirements", item_id, "execution_report.md")
+        report_path = os.path.join(item_requirements_dir(item_id), "execution_report.md")
         os.makedirs(os.path.dirname(report_path), exist_ok=True)
         with open(report_path, "w") as f:
             f.write(f"# Execution Report for {item_id}\n\n## STATUS: FAILURE\n\n### Error Details\n{error_message}\n")
@@ -240,7 +242,7 @@ def executor_idea(item_id: str, run_manager: RunManager, run_id: str) -> int:
         config = yaml.safe_load(f)
     
     executor = ExecutorAgent(config_path=config_path, run_manager=run_manager, run_id=run_id)
-    req_dir = os.path.join(os.getcwd(), "automation-ideas", "requirements", item_id)
+    req_dir = item_requirements_dir(item_id)
     spec_path = os.path.join(req_dir, "spec.md")
     arch_path = os.path.join(req_dir, "architecture.md")
     

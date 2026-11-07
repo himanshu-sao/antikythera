@@ -312,6 +312,21 @@ def isolate_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(api_utils, "LOG_BASE_DIR", logs_dir)
     monkeypatch.setattr(agent_logger, "DEFAULT_LOG_DIR", logs_dir)
 
+    # P4-1: data paths held as module constants that the lines above did not
+    # cover. agents.handlers builds a WorkflowStateManager on DATA_DIR; the
+    # brain loop reads/writes patterns and pending updates; the executor derives
+    # item directories from cwd unless REQUIREMENTS_ROOT is set. The cwd is NOT
+    # changed (config.yaml lookups depend on it), so the executor constant is
+    # the redirect.
+    import agents.brain_loop as agent_brain_loop
+    import agents.executor_tools as agent_executor_tools
+    monkeypatch.setattr(agent_handlers, "DATA_DIR", str(base))
+    monkeypatch.setattr(agent_brain_loop, "BRAIN_DIR", str(base / "brain"), raising=False)
+    monkeypatch.setattr(agent_brain_loop, "PATTERNS_FILE", str(base / "brain" / "patterns.md"), raising=False)
+    monkeypatch.setattr(agent_brain_loop, "PENDING_UPDATES_FILE", str(base / "brain" / "pending-updates.md"), raising=False)
+    monkeypatch.setattr(agent_brain_loop, "HISTORY_DIR", str(base / "brain" / "history"), raising=False)
+    monkeypatch.setattr(agent_executor_tools, "REQUIREMENTS_ROOT", str(base / "requirements"))
+
     # Integration hub: the app builds one at import time on the real data dir,
     # and tests that POST /api/integrations without their own override would
     # otherwise write the real integrations.json. Tests that set their own

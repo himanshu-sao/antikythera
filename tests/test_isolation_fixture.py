@@ -98,6 +98,74 @@ def test_each_test_gets_its_own_tmp_manager(tmp_path):
 
 
 # ----------------------------------------------------------------------
+# P4-1: module-level data paths outside the state managers
+# ----------------------------------------------------------------------
+def test_handlers_data_dir_is_tmp(isolate_data_dir):
+    import agents.handlers as agent_handlers
+    assert os.path.abspath(agent_handlers.DATA_DIR) == os.path.abspath(str(isolate_data_dir))
+
+
+def test_brain_loop_paths_are_tmp(isolate_data_dir):
+    import agents.brain_loop as brain_loop
+    assert _under(brain_loop.BRAIN_DIR, isolate_data_dir)
+    assert _under(brain_loop.PATTERNS_FILE, isolate_data_dir)
+    assert _under(brain_loop.PENDING_UPDATES_FILE, isolate_data_dir)
+    assert _under(brain_loop.HISTORY_DIR, isolate_data_dir)
+    assert os.path.basename(brain_loop.PATTERNS_FILE) == "patterns.md"
+    assert os.path.basename(brain_loop.PENDING_UPDATES_FILE) == "pending-updates.md"
+    assert os.path.basename(brain_loop.HISTORY_DIR) == "history"
+
+
+def test_brain_loop_apply_writes_only_under_tmp(isolate_data_dir):
+    import agents.brain_loop as brain_loop
+    os.makedirs(brain_loop.BRAIN_DIR, exist_ok=True)
+    with open(brain_loop.PENDING_UPDATES_FILE, "w") as f:
+        f.write("**review_status:** APPROVED\n**What to add:** iso-check\n")
+    with open(brain_loop.PATTERNS_FILE, "w") as f:
+        f.write("# Patterns\n")
+    brain_loop.apply_approved_updates()
+    assert "iso-check" in open(brain_loop.PATTERNS_FILE).read()
+
+
+def test_executor_requirements_root_is_redirected(isolate_data_dir):
+    import agents.executor_tools as executor_tools
+    from agents.executor import item_requirements_dir as exec_item_dir
+    assert executor_tools.REQUIREMENTS_ROOT == str(isolate_data_dir / "requirements")
+    assert _under(executor_tools.requirements_root(), isolate_data_dir)
+    assert _under(exec_item_dir("ID-ISO-1"), isolate_data_dir)
+
+
+def test_executor_resolves_relative_paths_under_tmp_requirements(isolate_data_dir):
+    import agents.executor_tools as executor_tools
+    resolved = executor_tools._resolve_item_path("out.txt", "ID-ISO-2")
+    assert _under(resolved, isolate_data_dir)
+    assert resolved == os.path.join(str(isolate_data_dir), "requirements", "ID-ISO-2", "out.txt")
+
+
+def test_executor_default_derives_from_cwd_when_unpatched(monkeypatch, tmp_path):
+    """Without the fixture's redirect the historical cwd-relative layout holds."""
+    import agents.executor_tools as executor_tools
+    monkeypatch.setattr(executor_tools, "REQUIREMENTS_ROOT", None)
+    monkeypatch.chdir(str(tmp_path))
+    expected = os.path.join(os.getcwd(), "automation-ideas", "requirements")
+    assert executor_tools.requirements_root() == expected
+    assert executor_tools.item_requirements_dir("ID-D") == os.path.join(expected, "ID-D")
+
+
+def test_executor_report_path_follows_redirect(monkeypatch, isolate_data_dir):
+    """_finalize_phase writes execution_report.md under the redirected root."""
+    from agents.executor import ExecutorAgent
+    agent = ExecutorAgent.__new__(ExecutorAgent)
+    agent.implementation_log = ["did a thing"]
+    agent.run_manager = None
+    agent.run_id = "run"
+    agent._log_progress = lambda *_a, **_k: None
+    agent._finalize_phase("ID-REPORT")
+    report = isolate_data_dir / "requirements" / "ID-REPORT" / "execution_report.md"
+    assert report.is_file()
+
+
+# ----------------------------------------------------------------------
 # P4-2: logger resolves its default directory at call time
 # ----------------------------------------------------------------------
 def test_default_log_dir_is_redirected(isolate_data_dir):
