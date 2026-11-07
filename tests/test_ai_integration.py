@@ -7,8 +7,9 @@ tests/test_llm_client.py.
 import os
 
 import pytest
-from dotenv import load_dotenv
 
+# Deliberately does NOT load the project .env: a live test runs only when the
+# caller exports GOOGLE_API_KEY_KANBAN explicitly (opt-in via -m live_llm).
 pytestmark = pytest.mark.live_llm
 
 MODELS = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"]
@@ -16,7 +17,6 @@ MODELS = ["gemma-4-26b-a4b-it", "gemma-4-31b-it"]
 
 @pytest.mark.parametrize("model_name", MODELS)
 def test_llm_with_gemma_4(model_name):
-    load_dotenv()
     if not os.getenv("GOOGLE_API_KEY_KANBAN"):
         pytest.skip("GOOGLE_API_KEY_KANBAN not set")
 

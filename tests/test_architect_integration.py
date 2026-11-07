@@ -8,8 +8,9 @@ of the same function lives in tests/test_architect.py.
 import os
 
 import pytest
-from dotenv import load_dotenv
 
+# Deliberately does NOT load the project .env: a live test runs only when the
+# caller exports GOOGLE_API_KEY_KANBAN explicitly (opt-in via -m live_llm).
 pytestmark = pytest.mark.live_llm
 
 SPEC = """# Specification for {id}: Test Architecture Idea
@@ -37,7 +38,6 @@ This is a test specification to verify the Architect Agent.
 
 
 def test_architect_integration(isolate_data_dir, monkeypatch):
-    load_dotenv()
     if not os.getenv("GOOGLE_API_KEY_KANBAN"):
         pytest.skip("GOOGLE_API_KEY_KANBAN not set")
 

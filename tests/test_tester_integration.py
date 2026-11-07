@@ -8,8 +8,9 @@ of the same function lives in tests/test_tester.py.
 import os
 
 import pytest
-from dotenv import load_dotenv
 
+# Deliberately does NOT load the project .env: a live test runs only when the
+# caller exports GOOGLE_API_KEY_KANBAN explicitly (opt-in via -m live_llm).
 pytestmark = pytest.mark.live_llm
 
 SPEC = (
@@ -25,7 +26,6 @@ ARCH = (
 
 
 def test_tester_integration(isolate_data_dir, monkeypatch):
-    load_dotenv()
     if not os.getenv("GOOGLE_API_KEY_KANBAN"):
         pytest.skip("GOOGLE_API_KEY_KANBAN not set")
 
