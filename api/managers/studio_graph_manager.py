@@ -111,6 +111,10 @@ class StudioGraphManager:
                         "cron_enabled": data.get("cron_enabled", False),
                         "cron_schedule": data.get("cron_schedule"),
                         "node_count": len(data.get("nodes", [])),
+                        # S9: report the graph's real values, not router defaults.
+                        "edge_count": len(data.get("edges", [])),
+                        "undefined_queue_cap": data.get("undefined_queue_cap", 100),
+                        "max_run_logs": data.get("max_run_logs", 50),
                     })
         return graphs
 

@@ -973,7 +973,7 @@ class PathStepGraphEngine:
         return "partial"
 
     def _save_run_log(self, run_log: GraphRunLog):
-        """Save run log to disk (atomic write)."""
+        """Save run log to disk (atomic write), then enforce max_run_logs (S9)."""
         path = f"{self.runs_dir}/{run_log.run_id}.json"
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -983,6 +983,51 @@ class PathStepGraphEngine:
             os.replace(tmp_path, path)
         except Exception as e:
             logger.error(f"Failed to save run log {run_log.run_id}: {e}")
+            return
+        self._prune_run_logs(run_log.graph_id, keep_run_id=run_log.run_id)
+
+    def _prune_run_logs(self, graph_id: str, keep_run_id: Optional[str] = None) -> None:
+        """Delete the oldest run logs of ``graph_id`` beyond its ``max_run_logs`` (S9).
+
+        Ordering is by ``started_at`` (oldest first), then by filename. The log
+        identified by ``keep_run_id`` is never pruned. Other graphs' logs are not
+        touched. If the graph has no stored definition, nothing is pruned.
+        """
+        try:
+            graph = self.studio_graph_manager.get_graph(graph_id) if self.studio_graph_manager else None
+        except Exception as e:  # defensive: pruning must never break a run
+            logger.warning(f"Run-log pruning skipped for {graph_id}: {e}")
+            return
+        if graph is None:
+            return
+        limit = max(0, int(graph.max_run_logs))
+
+        entries = []
+        for filename in os.listdir(self.runs_dir):
+            if not filename.endswith(".json"):
+                continue
+            run_id = filename[:-5]
+            log = self.get_run_log(run_id)
+            if log is None or log.graph_id != graph_id:
+                continue
+            entries.append((log.started_at, filename, run_id))
+
+        entries.sort(key=lambda e: (e[0], e[1]))
+        excess = len(entries) - limit
+        if excess <= 0:
+            return
+        removed = 0
+        for _started, filename, run_id in entries:
+            if removed >= excess:
+                break
+            if run_id == keep_run_id:
+                continue
+            try:
+                os.remove(os.path.join(self.runs_dir, filename))
+                removed += 1
+            except OSError as e:
+                logger.warning(f"Failed to prune run log {run_id}: {e}")
+        logger.info(f"Pruned {removed} run log(s) for graph {graph_id} (max_run_logs={limit})")
 
     # -------------------------------------------------------------------------
     # Cron Scheduling Support (dec #7)
