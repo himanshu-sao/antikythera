@@ -281,10 +281,18 @@ class IntegrationHub:
         """
         if not os.path.exists(self.config_path):
             return {}
-        with open(self.config_path, "r") as f:
+        with open(self.config_path, "rb") as f:
             raw = f.read()
+        # Bad UTF-8 is corrupt in the same way as bad JSON (R7b): it is decoded inside
+        # the same handler so it gets the same backup and the same error type.
         try:
-            data = json.loads(raw)
+            data = json.loads(raw.decode("utf-8"))
+        except UnicodeDecodeError as exc:
+            backup = self._backup_corrupt_file()
+            raise IntegrationConfigCorruptError(
+                f"integrations.json is not valid UTF-8 ({exc.reason} at byte {exc.start}); "
+                f"the unreadable file was preserved at {backup}"
+            ) from exc
         except json.JSONDecodeError as exc:
             backup = self._backup_corrupt_file()
             raise IntegrationConfigCorruptError(
