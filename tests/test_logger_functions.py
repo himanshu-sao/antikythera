@@ -18,6 +18,9 @@ def test_logger_write_and_read(tmp_path):
     assert logs[0]["level"] == "INFO"
     assert logs[1]["level"] == "WARN"
     assert logs[2]["level"] == "ERROR"
-    # Verify singleton helper returns same instance
-    same = get_logger("ID-001")
-    assert same is logger
+    # The singleton helper is keyed by directory: a logger for an explicit
+    # base_dir is not the default-directory logger, and the default one is cached.
+    default = get_logger("ID-001")
+    assert default is not logger
+    assert get_logger("ID-001") is default
+    assert default.log_dir != logger.log_dir

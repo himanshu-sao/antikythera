@@ -98,6 +98,50 @@ def test_each_test_gets_its_own_tmp_manager(tmp_path):
 
 
 # ----------------------------------------------------------------------
+# P4-2: logger resolves its default directory at call time
+# ----------------------------------------------------------------------
+def test_default_log_dir_is_redirected(isolate_data_dir):
+    import agents.logger as agent_logger
+    assert _under(agent_logger.DEFAULT_LOG_DIR, isolate_data_dir)
+
+
+def test_logger_created_before_fixture_still_writes_under_tmp(isolate_data_dir):
+    """A logger built on the real default path earlier must not be handed back.
+
+    TaskLogger does not touch the disk until a write, so constructing one on the
+    real relative default here is safe; the assertion is about where a later
+    get_logger() call writes.
+    """
+    import agents.logger as agent_logger
+    earlier = agent_logger.TaskLogger("ID-EARLY", "automation-ideas/logs")
+    later = agent_logger.get_logger("ID-EARLY")
+    assert later is not earlier
+    assert _under(later.log_dir, isolate_data_dir)
+    later.info("tester", "START", "hello")
+    assert (isolate_data_dir / "logs" / "ID-EARLY" / "timeline.jsonl").is_file()
+    assert later.get_logs()[0]["message"] == "hello"
+
+
+def test_get_logger_cache_is_keyed_by_directory(isolate_data_dir, tmp_path):
+    import agents.logger as agent_logger
+    other = tmp_path / "elsewhere"
+    explicit = agent_logger.TaskLogger("ID-KEY", str(other))
+    default = agent_logger.get_logger("ID-KEY")
+    assert default is not explicit
+    assert default.log_dir != explicit.log_dir
+    assert agent_logger.get_logger("id-key") is default
+
+
+def test_fixture_redirects_timeline_logs_end_to_end(isolate_data_dir):
+    import api.utils as api_utils
+    from agents import logger as task_logger
+    assert _under(api_utils.LOG_BASE_DIR, isolate_data_dir)
+    task_logger.get_logger("ID-TL").info("orchestrator", "PING", "pong")
+    expected = isolate_data_dir / "logs" / "ID-TL" / "timeline.jsonl"
+    assert expected.is_file()
+
+
+# ----------------------------------------------------------------------
 # P1-10: provider env, project .env and AI engine config are isolated
 # ----------------------------------------------------------------------
 _CREDS = (

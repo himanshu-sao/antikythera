@@ -302,21 +302,15 @@ def isolate_data_dir(tmp_path, monkeypatch):
     import api.board_router as board_router
     monkeypatch.setattr(board_router, "REQUIREMENTS_DIR", str(base / "requirements"))
 
-    # Per-item timeline logs. agents.logger.AgentLogger defaults to the
-    # cwd-relative "automation-ideas/logs"; api.utils reads LOG_BASE_DIR.
+    # Per-item timeline logs. agents.logger resolves DEFAULT_LOG_DIR at call
+    # time and keys its cache by directory, so a logger requested after this
+    # point writes under tmp even if one was created earlier. api.utils reads
+    # LOG_BASE_DIR.
     import agents.logger as agent_logger
     import api.utils as api_utils
     logs_dir = str(base / "logs")
     monkeypatch.setattr(api_utils, "LOG_BASE_DIR", logs_dir)
-    for name in dir(agent_logger):
-        cls = getattr(agent_logger, name)
-        init = getattr(cls, "__init__", None)
-        defaults = getattr(init, "__defaults__", None)
-        if isinstance(cls, type) and defaults and "automation-ideas/logs" in defaults:
-            monkeypatch.setattr(
-                init, "__defaults__",
-                tuple(logs_dir if d == "automation-ideas/logs" else d for d in defaults),
-            )
+    monkeypatch.setattr(agent_logger, "DEFAULT_LOG_DIR", logs_dir)
 
     # Integration hub: the app builds one at import time on the real data dir,
     # and tests that POST /api/integrations without their own override would
