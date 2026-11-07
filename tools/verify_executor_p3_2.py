@@ -72,8 +72,13 @@ IDEAS_DIR = os.path.join(_REPO_ROOT, "automation-ideas")
 REQ_DIR = os.path.join(IDEAS_DIR, "requirements", ITEM_ID)
 RUNS_JSON = os.path.join(IDEAS_DIR, "workflow_runs.json")
 REPORT_PATH = os.path.join(REQ_DIR, "execution_report.md")
-HEALTH_ROUTER_PATH = os.path.join(_REPO_ROOT, "api", "health_router.py")
-VERSION_PATH = os.path.join(_REPO_ROOT, "VERSION")
+# D7: tool paths must be RELATIVE to the item directory (absolute paths are
+# rejected by agents/executor_tools).  The artifacts therefore land under
+# REQ_DIR, which is also where the on-disk checks and cleanup look.
+HEALTH_ROUTER_REL = os.path.join("api", "health_router.py")
+VERSION_REL = "VERSION"
+HEALTH_ROUTER_PATH = os.path.join(REQ_DIR, HEALTH_ROUTER_REL)
+VERSION_PATH = os.path.join(REQ_DIR, VERSION_REL)
 
 # Deterministic contents the stubbed ``write_file`` tool will land on disk.
 # Kept deliberately small but non-stub so the report / on-disk assertions pass.
@@ -189,13 +194,13 @@ def _stub_chat(real_chat):
             if n == 0:
                 return json.dumps({
                     "tool": "write_file",
-                    "args": {"path": HEALTH_ROUTER_PATH,
+                    "args": {"path": HEALTH_ROUTER_REL,
                              "content": HEALTH_ROUTER_CONTENT},
                 })
             if n == 1:
                 return json.dumps({
                     "tool": "write_file",
-                    "args": {"path": VERSION_PATH,
+                    "args": {"path": VERSION_REL,
                              "content": VERSION_CONTENT},
                 })
             # Remaining turns (any retry of a completed task): under Phase 1 a
@@ -205,7 +210,7 @@ def _stub_chat(real_chat):
             # so a retry either no-ops (file already present) or re-lands the artifact.
             return json.dumps({
                 "tool": "write_file",
-                "args": {"path": VERSION_PATH,
+                "args": {"path": VERSION_REL,
                          "content": VERSION_CONTENT},
             })
         # Generic / diagnostics — explicitly labelled so it can never be

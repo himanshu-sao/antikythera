@@ -1,10 +1,9 @@
 import os
 import json
 import logging
+import shlex
 import subprocess
 from typing import List, Dict, Any, Tuple
-
-logger = logging.getLogger(__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -68,38 +67,123 @@ def item_requirements_dir(item_id: str) -> str:
     return os.path.join(requirements_root(), item_id)
 
 
+def _is_within(path: str, root: str) -> bool:
+    """True if ``path`` equals ``root`` or lies beneath it (both already real)."""
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:  # different drives / mixed absolute+relative
+        return False
+
+
 def _resolve_item_path(path: str, item_id: str) -> str:
-    """Anchor a *relative* tool path at the item's requirements directory.
+    """Resolve a tool path to a real path INSIDE the item's requirements dir.
 
-    ``execute_tool`` runs from the repo root (``executor_idea`` reads spec/arch
-    via ``os.path.join(os.getcwd(), "automation-ideas", ...)`` — see
-    ``agents/executor.py``).  An LLM-emitted RELATIVE ``path`` (e.g.
-    ``"system_health_utility.sh"``) used to resolve against cwd and land at the
-    repo root, polluting the working tree and mismatching the P3.2.7 gate's
-    "artifact under requirements/<id>/" assertion.  Anchor such paths at
-    ``automation-ideas/requirements/<item_id>/`` — built the same way as the
-    report path in ``executor.py::_finalize_phase``.  ABSOLUTE paths are
-    returned unchanged: the executor can still write a real repo-root source
-    file when the LLM (or a fixture) emits an absolute path.
+    D7 confinement.  Every file tool (``write_file``, ``patch``,
+    ``read_file``) funnels through here.  The rules:
 
-    The executor's ``write_file`` self-verify (read-back) then confirms the
-    bytes landed in the ITEM dir, so a false-complete against the old wrong-cwd
-    path can no longer slip through.
+    * An empty / ``None`` path is returned unchanged so the callers' existing
+      ``if not path`` guards still fire.
+    * An ABSOLUTE path is rejected outright (``ValueError``).  The executor
+      used to pass these through, which let a model write anywhere the process
+      could.  Relative paths are anchored at
+      ``automation-ideas/requirements/<item_id>/``.
+    * The joined path is resolved with :func:`os.path.realpath`, so ``..``
+      segments AND symlinks (an in-dir link pointing at ``/etc``, or a
+      dangling link whose target is outside) are followed before the
+      containment check.  The result must stay inside the item dir, and the
+      item dir itself must resolve to a direct child of the requirements root
+      (so a hostile ``item_id`` such as ``../x`` or a symlinked item dir cannot
+      widen the sandbox).
+
+    The check is path-based, so a symlink swapped in between this check and the
+    later open (TOCTOU) is not defended against; the executor is single-threaded
+    per item and the item dir is not model-writable except through these tools,
+    which never create symlinks.
+
+    Raises ``ValueError`` with a reason; ``execute_tool`` turns it into the
+    usual ``ERROR:`` result.
     """
     if not path:
         return path
     if os.path.isabs(path):
-        return path
-    item_dir = item_requirements_dir(item_id)
-    # SEC-7: a relative path may not escape the item dir ("../x", "a/../../x").
-    # Normalise and check containment before anything is written or read.
-    resolved = os.path.normpath(os.path.join(item_dir, path))
-    if os.path.commonpath([resolved, os.path.normpath(item_dir)]) != os.path.normpath(item_dir):
         raise ValueError(
-            f"relative path {path!r} escapes the item directory for {item_id}; "
+            f"absolute path {path!r} is not allowed; use a path relative to the "
+            f"item directory for {item_id}"
+        )
+    if not item_id or item_id in (".", "..") or os.sep in item_id or (os.altsep and os.altsep in item_id):
+        raise ValueError(f"invalid item id {item_id!r}")
+
+    root_real = os.path.realpath(requirements_root())
+    item_real = os.path.realpath(os.path.join(root_real, item_id))
+    if item_real == root_real or not _is_within(item_real, root_real):
+        raise ValueError(f"item directory for {item_id} resolves outside the requirements root")
+
+    resolved = os.path.realpath(os.path.join(item_real, path))
+    if not _is_within(resolved, item_real):
+        raise ValueError(
+            f"path {path!r} escapes the item directory for {item_id}; "
             "use a path inside it"
         )
     return resolved
+
+
+# --- terminal tool: no shell, program allowlist -----------------------------
+# D7: the terminal tool never goes through a shell.  The command string is
+# split with shlex and run as an argv list (shell=False), so pipes, redirects,
+# ``;``, ``&&``, backticks and ``$(...)`` have no meaning: they would reach the
+# program as literal arguments.  Only the programs below may be started.
+ALLOWED_PROGRAMS = frozenset({"python", "python3", "pytest", "pip", "ls", "cat", "echo"})
+# ``git`` is allowed only with one of these read-only subcommands, and the
+# subcommand must be the first argument (so ``git -c ... status`` is refused).
+ALLOWED_GIT_SUBCOMMANDS = frozenset({"status", "diff", "log"})
+# git options that write files, run external programs or redirect the repo.
+_GIT_BLOCKED_OPTION_PREFIXES = (
+    "--output", "--ext-diff", "--textconv", "--exec", "--git-dir",
+    "--work-tree", "--no-index", "-c",
+)
+# Tokens that are shell operators on their own.  They would be inert here, but
+# an LLM that emits them expects shell semantics, so refuse with a clear reason
+# instead of silently passing them to the program as arguments.
+_SHELL_OPERATOR_TOKENS = frozenset({
+    "|", "||", "&", "&&", ";", ";;", ">", ">>", "<", "<<", "<<<", "2>", "2>>",
+    "&>", "2>&1", ">&", "|&", "(", ")",
+})
+TERMINAL_TIMEOUT_SECONDS = 300
+
+
+def _terminal_argv(command: Any) -> Tuple[List[str], str]:
+    """Validate ``command`` and return ``(argv, "")`` or ``([], reason)``."""
+    if not isinstance(command, str):
+        return [], "command must be a string"
+    try:
+        argv = shlex.split(command)
+    except ValueError as exc:  # unbalanced quote, trailing backslash, ...
+        return [], f"could not parse command ({exc})"
+    if not argv:
+        return [], "empty command"
+    program = argv[0]
+    if program not in ALLOWED_PROGRAMS and program != "git":
+        return [], (
+            f"program {program!r} is not allowed; allowed: "
+            f"{', '.join(sorted(ALLOWED_PROGRAMS))}, git (status/diff/log only)"
+        )
+    for tok in argv[1:]:
+        if tok in _SHELL_OPERATOR_TOKENS:
+            return [], (
+                f"shell operator {tok!r} is not supported: commands run without a "
+                "shell, so run one program per call and no pipes, redirects or separators"
+            )
+    if program == "git":
+        sub = argv[1] if len(argv) > 1 else ""
+        if sub not in ALLOWED_GIT_SUBCOMMANDS:
+            return [], (
+                f"git subcommand {sub!r} is not allowed; only "
+                f"{', '.join(sorted(ALLOWED_GIT_SUBCOMMANDS))}"
+            )
+        for tok in argv[2:]:
+            if tok.startswith(_GIT_BLOCKED_OPTION_PREFIXES):
+                return [], f"git option {tok!r} is not allowed"
+    return argv, ""
 
 # Hard cap on how many workspace file entries get baked into an executor prompt.
 # A multi-hundred-line file list (the old os.walk behaviour) ballooned every
@@ -172,10 +256,10 @@ def get_tools_description() -> str:
     """
     return """
 Available Tools:
-- `terminal(command)`: Run a shell command. Returns stdout/stderr.
-- `write_file(path, content)`: Write content to a file.
-- `patch(path, old_string, new_string)`: Find and replace text in a file.
-- `read_file(path)`: Read the contents of a file.
+- `terminal(command)`: Run ONE program (no shell: no pipes, redirects, `;` or `&&`). Allowed programs: python, python3, pytest, pip, ls, cat, echo, and git with status/diff/log only. Returns stdout/stderr.
+- `write_file(path, content)`: Write content to a file. The path must be RELATIVE (it is anchored at the item's requirements directory; absolute paths and `..` escapes are rejected).
+- `patch(path, old_string, new_string)`: Find and replace text in a file (relative path, same rules).
+- `read_file(path)`: Read the contents of a file (relative path, same rules).
 
 You must respond with a JSON object representing the tool call.
 Example response:
@@ -210,17 +294,23 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
     * ``read_file``   -> never done on its own; information-gathering for the
       next turn.
 
-    ⚠ Security note (parked, not Phase 1 scope): the ``terminal`` branch runs
-    ``subprocess.run(cmd, shell=True, timeout=300)`` on LLM-controlled
-    ``args["command"]`` — shell injection if the executor is ever pointed at
-    untrusted input.  Now less load-bearing than before (``terminal`` can no
-    longer *manufacture a false completion*), but still a hardening follow-up.
+    Security (D7): ``terminal`` runs an argv list with ``shell=False`` and only
+    for allowlisted programs (see :data:`ALLOWED_PROGRAMS`); file tools reject
+    absolute paths and anything that resolves outside the item directory (see
+    :func:`_resolve_item_path`).  The allowlist is not a sandbox: ``python`` and
+    ``pip`` can still run arbitrary code as the current user.
     """
     try:
         if tool_name == "terminal":
             cmd = args.get("command", "ls")
-            # Use shell=True to allow pipes and redirects, matching the behavior of terminal tools
-            process = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300)
+            argv, reason = _terminal_argv(cmd)
+            if not argv:
+                return False, f"ERROR: terminal command rejected: {reason}"
+            # shell=False: the argv list goes straight to execve.
+            process = subprocess.run(
+                argv, shell=False, capture_output=True, text=True,
+                timeout=TERMINAL_TIMEOUT_SECONDS,
+            )
             output = process.stdout if process.stdout else ""
             error = process.stderr if process.stderr else ""
 
