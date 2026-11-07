@@ -1,7 +1,9 @@
 # Antikythera - Docker Compose (Production Mode)
 #
 # This compose file is optimized for production deployments:
-# - Uses nginx to serve static frontend assets
+# - Frontend: NOT YET FUNCTIONAL. The frontend service is stock nginx:alpine with only
+#   nginx.conf mounted, and nothing places the built UI at /usr/share/nginx/html, so it
+#   serves the nginx default page (the /api proxy to backend works). See the O1 note below.
 # - Named volumes for data persistence
 # - No bind mounts except for config
 # - Resource limits and restart policies
@@ -43,7 +45,9 @@ services:
           memory: 512M
 
   # -------------------------------------------------------------------------
-  # Frontend - Served by nginx
+  # Frontend - nginx proxy only (no built UI is served yet)
+  # TODO(O1): add an nginx stage to docker/Dockerfile.ui that copies /app/ui/dist to
+  # /usr/share/nginx/html and use that image here instead of nginx:alpine.
   # -------------------------------------------------------------------------
   frontend:
     image: nginx:alpine

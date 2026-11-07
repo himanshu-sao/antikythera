@@ -21,7 +21,8 @@ COPY ui/ ./
 RUN npm run build
 
 # ------------------------------------------------------------------------------
-# Stage 2: Runtime - Serve with nginx (production) or vite (dev)
+# Stage 2: Runtime - runs the Vite DEV server (this image does NOT serve via nginx yet;
+# see the O1 TODO in docker-compose.prod.yml for the nginx production stage)
 # ------------------------------------------------------------------------------
 FROM node:20-alpine as runtime
 
