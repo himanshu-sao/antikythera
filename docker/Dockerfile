@@ -40,10 +40,11 @@ ENV PATH=/root/.local/bin:$PATH
 COPY api/ ./api/
 COPY agents/ ./agents/
 COPY scripts/ ./scripts/
-COPY automation-ideas/ ./automation-ideas/
 
-# Create directories for logs
-RUN mkdir -p /app/logs
+# Data directory is an empty mount point: real state (pipeline, vault, integrations)
+# is bind-mounted or volume-mounted at run time and must never be baked into the image.
+# Local data is excluded from the build context by /.dockerignore (SEC-14).
+RUN mkdir -p /app/automation-ideas /app/logs
 
 # Copy entrypoint script
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh

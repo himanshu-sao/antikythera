@@ -1,0 +1,67 @@
+# Build context is the repo root (docker/docker-compose*.yml: context ".."; docker/build-docker.sh).
+# Keep local data, credentials and build output out of image layers (SEC-14).
+
+# --- Runtime data and secrets (mounted as volumes at run time, never baked in) ---
+automation-ideas/
+**/automation-ideas/
+registry/
+audit/
+events/
+brain/
+tmp_test_dir/
+test_data/
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+*.env
+**/*.env
+.ai_env
+**/.ai_env
+*.vault
+*.vault.*
+**/*.vault
+**/*.vault.*
+.vault.key
+**/.vault.key
+*.key
+**/*.key
+*.pem
+**/*.pem
+*.lock
+
+# --- VCS and tooling ---
+.git/
+.gitignore
+.claude/
+.bob/
+.opencode/
+.antigravitycli/
+.ruff_cache/
+**/.ruff_cache/
+.pytest_cache/
+**/.pytest_cache/
+.coverage
+coverage/
+
+# --- Dependencies and build output (rebuilt inside the image) ---
+venv/
+venv_new/
+**/venv/
+**/__pycache__/
+**/*.pyc
+node_modules/
+**/node_modules/
+dist/
+ui/dist/
+**/dist/
+
+# --- Logs and test artifacts ---
+*.log
+**/*.log
+test-results/
+**/test-results/
+playwright-report/
+**/playwright-report/
