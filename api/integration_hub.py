@@ -7,7 +7,7 @@ import shutil
 import tempfile
 from datetime import datetime, timezone
 from filelock import FileLock
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List
 # SecretVault import removed – credentials are now read from environment variables via placeholders
 
 logger = logging.getLogger("backend")
@@ -263,8 +263,9 @@ def _run_coroutine_sync(coro_factory):
     ``asyncio.run`` cannot be nested inside a running loop. Hub methods are
     called from async FastAPI handlers, so when a loop is already running the
     coroutine is executed on a short-lived worker thread that owns its own loop.
-    ``coro_factory`` is a zero-arg callable so the coroutine is created on the
-    thread that runs it.
+    ``coro_factory`` is a zero-arg callable. The coroutine object is created on
+    the caller's thread when the factory is called; ``asyncio.run`` (on the
+    worker thread in the nested case) only drives it to completion.
     """
     import asyncio
     import concurrent.futures

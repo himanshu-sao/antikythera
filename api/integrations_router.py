@@ -1,7 +1,7 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 # SecretVault import removed – credentials are now read from environment
 from api.integration_hub import IntegrationHub, public_error_detail
 import os
