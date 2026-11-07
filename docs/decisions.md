@@ -60,7 +60,7 @@ These came out of the deployment discussion after run 2. They extend, and where 
 **Goal:** replace hand-editing `~/.antikythera/.env` and `.ai_env` on the Docker host with a guided UI. The user should be able to clone, start the stack, open the tunnel and configure everything from the browser.
 
 **Backend (new `/api/setup` router):**
-- `GET /api/setup/status` — what is missing, as a list of typed items (no secret values, only names and presence): env file present, each provider key set/unset (names only), Jira base URL/PAT set/unset, API token generated or not, ports/origins at their defaults, data directory present and writable, backup directory configured. Response includes `complete: bool`.
+- `GET /api/setup/status` — what is missing, as a list of typed items (no secret values, only names and presence): env file present, each provider key set/unset (names only), Jira base URL/PAT set/unset, API token generated or not, Slack webhook set/unset (D10), ports/origins at their defaults, data directory present and writable, backup directory configured. Response includes `complete: bool`.
 - `POST /api/setup/config` — accepts a partial map of the values above; writes them through the **existing safe env writer** in the AI engine config service (single-quoted values, mode `0600`, `ANTIKYTHERA_HOME`-aware). Provider keys go to `.ai_env`; Jira and non-secret settings to `.env`. Rejects unknown keys and values containing newlines/NUL (same rules as the writer).
 - `POST /api/setup/complete` — writes the marker `~/.antikythera/.setup_complete` (mode `0600`); the setup endpoints refuse to do anything once it exists.
 - `DELETE /api/setup/complete` (or `POST /api/setup/reopen`) — clears the marker; requires the D1 token; for re-running setup later.
@@ -77,3 +77,51 @@ These came out of the deployment discussion after run 2. They extend, and where 
 - The UI stores the token in `sessionStorage` and sends it as the D1 bearer on every request.
 
 **Out of scope for the first cut:** editing already-set values after completion (reopen flow covers it), multi-user anything.
+
+---
+
+# Requirements set 2 (2026-11-07, Q/A session)
+
+Scope of the next handsfree arc: **implement D1–D13 plus the remaining docs and Phase 6/7 items.** No live end-to-end acceptance run this arc (decided: skip).
+
+## D10 — Slack notifications
+
+Telegram is gone; nothing notifies the user. Replace with Slack, following the house pattern already used by the digest jobs (`~/Work/src/bin/scripts/*_digest.py` and the Obsidian vault notes):
+
+- **Transport:** Slack incoming webhook. URL resolution order: `ANTIKYTHERA_SLACK_WEBHOOK`, then the shared `ISV_SLACK_WEBHOOK_URL`, then a file outside synced folders (same fallback approach as the digest scripts). The URL is a secret: never logged, never returned by any API, never echoed in errors; masked if it ever appears in config listings. Configure it through the D9 setup wizard (add a "Slack webhook" item to `GET /api/setup/status` and the setup screen).
+- **Message style:** match the digests — plain text, source badge `:gear: *[ANTIKYTHERA]*`, short blocks, a character cap with a "...and N more" footer. One message per event for immediate events.
+- **Cadence (decided):** failures and blocks are **immediate**; review-gate items are **digested every 6 hours**.
+  - Immediate: a run goes BLOCKED or fails terminally; an item's `blocked_reason` is set; a `REC-*` escalation item is created; a poison item is blocked after 3 strikes.
+  - Digest (flush at most every 6 hours, checked by the orchestrator loop or a small in-process scheduler): every item currently waiting at a REVIEW_* gate (id, title, stage, waiting-since), plus a count summary. Flush immediately if the digest grows past a cap (e.g. 15 items).
+- **Delivery rules:** notifications must never break the pipeline — post on a worker thread or best-effort with a short timeout (5 s), catch and log all errors, and never retry in a loop. If no webhook is configured, log the event at INFO and continue (current behaviour remains the fallback).
+- **Suppression:** each immediate event notifies once (dedupe by item id + event type + day). Items already reported in a digest are not re-reported until their state changes.
+- Tests: fake `httpx`/urlopen client (no network); URL never appears in logs or responses; immediate vs digest routing; dedupe; timeout and failure are swallowed; no-webhook fallback.
+
+## D11 — Studio handover documentation (Phase 7)
+
+A `docs/studio/` set, aimed at a new operator:
+
+- `overview.md` — what Studio is for, the turn-based build flow (Query → Fan-out → AI-transform → Conditional-action), preview vs commit vs run, dry-run semantics (default on), the graph outline panel.
+- `nodes.md` — reference for the four archetypes: fields, conditions, loop edges vs branch edges, undefined queue, `{{var}}` substitution rules (typed whole-placeholder values, absent placeholders kept as text).
+- `api.md` — the `/api/studio/*` endpoints with request/response shapes (generate from the router's OpenAPI where possible), including `dry_run`, run logs, the per-graph aggregate, and id validation rules.
+- `operations.md` — running graphs, reading run status (`completed` / `partial` / `failed`), the undefined queue (latest run only — decided), run-log retention (`max_run_logs`), backups, and the sandbox limits for AITransform scripts.
+
+The Obsidian vault notes remain the personal knowledge base; these are the shipped docs. Cross-link from the README documentation index.
+
+## D12 — Nightly backup schedule on the Docker host
+
+- Document (and provide as a copy-paste block in `docker/README.md`) a **cron entry or systemd timer on the Docker host** that runs `scripts/backup_data.sh` nightly at an off-peak minute (e.g. 03:17), sourcing the data dir `~/antikythera-data` and keeping the existing rotation (`ANTIKYTHERA_BACKUP_KEEP`, default 14).
+- The user installs it once by hand on the host. Also document restoring from an archive (verify the tar listing first, stop the stack, extract, start).
+- No scheduler inside the containers for this.
+
+## D13 — Model tier mapping (Studio plan dec #10)
+
+- Nodes already carry `suggested_model_tier`; nothing consumes it. Add a **tier → model mapping to the AI Engine config** (`~/.antikythera/ai_config.json`): a `tiers` object mapping tier names (e.g. `light`, `standard`, `heavy`) to `{provider, model_id}`, editable via the AI Engine settings UI and the D9 setup wizard, with sensible defaults derived from the configured models.
+- Consumers: AITransform node execution and the agent stages (refiner/architect/tester/executor) resolve their model by tier with fallback to the configured default model when the tier is unmapped or the node has no tier. Resolution must never fail a run — unknown tier falls back to the default and logs once.
+- Tests: tier resolution (mapped, unmapped falls back, node without tier), config edit round-trip, no run fails because of a bad tier.
+
+## Phase 6 journey tests (form decided)
+
+- **Playwright e2e** for the golden paths across surfaces, API mocked with `page.route` (existing pattern): create idea → refine (mocked) → review via the new D5 review form → gated move rules; Studio: build a 2-node graph → preview → save → dry run; Integrations: add + test connection (mocked); AI Engine: set default model (mocked); the D9 setup screen first-run flow.
+- **Backend integration tests** for the cross-router flows the browser specs mock away: review endpoint → orchestrator gate advance; template save validation → trigger run (with the D2 dispatch fix); setup wizard status → config write → complete lock.
+- Update `playwright.config.ts` `baseURL` for the D8 port change.
