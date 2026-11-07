@@ -147,3 +147,109 @@ class TestUpdatePreservesSecretOnPlaceholder:
         tmp_hub.add_integration("svc", "native", {"adapter_module": "a", "token": "old"})
         tmp_hub.update_integration("svc", {"token": "new-value"})
         assert tmp_hub.get_integration("svc")["config"]["token"] == "new-value"
+
+
+# --------------------------------------------------------------------------
+# 2.16 (hub part): atomic writes under the lock, corrupt file is surfaced
+# --------------------------------------------------------------------------
+import glob
+import json
+import threading
+
+from api.integration_hub import IntegrationConfigCorruptError
+
+
+class TestAtomicWritesAndCorruptFile:
+    def test_save_leaves_no_temp_files_and_valid_json(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        hub.add_integration("a", "native", {"adapter_module": "x"})
+        leftovers = [p for p in os.listdir(tmp_path) if p.endswith(".tmp") or ".tmp" in p]
+        assert leftovers == []
+        with open(hub.config_path) as f:
+            assert "a" in json.load(f)
+
+    def test_failed_write_keeps_previous_file_intact(self, tmp_path, monkeypatch):
+        hub = IntegrationHub(str(tmp_path))
+        hub.add_integration("a", "native", {"adapter_module": "x"})
+        before = open(hub.config_path).read()
+
+        def boom(*_a, **_k):
+            raise OSError("simulated rename failure")
+
+        monkeypatch.setattr("api.integration_hub.os.replace", boom)
+        with pytest.raises(Exception):
+            hub.add_integration("b", "native", {"adapter_module": "y"})
+        monkeypatch.undo()
+        assert open(hub.config_path).read() == before
+        assert [p for p in os.listdir(tmp_path) if ".tmp" in p] == []
+
+    def test_lock_path_is_used(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        hub.add_integration("a", "native", {"adapter_module": "x"})
+        assert os.path.exists(hub._lock_path)
+
+    def test_corrupt_file_is_backed_up_and_raises(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        with open(hub.config_path, "w") as f:
+            f.write("{ this is not json")
+        with pytest.raises(IntegrationConfigCorruptError):
+            hub.list_integrations()
+        backups = glob.glob(hub.config_path + ".corrupt-*")
+        assert len(backups) == 1
+        assert open(backups[0]).read() == "{ this is not json"
+        # the original is left in place (nothing is deleted or silently reset)
+        assert open(hub.config_path).read() == "{ this is not json"
+
+    def test_corrupt_file_does_not_return_empty_dict(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        with open(hub.config_path, "w") as f:
+            f.write("")
+        with pytest.raises(IntegrationConfigCorruptError):
+            hub._load_config()
+
+    def test_add_on_corrupt_file_does_not_overwrite_it(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        with open(hub.config_path, "w") as f:
+            f.write("not-json")
+        with pytest.raises(Exception):
+            hub.add_integration("a", "native", {"adapter_module": "x"})
+        assert open(hub.config_path).read() == "not-json"
+
+    def test_repeated_loads_do_not_pile_up_identical_backups(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        with open(hub.config_path, "w") as f:
+            f.write("garbage")
+        for _ in range(3):
+            with pytest.raises(IntegrationConfigCorruptError):
+                hub._load_config()
+        assert len(glob.glob(hub.config_path + ".corrupt-*")) == 1
+
+    def test_non_object_json_is_corrupt(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        with open(hub.config_path, "w") as f:
+            f.write("[1, 2, 3]")
+        with pytest.raises(IntegrationConfigCorruptError):
+            hub._load_config()
+
+    def test_missing_file_still_returns_empty(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        assert hub._load_config() == {}
+        assert hub.list_integrations() == []
+
+    def test_concurrent_adds_do_not_lose_updates(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        errors = []
+
+        def worker(i):
+            try:
+                IntegrationHub(str(tmp_path)).add_integration(f"n{i}", "native", {"adapter_module": "x"})
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(12)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
+        assert len(hub.list_integrations()) == 12

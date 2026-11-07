@@ -3,6 +3,10 @@ import json
 import subprocess
 import logging
 import re
+import shutil
+import tempfile
+from datetime import datetime, timezone
+from filelock import FileLock
 from typing import Dict, Any, Optional, List, Union
 # SecretVault import removed – credentials are now read from environment variables via placeholders
 
@@ -71,6 +75,15 @@ def merge_config_preserving_mask(existing: Dict[str, Any], incoming: Dict[str, A
     return merged
 
 
+class IntegrationConfigCorruptError(Exception):
+    """integrations.json exists but is not a valid JSON object (SEC-/2.16).
+
+    The bad file is preserved as ``<file>.corrupt-<UTC timestamp>`` before this
+    is raised, so the hub never silently behaves as if no integrations exist and
+    never overwrites the unreadable original.
+    """
+
+
 class IntegrationHub:
     """
     Manages external service connections.
@@ -84,18 +97,80 @@ class IntegrationHub:
         self.config_path = os.path.join(base_dir, "integrations.json")
         self._lock_path = self.config_path + ".lock"
 
+    def _lock(self) -> FileLock:
+        """Cross-process lock guarding read-modify-write cycles on integrations.json."""
+        return FileLock(self._lock_path)
+
     def _load_config(self) -> Dict[str, Any]:
+        """Return the stored integrations mapping.
+
+        Missing file -> {}. Unreadable/invalid JSON or a non-object root raises
+        IntegrationConfigCorruptError after backing the file up (2.16). Other
+        I/O errors propagate.
+        """
         if not os.path.exists(self.config_path):
             return {}
+        with open(self.config_path, "r") as f:
+            raw = f.read()
         try:
-            with open(self.config_path, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {}
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            backup = self._backup_corrupt_file()
+            raise IntegrationConfigCorruptError(
+                f"integrations.json is not valid JSON ({exc.msg} at line {exc.lineno}); "
+                f"the unreadable file was preserved at {backup}"
+            ) from exc
+        if not isinstance(data, dict):
+            backup = self._backup_corrupt_file()
+            raise IntegrationConfigCorruptError(
+                f"integrations.json must contain a JSON object; "
+                f"the unreadable file was preserved at {backup}"
+            )
+        return data
+
+    def _backup_corrupt_file(self) -> str:
+        """Copy the corrupt config to ``<file>.corrupt-<UTC timestamp>``.
+
+        The original is left in place. If an identical backup already exists
+        (repeated loads of the same bad file) no new copy is made.
+        """
+        with open(self.config_path, "rb") as f:
+            payload = f.read()
+        existing = sorted(
+            p for p in (os.path.join(self.base_dir, n) for n in os.listdir(self.base_dir))
+            if os.path.basename(p).startswith(os.path.basename(self.config_path) + ".corrupt-")
+        )
+        for path in existing:
+            with open(path, "rb") as f:
+                if f.read() == payload:
+                    return path
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        backup = f"{self.config_path}.corrupt-{stamp}"
+        shutil.copyfile(self.config_path, backup)
+        logger.error("integrations.json was corrupt; preserved copy at %s", backup)
+        return backup
 
     def _save_config(self, config: Dict[str, Any]):
-        with open(self.config_path, "w") as f:
-            json.dump(config, f, indent=2)
+        """Atomically replace integrations.json (temp file in the same dir + os.replace).
+
+        Callers hold self._lock() around the read-modify-write.
+        """
+        os.makedirs(self.base_dir, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            dir=self.base_dir, prefix=".integrations.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(config, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, self.config_path)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def add_integration(self, name: str, type: str, config: Dict[str, Any]) -> bool:
         """
@@ -117,13 +192,14 @@ class IntegrationHub:
 
 
         try:
-            current = self._load_config()
-            current[name] = {
-                "type": type,
-                "config": config,
-                "created_at": os.popen('date -u +"%Y-%m-%dT%H:%M:%SZ"').read().strip()
-            }
-            self._save_config(current)
+            with self._lock():
+                current = self._load_config()
+                current[name] = {
+                    "type": type,
+                    "config": config,
+                    "created_at": os.popen('date -u +"%Y-%m-%dT%H:%M:%SZ"').read().strip()
+                }
+                self._save_config(current)
             return True
         except Exception as e:
             if isinstance(e, ValueError):
@@ -151,38 +227,42 @@ class IntegrationHub:
         return results
 
     def delete_integration(self, name: str) -> bool:
-        current = self._load_config()
-        if name in current:
-            del current[name]
-            self._save_config(current)
-            return True
-        return False
+        with self._lock():
+            current = self._load_config()
+            if name in current:
+                del current[name]
+                self._save_config(current)
+                return True
+            return False
 
     def update_integration(self, name: str, config: Dict[str, Any]) -> bool:
         """Replace the configuration of an existing integration.
         Raises ValueError if the integration does not exist.
         Updates the connection status based on credential presence.
         """
-        current = self._load_config()
-        if name not in current:
-            raise ValueError(f"Integration {name} not found")
-        # Preserve other fields (type, created_at, status) and merge config
-        # Merge new config keys into existing config to avoid dropping required fields like 'adapter_module'
-        existing_cfg = current[name].get("config", {}) or {}
-        # Merge but preserve real secrets if placeholder values are supplied
-        merged_cfg = merge_config_preserving_mask(existing_cfg, config)
-        current[name]["config"] = merged_cfg
-        self._save_config(current)
-        # Validate credentials for known native adapters (e.g., Jira) and set status
+        with self._lock():
+            current = self._load_config()
+            if name not in current:
+                raise ValueError(f"Integration {name} not found")
+            # Preserve other fields (type, created_at, status) and merge new config keys
+            # into the existing config so required fields like 'adapter_module' survive.
+            existing_cfg = current[name].get("config", {}) or {}
+            # Merge but preserve real secrets if placeholder values are supplied
+            merged_cfg = merge_config_preserving_mask(existing_cfg, config)
+            current[name]["config"] = merged_cfg
+            self._save_config(current)
+        # Validate credentials for known native adapters (e.g., Jira) and set status.
+        # Done outside the lock: it re-enters via update_status().
         self._validate_credentials_and_update_status(name)
         return True
 
     def update_status(self, name: str, status: str):
         """Update the connection status of an integration."""
-        current = self._load_config()
-        if name in current:
-            current[name]["status"] = status
-            self._save_config(current)
+        with self._lock():
+            current = self._load_config()
+            if name in current:
+                current[name]["status"] = status
+                self._save_config(current)
 
     def execute_action(self, integration_name: str, action_name: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """
