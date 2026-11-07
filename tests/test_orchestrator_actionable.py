@@ -60,3 +60,57 @@ class TestGetNextActionableItems:
         state = make_items({"ID-001": make_item(stage="DONE")})
         actionable = orchestrator.get_next_actionable_items(state)
         assert len(actionable) == 1
+
+
+class TestPriorityOrdering:
+    """2.4 / T18 — the API stores lowercase priorities incl. 'critical'."""
+
+    @staticmethod
+    def _order(priorities):
+        items = {
+            f"ID-{i:03d}": make_item(stage="INTAKE", priority=p)
+            for i, p in enumerate(priorities, start=1)
+        }
+        actionable = orchestrator.get_next_actionable_items(make_items(items))
+        return [item["priority"] for _, item in actionable]
+
+    def test_lowercase_priorities_sort(self):
+        assert self._order(["low", "medium", "high"]) == ["high", "medium", "low"]
+
+    def test_critical_sorts_first(self):
+        assert self._order(["low", "high", "critical", "medium"]) == [
+            "critical", "high", "medium", "low",
+        ]
+
+    def test_mixed_case_sorts_case_insensitively(self):
+        assert self._order(["Low", "CRITICAL", "high", "Medium"]) == [
+            "CRITICAL", "high", "Medium", "Low",
+        ]
+
+    def test_unknown_and_missing_priority_sort_last_or_as_medium(self):
+        state = make_items({
+            "ID-001": make_item(stage="INTAKE", priority="weird"),
+            "ID-002": make_item(stage="INTAKE", priority="low"),
+            "ID-003": make_item(stage="INTAKE", priority="high"),
+        })
+        ids = [i for i, _ in orchestrator.get_next_actionable_items(state)]
+        assert ids == ["ID-003", "ID-002", "ID-001"]
+
+    def test_missing_priority_treated_as_medium(self):
+        a = make_item(stage="INTAKE")
+        a.pop("priority", None)
+        state = make_items({
+            "ID-001": make_item(stage="INTAKE", priority="low"),
+            "ID-002": a,
+            "ID-003": make_item(stage="INTAKE", priority="high"),
+        })
+        ids = [i for i, _ in orchestrator.get_next_actionable_items(state)]
+        assert ids == ["ID-003", "ID-002", "ID-001"]
+
+    def test_non_string_priority_does_not_crash(self):
+        state = make_items({
+            "ID-001": make_item(stage="INTAKE", priority=None),
+            "ID-002": make_item(stage="INTAKE", priority="high"),
+        })
+        ids = [i for i, _ in orchestrator.get_next_actionable_items(state)]
+        assert ids[0] == "ID-002"

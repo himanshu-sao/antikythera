@@ -17,6 +17,18 @@ except RuntimeError:
 
 logger = logging.getLogger(__name__)
 
+# 2.4 / T18: the API stores lowercase priorities (api/constants.py
+# VALID_PRIORITIES). Ranks are matched case-insensitively; lower rank runs first.
+PRIORITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+_UNKNOWN_PRIORITY_RANK = 4
+
+
+def _priority_rank(priority):
+    """Sort rank for a stored priority. Missing/None -> medium; unknown -> last."""
+    if not isinstance(priority, str) or not priority.strip():
+        return PRIORITY_RANK["medium"]
+    return PRIORITY_RANK.get(priority.strip().lower(), _UNKNOWN_PRIORITY_RANK)
+
 class Orchestrator:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
@@ -35,8 +47,7 @@ class Orchestrator:
                     continue
             actionable.append((item_id, item))
         
-        priority_order = {"High": 0, "Medium": 1, "Low": 2}
-        actionable.sort(key=lambda x: priority_order.get(x[1].get("priority", "Medium"), 99))
+        actionable.sort(key=lambda x: _priority_rank(x[1].get("priority")))
         return actionable
 
     def transition_stage(self, item, new_stage, state, item_id=None):
