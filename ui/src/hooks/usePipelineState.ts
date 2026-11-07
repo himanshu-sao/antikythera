@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { apiUrl } from '../config';
 import type { PipelineItem, PipelineState } from '../types/legacy-pipeline';
@@ -8,26 +8,39 @@ export function usePipelineState() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Set false on unmount so in-flight fetches and the poll loop stop touching state.
+  const mountedRef = useRef(true);
+
   const fetchState = useCallback(async () => {
     try {
       setError(null);
       const res = await fetch(`${apiUrl}/api/state`);
       if (!res.ok) throw new Error('Failed to fetch state');
       const data = await res.json();
-      setState(data);
+      if (mountedRef.current) setState(data);
     } catch (e: any) {
+      if (!mountedRef.current) return;
       console.error("Failed to fetch state", e);
       setError(e.message || 'Failed to load data');
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    let currentDelay = 10000;
+    mountedRef.current = true;
+    const POLL_INTERVAL_MS = 10000;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const schedule = () => {
+      if (!mountedRef.current) return;
+      timer = setTimeout(poll, POLL_INTERVAL_MS);
+    };
+
     const poll = async () => {
+      timer = null;
       await fetchState();
-      setTimeout(poll, currentDelay);
+      schedule();
     };
 
     poll();
@@ -39,7 +52,12 @@ export function usePipelineState() {
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      mountedRef.current = false;
+      if (timer !== null) clearTimeout(timer);
+      timer = null;
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [fetchState]);
 
   const handleUpdateItem = async (itemId: string, updates: any) => {
