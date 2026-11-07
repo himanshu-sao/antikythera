@@ -190,8 +190,9 @@ class TestPreviewNode(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertIn("Unsupported adapter", result["error"])
 
-    def test_preview_query_param_variable_missing_resolves_to_none(self):
-        """Missing variable resolves to 'None' string (placeholder replaced with 'None')."""
+    def test_preview_query_param_variable_missing_keeps_placeholder(self):
+        """Missing variable keeps its placeholder text (SEC-12). It used to become the
+        literal string 'None', which silently sent a wrong value to the adapter."""
         adapter = self.registry.adapters["internal_adapter"]
         adapter.list_items = AsyncMock(return_value={"items": []})
 
@@ -201,8 +202,8 @@ class TestPreviewNode(unittest.TestCase):
 
         result = _run(self.engine.preview_node(node, execution_state))
 
-        # Missing variable resolves to 'None' string
-        adapter.list_items.assert_called_once_with(stage="None")
+        # Missing variable keeps its placeholder text
+        adapter.list_items.assert_called_once_with(stage="{{missing_var}}")
 
     def test_preview_query_multiple_params_all_resolved(self):
         """Multiple params with variables all resolve correctly."""

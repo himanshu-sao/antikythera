@@ -231,12 +231,13 @@ class TestQueryNodeActionDispatch(unittest.TestCase):
         result = _run(self.engine._execute_query_node(exec_state, node, loop_context))
         self.assertEqual(result, [{"key": "PROJ-1"}])
         self.assertEqual(seen["jql"], "project = LOOP-PROJ", "loop_context must win over state")
-        self.assertEqual(seen["max_results"], "5", "state-only var resolves from state")
+        # SEC-12: a whole-placeholder string keeps the raw value type (int 5, not "5").
+        self.assertEqual(seen["max_results"], 5, "state-only var resolves from state, type kept")
 
-        # Edge: a {{var}} absent from both loop_context and state → _get_nested_value
-        # returns None → `str(None)` → "None" (the regex replacer falls back
-        # to that rather than dropping the placeholder). Pin this so a future
-        # refactor that changes the fallback is caught.
+        # Edge: a {{var}} absent from both loop_context and state keeps its
+        # placeholder text (SEC-12). Previously it became the literal "None",
+        # which sent a wrong query to the adapter; the placeholder is now left
+        # unchanged so the gap is visible instead of silently wrong.
         node2 = QueryNode(
             node_id="q2",
             name="q2",
@@ -250,7 +251,7 @@ class TestQueryNodeActionDispatch(unittest.TestCase):
             graph_id="g", run_id="r", state={}, run_log=[], undefined_queue=[], loop_stack=[]
         )
         _run(self.engine._execute_query_node(exec_state2, node2))
-        self.assertEqual(seen["jql"], "x = None", "unresolved var must become 'None', not be dropped")
+        self.assertEqual(seen["jql"], "x = {{missing}}", "unresolved var keeps its placeholder text")
         # Dot-path state resolution: {{cfg.team}} reads state["cfg"]["team"].
         node3 = QueryNode(
             node_id="q3",

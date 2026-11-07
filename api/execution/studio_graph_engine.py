@@ -23,6 +23,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -861,20 +862,77 @@ class PathStepGraphEngine:
             current = current[k]
         current[keys[-1]] = value
 
+    _PLACEHOLDER_RE = re.compile(r"\{\{(.*?)\}\}")
+    _WHOLE_PLACEHOLDER_RE = re.compile(r"^\{\{(.*?)\}\}$", re.DOTALL)
+
     def _resolve_params(self, params: Dict[str, Any], state: Dict[str, Any], loop_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Resolve {{variable}} placeholders in params from state."""
-        import re
+        """Resolve {{variable}} placeholders in params from state (SEC-12).
 
-        def replace(match):
-            var_name = match.group(1)
-            # Priority: loop_context -> state
+        Substitution walks the params structure and touches only string leaves,
+        so a value containing quotes or backslashes can never break the structure
+        or inject extra keys (the old json.dumps-text approach did both).
+
+        - A string that is exactly one placeholder resolves to the raw value
+          (keeps type, e.g. an int or a list).
+        - Embedded placeholders are replaced by ``str(value)``.
+        - Keys are never substituted.
+        - An absent variable (or a missing dot-path) keeps its placeholder text
+          unchanged. The old behaviour produced the literal string "None", which
+          silently sent a wrong query to the adapter.
+        - Variables resolve with loop_context taking priority over state.
+        """
+        def lookup(var_name: str):
             if loop_context and var_name in loop_context:
-                return str(loop_context[var_name])
-            return str(self._get_nested_value(state, var_name)) or match.group(0)
+                return True, loop_context[var_name]
+            value = self._get_nested_value(state, var_name)
+            if value is None and not self._has_path(state, var_name):
+                return False, None
+            return True, value
 
-        resolved = json.dumps(params)
-        resolved = re.sub(r"\{\{(.*?)\}\}", replace, resolved)
-        return json.loads(resolved)
+        def resolve_string(text: str) -> Any:
+            whole = self._WHOLE_PLACEHOLDER_RE.match(text)
+            if whole:
+                found, value = lookup(whole.group(1).strip())
+                return value if found else text
+
+            def replace(match):
+                found, value = lookup(match.group(1).strip())
+                return str(value) if found else match.group(0)
+
+            return self._PLACEHOLDER_RE.sub(replace, text)
+
+        def walk(node: Any) -> Any:
+            if isinstance(node, dict):
+                return {key: walk(value) for key, value in node.items()}
+            if isinstance(node, list):
+                return [walk(item) for item in node]
+            if isinstance(node, str):
+                return resolve_string(node)
+            return node
+
+        return walk(params)
+
+    def _has_path(self, data: Dict[str, Any], key: str) -> bool:
+        """True when dot-path ``key`` exists in ``data`` (even if its value is None)."""
+        if not key:
+            return True
+        current: Any = data
+        for k in key.split('.'):
+            if isinstance(current, dict):
+                if k in current:
+                    current = current[k]
+                elif 'fields' in current and isinstance(current['fields'], dict) and k in current['fields']:
+                    current = current['fields'][k]
+                else:
+                    return False
+            elif isinstance(current, list):
+                try:
+                    current = current[int(k)]
+                except (ValueError, IndexError):
+                    return False
+            else:
+                return False
+        return True
 
     def _get_node(self, graph: StudioGraph, node_id: str) -> Optional[StudioNode]:
         """Find a node by ID."""
