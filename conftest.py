@@ -59,15 +59,6 @@ def ensure_event_loop():
 #    defensive.
 # ----------------------------------------------------------------------
 
-# Session-scoped event loop for pytest-asyncio (every async test, even those
-# outside the api/executors subpackage, gets a usable loop).
-@pytest.fixture(scope="session")
-def event_loop():
-    import asyncio
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
 # ----------------------------------------------------------------------
 # Network guard (autouse). Any TCP connect to a non-loopback host is refused
 # with OSError and recorded; the test fails at teardown if one was attempted,
