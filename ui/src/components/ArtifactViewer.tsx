@@ -30,6 +30,8 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
     itemDetails,
     handleContentChange,
     submitReview,
+    gatedMove,
+    forceMove,
     needsReview
   } = useArtifacts({ itemId, onClose });
 
@@ -251,6 +253,8 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                 reviewComments={reviewComments}
                 setReviewComments={setReviewComments}
                 submitReview={submitReview}
+                gatedMove={gatedMove}
+                forceMove={forceMove}
               />
             ) : (
               <div className="flex flex-col h-full">

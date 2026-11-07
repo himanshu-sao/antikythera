@@ -9,6 +9,31 @@ export interface Artifact {
   type: 'spec' | 'architecture' | 'tests' | 'review' | 'report' | 'deliverable';
 }
 
+/** Stage an item moves to after an APPROVED review (the forward step of the review gate). */
+const NEXT_STAGE_ON_APPROVE: Record<string, string> = {
+  'REVIEW_SPEC': 'ARCHITECTURE',
+  'REVIEW_ARCH': 'TESTING',
+  'REVIEW_TEST': 'APPROVED',
+};
+
+/** A move the backend refused (422). Held so the user can explicitly force it. */
+export interface GatedMove {
+  stage: string;
+  reason: string;
+}
+
+async function readErrorDetail(res: Response): Promise<string> {
+  try {
+    const data = await res.json();
+    const detail = data?.detail;
+    if (typeof detail === 'string') return detail;
+    if (detail) return JSON.stringify(detail);
+  } catch {
+    // Non-JSON body: fall through to the generic reason.
+  }
+  return 'the move rules do not allow it yet';
+}
+
 interface UseArtifactsProps {
   itemId: string;
   onClose: () => void;
@@ -23,12 +48,14 @@ export function useArtifacts({ itemId, onClose }: UseArtifactsProps) {
   const [reviewComments, setReviewComments] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [itemDetails, setItemDetails] = useState<any>(null);
+  const [gatedMove, setGatedMove] = useState<GatedMove | null>(null);
 
   // Reset selection when item changes
   useEffect(() => {
     setSelectedArtifact(null);
     setReviewStatus('APPROVED');
     setReviewComments('');
+    setGatedMove(null);
   }, [itemId]);
 
   useEffect(() => {
@@ -94,32 +121,63 @@ export function useArtifacts({ itemId, onClose }: UseArtifactsProps) {
     debouncedSave(selectedArtifact.name, newContent);
   };
 
+  /**
+   * Record the review through POST /api/item/{id}/review (D5). The backend sets review_status,
+   * appends the comment to review.md and the item history. An APPROVED review then requests the
+   * normal forward move; a NEEDS_REVISION review never moves the item.
+   */
   const submitReview = async () => {
-    const content = `review_status: ${reviewStatus}\n\n## Comments\n${reviewComments}`;
-    await saveContent('review.md', content);
-
-    if (reviewStatus === 'APPROVED') {
-      const nextStageMap: Record<string, string> = {
-        'REVIEW_SPEC': 'ARCHITECTURE',
-        'REVIEW_ARCH': 'TESTING',
-        'REVIEW_TEST': 'APPROVED'
-      };
-      const nextStage = nextStageMap[itemDetails?.stage];
-
-      if (nextStage) {
-        await apiFetch(`${apiUrl}/api/move`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ item_id: itemId, new_stage: nextStage })
-        });
-        alert('Review Approved! Transitioning to ' + nextStage);
-        onClose();
-      } else {
-        alert('Review Approved!');
-      }
-    } else {
-      alert('Feedback submitted. Task remains in ' + itemDetails?.stage);
+    const reviewRes = await apiFetch(`${apiUrl}/api/item/${itemId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: reviewStatus, comment: reviewComments }),
+    });
+    if (!reviewRes.ok) {
+      alert(`Could not record the review (HTTP ${reviewRes.status}). Nothing was moved.`);
+      return;
     }
+
+    if (reviewStatus !== 'APPROVED') {
+      alert('Feedback submitted. Task remains in ' + itemDetails?.stage);
+      return;
+    }
+
+    const nextStage = NEXT_STAGE_ON_APPROVE[itemDetails?.stage];
+    if (!nextStage) {
+      alert('Review Approved!');
+      return;
+    }
+    await requestMove(nextStage, false);
+  };
+
+  /** Move the item. `force` is only ever true from the explicit "Force move" action. */
+  const requestMove = async (newStage: string, force: boolean) => {
+    const body: Record<string, unknown> = { item_id: itemId, new_stage: newStage };
+    if (force) body.force = true;
+    const res = await apiFetch(`${apiUrl}/api/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      setGatedMove(null);
+      alert((force ? 'Forced move to ' : 'Review Approved! Transitioning to ') + newStage);
+      onClose();
+      return;
+    }
+    if (res.status === 422 && !force) {
+      const reason = await readErrorDetail(res);
+      setGatedMove({ stage: newStage, reason });
+      alert(`Review recorded, but the move to ${newStage} was blocked: ${reason}. Use "Force move" to override.`);
+      return;
+    }
+    alert(`Move to ${newStage} failed (HTTP ${res.status}). The item was not moved.`);
+  };
+
+  /** Explicit override for a gated move. Only reachable through the labelled "Force move" control. */
+  const forceMove = async () => {
+    if (!gatedMove) return;
+    await requestMove(gatedMove.stage, true);
   };
 
   const fetchArtifacts = useCallback(async () => {
@@ -198,6 +256,8 @@ export function useArtifacts({ itemId, onClose }: UseArtifactsProps) {
     itemDetails,
     handleContentChange,
     submitReview,
+    gatedMove,
+    forceMove,
     needsReview,
   };
 }
