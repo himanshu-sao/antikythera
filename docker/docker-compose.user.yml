@@ -38,6 +38,8 @@ services:
       - "5173:5173"
     environment:
       - VITE_API_URL=http://localhost:8006
+      # Vite dev-server proxy target for /api (reached over the compose network).
+      - API_PROXY_TARGET=http://backend:8006
     networks:
       - antikythera-network
     depends_on:

@@ -47,8 +47,14 @@ validate_config() {
         export VITE_API_URL="http://localhost:8006"
     fi
 
+    # Vite dev-server proxy target for /api (vite.config.ts API_PROXY_TARGET)
+    if [ -z "$API_PROXY_TARGET" ]; then
+        export API_PROXY_TARGET="http://localhost:8006"
+    fi
+
     log_success "Frontend configuration passed!"
     log_info "  - Vite API URL: $VITE_API_URL"
+    log_info "  - API proxy target: $API_PROXY_TARGET"
 }
 
 # ------------------------------------------------------------------------------
