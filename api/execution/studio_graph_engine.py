@@ -888,6 +888,14 @@ class PathStepGraphEngine:
         """Finalize run and persist log with undefined queue handling."""
         run_id = exec_state.run_id
 
+        # S7: node failures are caught per-node (so one bad node does not abort
+        # the traversal), which used to leave the run reported as "completed".
+        # When the traversal itself finished, derive the status from the node
+        # outcomes: all succeeded -> completed, mixed -> partial, all failed ->
+        # failed. A graph-level failure ("failed" passed in) is kept as is.
+        if status == "completed":
+            status = self._derive_run_status(exec_state.run_log)
+
         # Convert run_log to NodeExecutionResult objects
         node_results = []
         undefined_items = []
@@ -940,6 +948,20 @@ class PathStepGraphEngine:
 
         self._save_run_log(run_log)
         logger.info(f"Run {run_id} finalized: status={status}, matched={total_matched}, undefined={total_undefined}")
+
+    @staticmethod
+    def _derive_run_status(run_log: List[Dict[str, Any]]) -> str:
+        """Run status from per-node outcomes (S7).
+
+        "completed" when no node failed (including an empty run), "failed" when
+        every executed node failed, otherwise "partial".
+        """
+        failed = sum(1 for e in run_log if e.get("status") == "failed")
+        if failed == 0:
+            return "completed"
+        if failed == len(run_log):
+            return "failed"
+        return "partial"
 
     def _save_run_log(self, run_log: GraphRunLog):
         """Save run log to disk (atomic write)."""
