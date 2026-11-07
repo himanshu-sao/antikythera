@@ -23,6 +23,7 @@ import logging
 import re
 import subprocess
 import yaml
+from api.settings_store import get_setting
 from typing import Optional, Dict, Any
 from openai import OpenAI
 # Attempt to import the real Google Generative AI SDK; fall back to a lightweight stub if unavailable
@@ -64,10 +65,11 @@ _OPENAI_COMPAT = {
 # managed by the LLMClient.
 _IBM_BOB_CLI = "ibm_bob"
 _BOB_BINARY = "bob"
-_BOB_TIMEOUT = 120  # seconds — bob can be slow on first-run auth and on
-                     # large structured-output prompts (planner JSON). A cold
-                     # bob daemon has been observed to exceed 60s on the first
-                     # call; 120s leaves headroom without hanging forever.
+# Default for the ``bob_timeout_s`` setting (D14), read on every bob call.
+# bob can be slow on first-run auth and on large structured-output prompts
+# (planner JSON). A cold bob daemon has been observed to exceed 60s on the
+# first call; 120s leaves headroom without hanging forever.
+_BOB_TIMEOUT = 120
 
 # A model id is spliced into the ``bob`` argv as the value of ``-m``. Reject any
 # value that could masquerade as another option (leading ``-``) so a malformed
@@ -437,7 +439,7 @@ class LLMClient:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-            timeout=_BOB_TIMEOUT,
+            timeout=get_setting("bob_timeout_s"),
             check=False,
         )
         if result.returncode != 0:
