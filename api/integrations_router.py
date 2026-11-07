@@ -2,12 +2,21 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 # SecretVault import removed – credentials are now read from environment
-from api.integration_hub import IntegrationHub
+from api.integration_hub import IntegrationHub, public_error_detail
 import os
 import re
+import logging
 import httpx
 
+logger = logging.getLogger("backend")
+
 router = APIRouter(prefix="/api/integrations", tags=["Integrations"])
+
+
+def _server_error(exc: BaseException, code: str, what: str) -> HTTPException:
+    """500 with a path-free message; the exception itself is logged (P1-6)."""
+    return HTTPException(status_code=500, detail=public_error_detail(exc, code, what))
+
 
 class IntegrationCreateRequest(BaseModel):
     name: str = Field(..., min_length=1)
@@ -31,12 +40,15 @@ async def call_tool(name: str, request: Request, req: ToolCallRequest):
         res = hub.execute_action(name, "tools/call", {"name": req.name, "arguments": req.arguments})
         return {"status": "success", "data": res}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "INTEGRATION_CALL_FAILED", "Tool call")
 
 @router.get("/", summary="List all integrations")
 async def list_integrations(request: Request):
     hub: IntegrationHub = request.app.state.hub
-    return hub.list_integrations()
+    try:
+        return hub.list_integrations()
+    except Exception as e:
+        raise _server_error(e, "INTEGRATION_LIST_FAILED", "Listing integrations")
 
 @router.post("/", summary="Add a new integration")
 async def add_integration(request: Request, req: IntegrationCreateRequest):
@@ -47,12 +59,15 @@ async def add_integration(request: Request, req: IntegrationCreateRequest):
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "INTEGRATION_ADD_FAILED", "Adding the integration")
 
 @router.post("/{name}/test", summary="Test an integration connection")
 async def test_integration(name: str, request: Request):
     hub: IntegrationHub = request.app.state.hub
-    integration = hub.get_integration(name)
+    try:
+        integration = hub.get_integration(name)
+    except Exception as e:
+        raise _server_error(e, "INTEGRATION_READ_FAILED", "Reading the integration")
     if not integration:
         raise HTTPException(status_code=404, detail="Integration not found")
     try:
@@ -140,7 +155,8 @@ async def test_integration(name: str, request: Request):
                     resp = await client.get(f"{base_url}/rest/api/2/myself", headers=headers, timeout=10)
                 except httpx.RequestError as err:
                     hub.update_status(name, "error")
-                    raise HTTPException(status_code=502, detail=str(err))
+                    logger.warning("Jira test request for %s failed: %s", name, err)
+                    raise HTTPException(status_code=502, detail="Could not reach the Jira server (error code INTEGRATION_UPSTREAM_UNREACHABLE)")
                 if resp.status_code == 200:
                     hub.update_status(name, "connected")
                     json_body = resp.json()
@@ -162,8 +178,11 @@ async def test_integration(name: str, request: Request):
         # Propagate known HTTP errors
         raise he
     except Exception as e:
-        hub.update_status(name, "error")
-        raise HTTPException(status_code=500, detail=str(e))
+        try:
+            hub.update_status(name, "error")
+        except Exception:
+            logger.exception("Could not record error status for integration %s", name)
+        raise _server_error(e, "INTEGRATION_TEST_FAILED", "Testing the integration")
 
 @router.get("/{name}/tools", summary="List available tools for an MCP integration")
 async def list_integration_tools(name: str, request: Request):
@@ -172,12 +191,16 @@ async def list_integration_tools(name: str, request: Request):
         res = hub.execute_action(name, "tools/list", {})
         return {"status": "success", "data": res}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "INTEGRATION_TOOLS_FAILED", "Listing tools")
 
 @router.delete("/{name}", summary="Delete integration")
 async def delete_integration(name: str, request: Request):
     hub: IntegrationHub = request.app.state.hub
-    if hub.delete_integration(name):
+    try:
+        deleted = hub.delete_integration(name)
+    except Exception as e:
+        raise _server_error(e, "INTEGRATION_DELETE_FAILED", "Deleting the integration")
+    if deleted:
         return {"status": "success", "message": f"Integration {name} deleted"}
     raise HTTPException(status_code=404, detail="Integration not found")
 
@@ -190,7 +213,7 @@ async def update_integration(name: str, request: Request, req: IntegrationUpdate
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "INTEGRATION_UPDATE_FAILED", "Updating the integration")
 
 # Secret storage endpoints removed – all credentials are now provided via environment variables and integration config placeholders
 

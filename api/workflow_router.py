@@ -1,11 +1,16 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from api.main import get_state_manager
+from api.integration_hub import public_error_detail
 from typing import Dict, Any, List, Optional
-import jsonschema
 from jsonschema import validate, ValidationError
 
 router = APIRouter(prefix="/api/workflows", tags=["Workflows"])
+
+
+def _server_error(exc: BaseException, code: str, what: str) -> HTTPException:
+    """500 with a generic, path-free message and a short error code; the exception is logged (P1-6)."""
+    return HTTPException(status_code=500, detail=public_error_detail(exc, code, what))
 
 # Server-side adapter allowlist for template saving (B1 hardening)
 # Excludes execution-capable adapters: 'shell' (not in registry, errors at runtime)
@@ -213,8 +218,10 @@ async def delete_template(request: Request, template_id: str):
         raise HTTPException(status_code=404, detail="Template not found")
     except AttributeError:
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "TEMPLATE_DELETE_FAILED", "Deleting the template")
 
 @router.get("/templates", summary="List all workflow templates")
 async def list_templates(request: Request):
@@ -223,8 +230,10 @@ async def list_templates(request: Request):
         return state_manager.templates.list_templates()
     except AttributeError:
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "TEMPLATE_LIST_FAILED", "Listing templates")
 
 @router.get("/templates/{template_id}", summary="Get a specific template")
 async def get_template(request: Request, template_id: str):
@@ -236,8 +245,10 @@ async def get_template(request: Request, template_id: str):
         return template
     except AttributeError:
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "TEMPLATE_GET_FAILED", "Reading the template")
 
 @router.post("/templates", summary="Create or update a template")
 async def save_template(request: Request, template: Dict[str, Any]):
@@ -268,8 +279,10 @@ async def save_template(request: Request, template: Dict[str, Any]):
         raise HTTPException(status_code=500, detail="Failed to save template")
     except AttributeError:
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "TEMPLATE_SAVE_FAILED", "Saving the template")
 
 @router.get("/runs/{run_id}", summary="Get run details and summary")
 async def get_run_details(request: Request, run_id: str):
@@ -291,8 +304,10 @@ async def get_run_details(request: Request, run_id: str):
         }
     except AttributeError:
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "RUN_GET_FAILED", "Reading the run")
 
 @router.get("/runs/{run_id}/timeline", summary="Get only the run timeline")
 async def get_run_timeline(request: Request, run_id: str):
@@ -302,8 +317,10 @@ async def get_run_timeline(request: Request, run_id: str):
         return timeline
     except AttributeError:
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "RUN_TIMELINE_FAILED", "Reading the run timeline")
 
 @router.get("/items/{item_id}/run", summary="Find the run associated with a Kanban item")
 async def get_item_run(request: Request, item_id: str):
@@ -315,8 +332,10 @@ async def get_item_run(request: Request, item_id: str):
         return {"run_id": run_id}
     except AttributeError:
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "ITEM_RUN_FAILED", "Finding the item's run")
 
 
 @router.post("/trigger", summary="Manually start a workflow run for a template")
@@ -338,4 +357,4 @@ async def trigger_workflow(request: Request, body: TriggerRequest):
         # start_run raises ValueError when the template_id is unknown.
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise _server_error(e, "WORKFLOW_TRIGGER_FAILED", "Starting the workflow")

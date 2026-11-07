@@ -17,6 +17,11 @@ class TestIntegrationRouterCredentials(unittest.TestCase):
         self.client.delete("/api/integrations/jira_test")  # ignore errors if not exist
 
     def test_jira_test_endpoint_resolves_placeholders(self):
+        # conftest strips credential variables before each test, so set them here.
+        self._env = __import__("pytest").MonkeyPatch()
+        self._env.setenv("JIRA_BASE_URL", "https://example.atlassian.net")
+        self._env.setenv("JIRA_PAT", "dummy_pat")
+        self.addCleanup(self._env.undo)
         # Create a Jira integration with placeholders
         payload = {
             "name": "jira_test",

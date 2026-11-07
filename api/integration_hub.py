@@ -234,6 +234,29 @@ class IntegrationConfigCorruptError(Exception):
     """
 
 
+PUBLIC_INTEGRATION_CORRUPT_MESSAGE = (
+    "A data file is corrupt (not valid JSON). A backup copy of it was saved next to the original. "
+    "Restore or remove the original file, then retry."
+)
+
+
+def public_error_detail(exc: BaseException, code: str, what: str) -> str:
+    """Client-safe message for an unexpected server error (P1-6).
+
+    Corrupt-file errors (the hub's own and the managers' ``CorruptStateError``)
+    carry absolute paths in their text, so they get a fixed message. Anything else
+    gets ``"<what> failed (error code <code>)"``. The full exception is always
+    logged server-side; the text of *exc* is never returned.
+    """
+    from api.managers.base import CorruptStateError
+
+    if isinstance(exc, (IntegrationConfigCorruptError, CorruptStateError)):
+        logger.error("%s: corrupt data file: %s", code, exc)
+        return PUBLIC_INTEGRATION_CORRUPT_MESSAGE
+    logger.error("%s: %s failed", code, what, exc_info=exc)
+    return f"{what} failed (error code {code})"
+
+
 def _run_coroutine_sync(coro_factory):
     """Run an adapter coroutine to completion from synchronous code (2.20 / T24).
 
@@ -380,10 +403,10 @@ class IntegrationHub:
                 }
                 self._save_config(current)
             return True
+        except (ValueError, IntegrationConfigCorruptError):
+            raise
         except Exception as e:
-            if isinstance(e, ValueError):
-                raise e
-            raise Exception(f"Failed to save integration: {str(e)}")
+            raise Exception(f"Failed to save integration: {str(e)}") from e
 
     def get_integration(self, name: str) -> Optional[Dict[str, Any]]:
         return self._load_config().get(name)
