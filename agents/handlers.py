@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 from agents import refiner, architect, tester, audit as audit_module
 from agents import logger as task_logger
@@ -6,6 +7,11 @@ from agents.constants import REVIEW_STAGES, TIER_STAGES, DEFAULT_COMPLEXITY
 from agents.constants import next_stage
 
 logger = logging.getLogger(__name__)
+
+# Repo root (parent of agents/). The data dir is <root>/automation-ideas, the
+# same directory api/main.py uses for BASE_DIR.
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(PROJECT_ROOT, "automation-ideas")
 
 class StageHandler:
     """
@@ -169,15 +175,13 @@ class StageHandler:
 
     def handle_executing(self, item, state, item_id):
         logger.info("Processing %s at EXECUTING stage", item_id)
-        import os
         from api.managers.run_manager import RunManager
         from api.workflow_state_manager import WorkflowStateManager
         
         # In a real production environment, we'd get this via dependency injection.
         # For now, we reconstruct the manager to access the run_manager.
-        # The base_dir is 'automation-ideas' (as configured in api/main.py)
-        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "automation-ideas"))
-        state_manager = WorkflowStateManager(base_dir)
+        # The base_dir is '<repo>/automation-ideas' (as configured in api/main.py)
+        state_manager = WorkflowStateManager(DATA_DIR)
         run_manager = state_manager.runs
 
         t_logger = task_logger.get_logger(item_id)

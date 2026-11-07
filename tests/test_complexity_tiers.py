@@ -308,3 +308,32 @@ class TestManagerPersistsComplexity:
         mgr = KanbanStateManager(str(base))
         mgr.create_item("ID-2", "Title")
         assert mgr.get_item_details("ID-2")["complexity"] is None
+
+
+# ---------------------------------------------------------------------------
+# 2.2 / T15 — handle_executing must build WorkflowStateManager on the repo's
+# automation-ideas dir (one level up from agents/, not two).
+# ---------------------------------------------------------------------------
+
+class TestExecutingDataDir:
+    def test_workflow_state_manager_gets_repo_automation_ideas(self):
+        import os
+        from unittest.mock import MagicMock
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        expected = os.path.join(repo_root, "automation-ideas")
+
+        item = make_item(stage="EXECUTING", title="t", confidence=None)
+        item["complexity"] = "complex"
+        state = make_items({"ID-001": item})
+        fake_sm = MagicMock()
+        fake_sm.bindings.get_run_id_for_item.return_value = "run-1"
+        with patch("api.workflow_state_manager.WorkflowStateManager",
+                   return_value=fake_sm) as spy, \
+             patch("agents.executor.executor_idea", return_value=80):
+            orchestrator.handle_executing(item, state, "ID-001")
+
+        assert spy.call_count == 1
+        got = os.path.abspath(spy.call_args[0][0])
+        assert got == expected
+        # Must stay inside the repo (the old bug resolved to the repo's parent).
+        assert os.path.commonpath([got, repo_root]) == repo_root
