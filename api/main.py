@@ -7,7 +7,6 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 # Ensure the latest version of brain_api is loaded (in case it was imported before code changes)
 import importlib, sys
@@ -120,8 +119,9 @@ app.include_router(workflow_router)
 app.include_router(ai_engine_config_router, prefix="/api/ai-engine", tags=["AI Engine Configuration"])
 app.include_router(studio_router)
 
-# Mount static files for requirements and documentation
-app.mount("/docs", StaticFiles(directory=BASE_DIR), name="docs")
+# SEC-2: the automation-ideas/ data directory is intentionally NOT served as
+# static files. It holds the vault key, the secrets vault and integrations.json.
+# The UI reads artifacts through /api/item/... routes only.
 
 @app.get("/")
 async def root():
