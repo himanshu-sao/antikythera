@@ -9,8 +9,9 @@ API endpoints for managing AI model configurations:
 - Update model settings
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
+import os
 from typing import Optional, List, Dict, Any
 
 from ..services.ai_engine_config import get_ai_engine_config, AIEngineConfigService, AIEngineConfigError
@@ -106,27 +107,58 @@ async def get_provider_models(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+# SEC-10: bounds for the logs endpoint.
+_LOG_DEFAULT_LINES = 200
+_LOG_MAX_LINES = 2000
+_LOG_MAX_BYTES = 256 * 1024  # never read more than the tail of the file
+
+
+def _resolve_backend_log_path() -> str:
+    """backend.log lives at the repo root (see start_antikythera.sh), not the CWD."""
+    repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    return os.path.join(repo_root, "backend.log")
+
+
+BACKEND_LOG_PATH = _resolve_backend_log_path()
+
+
+def _read_log_tail(path: str, max_lines: int, max_bytes: int = _LOG_MAX_BYTES) -> str:
+    """Return the last *max_lines* lines of *path*, reading at most *max_bytes* from the end."""
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as f:
+            start = max(0, size - max_bytes)
+            f.seek(start)
+            data = f.read(size - start)
+    except OSError:
+        return ""
+    text = data.decode(errors="replace")
+    if start > 0:
+        # The first line is probably cut mid-way; drop it.
+        nl = text.find("\n")
+        text = text[nl + 1:] if nl != -1 else ""
+    lines = text.splitlines()
+    return "\n".join(lines[-max_lines:])
+
+
 # GET /api/ai-engine/logs
 @router.get("/logs", response_model=Dict[str, Any])
 async def get_logs(
-    tail: int = 1048576,  # 1MiB by default
+    lines: int = Query(_LOG_DEFAULT_LINES),
+    tail: Optional[int] = Query(None),
 ) -> Dict[str, Any]:
-    """Return the last *tail* bytes of the backend log file.
+    """Return the last *lines* lines of backend.log (SEC-10).
 
-    This supports the UI "tail logs" feature. If the log file cannot be read we return
-    an empty string.
+    Bounded: at most ``_LOG_MAX_LINES`` lines and ``_LOG_MAX_BYTES`` bytes are read,
+    whatever the request asks for. ``tail`` is accepted for backwards compatibility
+    with the UI (it used to be a byte count) and is only honoured as a further cap on
+    bytes, never as a way to read more than the byte cap.
     """
-    import os
-    log_path = os.path.abspath("backend.log")
-    try:
-        size = os.path.getsize(log_path)
-        with open(log_path, "rb") as f:
-            if size > tail:
-                f.seek(-tail, os.SEEK_END)
-            content = f.read().decode(errors="replace")
-    except Exception:
-        content = ""
-    return {"logs": content}
+    line_cap = min(max(lines, 1), _LOG_MAX_LINES)
+    max_bytes = _LOG_MAX_BYTES
+    if tail is not None and tail > 0:
+        max_bytes = min(_LOG_MAX_BYTES, tail)
+    return {"logs": _read_log_tail(BACKEND_LOG_PATH, line_cap, max_bytes)}
 
 
 # GET /api/ai-engine/models
