@@ -6,6 +6,14 @@ VENV_PATH="$ROOT_DIR/venv"
 PYTHON_EXE="$VENV_PATH/bin/python3"
 UI_DIR="$ROOT_DIR/ui"
 
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Relative paths below (logs, scripts/, api.main) assume the repo root.
+cd "$ROOT_DIR" || exit 1
+
 # Load env vars from user home first (if present), then from project .env (project overrides)
 if [ -f "$HOME/.antikythera/.env" ]; then
   echo -e "${BLUE}Loading user env from $HOME/.antikythera/.env${NC}"
@@ -23,16 +31,28 @@ if [ -z "$VITE_API_URL" ]; then
     exit 1
   fi
 fi
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
-
 echo -e "${BLUE}🚀 Preparing Antikythera environment...${NC}"
 
 # 0. Pre-flight check: Ensure no old processes are running
 echo "Running cleanup to prevent ghost processes..."
-./stop_antikythera.sh
+"$ROOT_DIR/stop_antikythera.sh"
+
+# Log rotation (O6): keep one previous generation per log. A log above LOG_MAX_BYTES is
+# moved to <name>.1 (replacing the previous .1), then appended to on this start.
+LOG_MAX_BYTES=$((10 * 1024 * 1024))
+rotate_log() {
+  local log_file="$1"
+  [ -f "$log_file" ] || return 0
+  local size
+  size=$(wc -c < "$log_file" | tr -d ' ')
+  if [ "$size" -gt "$LOG_MAX_BYTES" ]; then
+    mv -f "$log_file" "$log_file.1"
+    echo "Rotated $log_file (${size} bytes) to $log_file.1"
+  fi
+}
+rotate_log "$ROOT_DIR/backend.log"
+rotate_log "$UI_DIR/ui.log"
+rotate_log "$ROOT_DIR/orchestrator.log"
 
 echo -e "\n${BLUE}🚀 Starting Antikythera Full Stack...${NC}"
 
@@ -56,21 +76,21 @@ fi
 
 echo -e "Starting Backend API on port $PORT..."
 # Use PYTHONPATH to ensure the 'api' package is discoverable
-PYTHONPATH=$ROOT_DIR $PYTHON_EXE -m uvicorn api.main:app --host 0.0.0.0 --port $PORT > backend.log 2>&1 &
+PYTHONPATH=$ROOT_DIR $PYTHON_EXE -m uvicorn api.main:app --host 0.0.0.0 --port $PORT >> backend.log 2>&1 &
 BACKEND_PID=$!
 echo -e "${GREEN}✅ Backend started (PID: $BACKEND_PID) - logs: backend.log${NC}"
 
 # 2. Start Frontend UI
 echo -e "Starting Frontend UI..."
 cd $UI_DIR
-npm run dev > ui.log 2>&1 &
+npm run dev >> ui.log 2>&1 &
 UI_PID=$!
 cd $ROOT_DIR
 echo -e "${GREEN}✅ UI started (PID: $UI_PID) - logs: ui.log${NC}"
 
 # 3. Start Orchestrator
 echo -e "Starting Orchestrator Agent loop..."
-$PYTHON_EXE scripts/run_orchestrator.py > orchestrator.log 2>&1 &
+$PYTHON_EXE scripts/run_orchestrator.py >> orchestrator.log 2>&1 &
 ORCH_PID=$!
 echo -e "${GREEN}✅ Orchestrator started (PID: $ORCH_PID) - logs: orchestrator.log${NC}"
 
