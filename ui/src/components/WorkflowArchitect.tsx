@@ -72,6 +72,10 @@ export const nextPhase = (current: LifecyclePhase): LifecyclePhase | null => {
   return LIFECYCLE_PIPELINE[idx + 1].phase;
 };
 
+/** True when `id` names a real item (not empty and not the "default" placeholder). */
+export const hasRealItemId = (id: string | undefined | null): boolean =>
+  typeof id === 'string' && id.trim() !== '' && id !== 'default';
+
 export const WorkflowArchitect = ({ 
   itemId = 'default', 
   onPhaseChange, 
@@ -95,6 +99,9 @@ export const WorkflowArchitect = ({
   }, [initialProposal]);
 
   useEffect(() => {
+    // U6/P3-6: without a real item id there is nothing to poll. Polling
+    // /api/orchestrator/default 404s every 5 seconds.
+    if (!hasRealItemId(itemId)) return;
     fetchOrchestratorState();
     // Poll for new proposals every 5 seconds
     const interval = setInterval(fetchOrchestratorState, 5000);
@@ -102,6 +109,7 @@ export const WorkflowArchitect = ({
   }, [itemId]);
 
   const fetchOrchestratorState = async () => {
+    if (!hasRealItemId(itemId)) return; // U6: never request /api/orchestrator/default
     try {
       const res = await fetch(`${apiUrl}/api/orchestrator/${itemId}`);
       if (res.ok) {

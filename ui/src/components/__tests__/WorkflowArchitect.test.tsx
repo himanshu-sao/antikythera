@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { vi, beforeEach, afterEach } from 'vitest';
-import { WorkflowArchitect, nextPhase } from '../WorkflowArchitect';
+import { WorkflowArchitect, nextPhase, hasRealItemId } from '../WorkflowArchitect';
 import { LIFECYCLE_PIPELINE } from '../../types';
 
 // Helper: build a fake fetch Response.
@@ -223,3 +223,71 @@ describe('WorkflowArchitect component', () => {
     expect(mockedFetch.mock.calls.length).toBe(callsBeforeUnmount);
   });
 });
+
+describe('WorkflowArchitect polling (U6 / P3-6)', () => {
+  const mockedFetch = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockedFetch.mockResolvedValue(jsonRes({ current_phase: 'DISCOVERY', proposal: null }));
+    (globalThis as any).fetch = mockedFetch;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const orchestratorCalls = () =>
+    mockedFetch.mock.calls.filter(
+      ([url, init]) => typeof url === 'string' && url.includes('/api/orchestrator/') && (!init || init.method === undefined),
+    );
+
+  test('hasRealItemId rejects empty, whitespace and the "default" placeholder', () => {
+    expect(hasRealItemId('default')).toBe(false);
+    expect(hasRealItemId('')).toBe(false);
+    expect(hasRealItemId('   ')).toBe(false);
+    expect(hasRealItemId(undefined)).toBe(false);
+    expect(hasRealItemId(null)).toBe(false);
+    expect(hasRealItemId('IDEA-001')).toBe(true);
+  });
+
+  test('does not request /api/orchestrator/default when no item id is given', () => {
+    vi.useFakeTimers();
+    render(<WorkflowArchitect onPhaseChange={() => {}} currentPhase="DISCOVERY" initialProposal={null} />);
+    expect(mockedFetch).not.toHaveBeenCalled();
+  });
+
+  test('does not poll for the "default" placeholder over several intervals', () => {
+    vi.useFakeTimers();
+    render(
+      <WorkflowArchitect itemId="default" onPhaseChange={() => {}} currentPhase="DISCOVERY" initialProposal={null} />,
+    );
+    act(() => {
+      vi.advanceTimersByTime(20000);
+    });
+    const urls = mockedFetch.mock.calls.map(([url]) => String(url));
+    expect(urls.some((u) => u.includes('/api/orchestrator/default'))).toBe(false);
+    expect(mockedFetch).not.toHaveBeenCalled();
+  });
+
+  test('does not poll for an empty item id', () => {
+    vi.useFakeTimers();
+    render(<WorkflowArchitect itemId="" onPhaseChange={() => {}} currentPhase="DISCOVERY" initialProposal={null} />);
+    act(() => {
+      vi.advanceTimersByTime(10000);
+    });
+    expect(mockedFetch).not.toHaveBeenCalled();
+  });
+
+  test('a real item id is fetched immediately and polled every 5 seconds', () => {
+    vi.useFakeTimers();
+    render(<WorkflowArchitect itemId="IDEA-042" onPhaseChange={() => {}} currentPhase="DISCOVERY" initialProposal={null} />);
+    expect(orchestratorCalls().length).toBe(1);
+    expect(String(orchestratorCalls()[0][0])).toMatch(/\/api\/orchestrator\/IDEA-042$/);
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(orchestratorCalls().length).toBe(2);
+  });
+});
+
