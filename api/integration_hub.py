@@ -81,17 +81,11 @@ def _mask_tree(config: Dict[str, Any]) -> Dict[str, Any]:
     return masked
 
 
-def _mask_list(items: List[Any], all_secret: bool = False) -> List[Any]:
-    """Mask a list. A value after a secret flag, or after ``--flag=``, is masked.
-
-    With *all_secret* (the list sits under a secret key) every non-empty scalar is masked.
-    """
+def _mask_list(items: List[Any]) -> List[Any]:
+    """Mask a list. A value after a secret flag, or after ``--flag=``, is masked."""
     out: List[Any] = []
     mask_next = False
     for item in items:
-        if all_secret and not isinstance(item, (dict, list)):
-            out.append(MASK_PLACEHOLDER if item not in (None, "") else item)
-            continue
         if mask_next and item not in (None, "") and not (isinstance(item, str) and item.startswith("-")):
             out.append(MASK_PLACEHOLDER)
             mask_next = False
