@@ -1,10 +1,13 @@
 import os
 import json
 import uuid
+import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Literal
 from api.brain_schemas import CognitiveDelta, ObserverEvent
 from api.brain_interfaces import BrainManagerInterface, ObserverManagerInterface
+
+logger = logging.getLogger(__name__)
 
 class BrainManager(BrainManagerInterface):
     def __init__(self, knowledge_dir: str, deltas_dir: str):
@@ -46,6 +49,10 @@ class BrainManager(BrainManagerInterface):
             with open(target_path, 'a') as f:
                 f.write(f"\n{delta.proposed_content}")
         elif delta.change_type in ["REPLACE", "REVISE"]:
+            # Writing "" would silently truncate the artifact, so refuse it.
+            if not delta.proposed_content.strip():
+                logger.warning("Refusing to commit empty %s delta %s to %s", delta.change_type, delta_id, delta.target_artifact)
+                return False
             with open(target_path, 'w') as f:
                 f.write(delta.proposed_content)
         elif delta.change_type == "REMOVE":
@@ -168,15 +175,11 @@ class ObserverManager(ObserverManagerInterface):
         if event.event_type == "ARTIFACT_COMMENT":
             target = event_data.get("target_artifact")
             comment = event_data.get("comment")
+            # Not creating a delta yet: a REVISE needs the revised text, and the
+            # placeholder "" used to be committed as a truncation of the artifact.
+            # TODO: have the refiner produce proposed_content, then emit the REVISE.
             if target and comment:
-                new_deltas.append(CognitiveDelta(
-                    target_artifact=target, # type: ignore
-                    change_type="REVISE",
-                    proposed_content="", # Placeholder, real system would fetch current content
-                    reason=f"User provided feedback on {target}: {comment}",
-                    status="PENDING",
-                    confidence_score=80
-                ))
+                logger.info("Artifact comment on %s ignored: no revised content to propose", target)
 
         # Write the new deltas to the filesystem
         for delta in new_deltas:

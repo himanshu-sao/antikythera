@@ -96,3 +96,100 @@ class TestAnalyzeKanbanLogs:
 
     def test_unknown_run_returns_no_deltas(self, brain):
         assert _observer(brain, []).analyze_kanban_logs("MISSING") == []
+
+
+# ---------------------------------------------------------------------------
+# 2.17: rule-4 ARTIFACT_COMMENT must not create empty REVISE deltas, and
+# commit_delta must never truncate an artifact with empty content.
+# ---------------------------------------------------------------------------
+
+def _write_delta(deltas_dir, **fields):
+    data = {
+        "target_artifact": "memory.md",
+        "change_type": "REVISE",
+        "proposed_content": "",
+        "reason": "r",
+        "status": "PENDING",
+        "confidence_score": 50,
+    }
+    data.update(fields)
+    delta = CognitiveDelta(**data)
+    path = os.path.join(deltas_dir, f"{delta.delta_id}.json")
+    with open(path, "w") as f:
+        f.write(delta.model_dump_json())
+    return delta.delta_id
+
+
+class TestArtifactCommentRule:
+    def test_artifact_comment_creates_no_empty_revise_delta(self, brain, deltas_dir, knowledge_dir):
+        observer = ObserverManager(brain, FakeRunManager())
+        event = ObserverEvent(
+            event_type="ARTIFACT_COMMENT",
+            event_data={"target_artifact": "memory.md", "comment": "Please tighten this."},
+        )
+        deltas = observer.process_event(event)
+        assert deltas == []
+        assert os.listdir(deltas_dir) == []
+
+    def test_artifact_comment_without_comment_creates_nothing(self, brain, deltas_dir):
+        observer = ObserverManager(brain, FakeRunManager())
+        event = ObserverEvent(event_type="ARTIFACT_COMMENT", event_data={"target_artifact": "memory.md"})
+        assert observer.process_event(event) == []
+        assert os.listdir(deltas_dir) == []
+
+
+class TestCommitDeltaRefusesEmptyContent:
+    def test_revise_with_empty_content_is_refused_and_artifact_untouched(self, brain, deltas_dir, knowledge_dir):
+        artifact = os.path.join(knowledge_dir, "memory.md")
+        with open(artifact, "w") as f:
+            f.write("precious existing notes")
+        delta_id = _write_delta(deltas_dir, change_type="REVISE", proposed_content="")
+        assert brain.commit_delta(delta_id) is False
+        assert open(artifact).read() == "precious existing notes"
+        # Delta stays PENDING so a human can refine or reject it.
+        assert brain.get_pending_deltas()[0].status == "PENDING"
+
+    def test_replace_with_empty_content_is_refused(self, brain, deltas_dir, knowledge_dir):
+        artifact = os.path.join(knowledge_dir, "user.md")
+        with open(artifact, "w") as f:
+            f.write("keep me")
+        delta_id = _write_delta(deltas_dir, target_artifact="user.md", change_type="REPLACE", proposed_content="")
+        assert brain.commit_delta(delta_id) is False
+        assert open(artifact).read() == "keep me"
+
+    def test_whitespace_only_revise_is_refused(self, brain, deltas_dir, knowledge_dir):
+        artifact = os.path.join(knowledge_dir, "memory.md")
+        with open(artifact, "w") as f:
+            f.write("keep me")
+        delta_id = _write_delta(deltas_dir, change_type="REVISE", proposed_content="  \n\t ")
+        assert brain.commit_delta(delta_id) is False
+        assert open(artifact).read() == "keep me"
+
+    def test_revise_with_real_content_still_applies(self, brain, deltas_dir, knowledge_dir):
+        artifact = os.path.join(knowledge_dir, "memory.md")
+        with open(artifact, "w") as f:
+            f.write("old")
+        delta_id = _write_delta(deltas_dir, change_type="REVISE", proposed_content="new notes")
+        assert brain.commit_delta(delta_id) is True
+        assert open(artifact).read() == "new notes"
+        assert json.load(open(os.path.join(deltas_dir, f"{delta_id}.json")))["status"] == "APPROVED"
+
+    def test_replace_with_real_content_still_applies(self, brain, deltas_dir, knowledge_dir):
+        artifact = os.path.join(knowledge_dir, "user.md")
+        with open(artifact, "w") as f:
+            f.write("old")
+        delta_id = _write_delta(deltas_dir, target_artifact="user.md", change_type="REPLACE", proposed_content="fresh")
+        assert brain.commit_delta(delta_id) is True
+        assert open(artifact).read() == "fresh"
+
+    def test_add_with_empty_content_is_unchanged_behaviour(self, brain, deltas_dir, knowledge_dir):
+        # ADD appends; an empty append does not truncate, so it stays allowed.
+        artifact = os.path.join(knowledge_dir, "memory.md")
+        with open(artifact, "w") as f:
+            f.write("keep")
+        delta_id = _write_delta(deltas_dir, change_type="ADD", proposed_content="")
+        assert brain.commit_delta(delta_id) is True
+        assert open(artifact).read() == "keep\n"
+
+    def test_missing_delta_returns_false(self, brain):
+        assert brain.commit_delta("does-not-exist") is False
