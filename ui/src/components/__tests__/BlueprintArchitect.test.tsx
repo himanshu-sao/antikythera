@@ -2,7 +2,8 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { vi, beforeEach, afterEach } from 'vitest';
-import { BlueprintArchitect } from '../BlueprintArchitect';
+import toast from 'react-hot-toast';
+import { BlueprintArchitect, formatApiError } from '../BlueprintArchitect';
 
 // Helper: build a fake fetch Response.
 const jsonRes = (body: unknown, ok = true, status = 200) => ({
@@ -190,3 +191,150 @@ describe('BlueprintArchitect component', () => {
     expect(mockedFetch.mock.calls[1][0]).toContain('/api/workflows/templates');
   });
 });
+
+// S13 / P3-6 (T20): a 422 `detail` is an object or a list, not a string.
+describe('formatApiError (S13)', () => {
+  test('string detail is returned as is', () => {
+    expect(formatApiError('Missing required field: name', 'x')).toBe('Missing required field: name');
+  });
+
+  test('{message, violations} renders the message and the violations', () => {
+    expect(
+      formatApiError({ message: 'Template contains disallowed adapters', violations: ['step 1: adapter shell'] }, 'x'),
+    ).toBe('Template contains disallowed adapters: step 1: adapter shell');
+  });
+
+  test('{message} alone renders the message', () => {
+    expect(formatApiError({ message: 'Template step config validation failed' }, 'x')).toBe(
+      'Template step config validation failed',
+    );
+  });
+
+  test('{violations} alone renders the violations joined', () => {
+    expect(formatApiError({ violations: ['a', 'b'] }, 'x')).toBe('a; b');
+  });
+
+  test('list of FastAPI validation errors renders loc and msg', () => {
+    expect(
+      formatApiError([{ loc: ['body', 'prompt'], msg: 'String should have at least 10 characters' }], 'x'),
+    ).toBe('prompt: String should have at least 10 characters');
+  });
+
+  test('list of plain strings is joined', () => {
+    expect(formatApiError(['one', 'two'], 'x')).toBe('one; two');
+  });
+
+  test('never produces [object Object]', () => {
+    const cases: unknown[] = [{ message: 1 }, { foo: 'bar' }, [{ foo: 1 }], 42, null, undefined];
+    for (const c of cases) {
+      expect(formatApiError(c, 'fallback')).not.toContain('[object Object]');
+    }
+  });
+
+  test('falls back when detail is empty or unusable', () => {
+    expect(formatApiError(undefined, 'fallback')).toBe('fallback');
+    expect(formatApiError(null, 'fallback')).toBe('fallback');
+    expect(formatApiError('   ', 'fallback')).toBe('fallback');
+    expect(formatApiError({}, 'fallback')).toBe('fallback');
+    expect(formatApiError([], 'fallback')).toBe('fallback');
+  });
+});
+
+describe('BlueprintArchitect 422 errors render readable text (S13)', () => {
+  const mockedFetch = vi.fn();
+  const PROMPT = 'Create a GitHub PR release workflow that runs build and tests on merge';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (globalThis as any).fetch = mockedFetch;
+  });
+
+  async function generateOk() {
+    mockedFetch.mockResolvedValueOnce(jsonRes(SAMPLE_TEMPLATE));
+    render(<BlueprintArchitect />);
+    fireEvent.change(screen.getByLabelText(/workflow description/i), { target: { value: PROMPT } });
+    fireEvent.click(screen.getByRole('button', { name: /generate blueprint/i }));
+    await waitFor(() => screen.getByDisplayValue('GitHub PR Release'));
+  }
+
+  test('save 422 with {message, violations} shows the violations, not [object Object]', async () => {
+    const safeTemplate = {
+      ...SAMPLE_TEMPLATE,
+      steps: [{ id: 1, type: 'action', adapter: 'github', action: 'create_release', config: {}, board_stage: 'DONE' }],
+    };
+    mockedFetch.mockResolvedValueOnce(jsonRes(safeTemplate)); // generate
+    mockedFetch.mockResolvedValueOnce(
+      jsonRes({ detail: { message: 'Template contains disallowed adapters', violations: ["step 1: adapter 'x' not in allowlist"] } }, false, 422),
+    );
+    render(<BlueprintArchitect />);
+    fireEvent.change(screen.getByLabelText(/workflow description/i), { target: { value: PROMPT } });
+    fireEvent.click(screen.getByRole('button', { name: /generate blueprint/i }));
+    await waitFor(() => screen.getByDisplayValue('GitHub PR Release'));
+
+    const errSpy = vi.spyOn(toast, 'error');
+    fireEvent.click(screen.getByRole('button', { name: /save to library/i }));
+
+    await waitFor(() => expect(errSpy).toHaveBeenCalled());
+    const message = String(errSpy.mock.calls[0][0]);
+    expect(message).toContain('Template contains disallowed adapters');
+    expect(message).toContain("not in allowlist");
+    expect(message).not.toContain('[object Object]');
+    errSpy.mockRestore();
+  });
+
+  test('generate 422 with a list of validation errors shows readable text', async () => {
+    mockedFetch.mockResolvedValueOnce(
+      jsonRes({ detail: [{ loc: ['body', 'prompt'], msg: 'String should have at least 10 characters' }] }, false, 422),
+    );
+    const errSpy = vi.spyOn(toast, 'error');
+    render(<BlueprintArchitect />);
+    fireEvent.change(screen.getByLabelText(/workflow description/i), { target: { value: PROMPT } });
+    fireEvent.click(screen.getByRole('button', { name: /generate blueprint/i }));
+
+    await waitFor(() => expect(errSpy).toHaveBeenCalled());
+    const message = String(errSpy.mock.calls[0][0]);
+    expect(message).toContain('String should have at least 10 characters');
+    expect(message).not.toContain('[object Object]');
+    errSpy.mockRestore();
+  });
+
+  test('validate returning 200 status "invalid" shows the violations as invalid', async () => {
+    await generateOk();
+    mockedFetch.mockResolvedValueOnce(
+      jsonRes({
+        status: 'invalid',
+        message: 'Template failed validation: step 1: adapter shell is an execution-capable adapter',
+        violations: ['step 1: adapter shell is an execution-capable adapter'],
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^validate$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Template failed validation/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText('Template structure is correct')).not.toBeInTheDocument();
+  });
+
+  test('validate 422 with an object detail shows readable text', async () => {
+    await generateOk();
+    mockedFetch.mockResolvedValueOnce(
+      jsonRes({ detail: { message: 'Steps are invalid', violations: ['step 2: missing action'] } }, false, 422),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^validate$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Steps are invalid: step 2: missing action')).toBeInTheDocument();
+    });
+    expect(document.body.textContent).not.toContain('[object Object]');
+  });
+
+  test('validate success still shows the valid message', async () => {
+    await generateOk();
+    mockedFetch.mockResolvedValueOnce(jsonRes({ status: 'valid', message: 'Template structure is correct', violations: [] }));
+    fireEvent.click(screen.getByRole('button', { name: /^validate$/i }));
+    await waitFor(() => {
+      expect(screen.getByText('Template structure is correct')).toBeInTheDocument();
+    });
+  });
+});
+

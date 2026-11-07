@@ -27,6 +27,46 @@ interface Template {
 
 const MIN_PROMPT_LENGTH = 10; // matches backend GenerationRequest.prompt min_length=10
 
+/**
+ * Turn a FastAPI error body's `detail` into readable text (S13 / P3-6).
+ *
+ * `detail` is a string for most routes; the save route returns
+ * `{message, violations}` and request validation returns a list of
+ * `{loc, msg, ...}` items. Rendering the raw object shows "[object Object]".
+ */
+export function formatApiError(detail: unknown, fallback: string): string {
+  if (typeof detail === 'string') {
+    return detail.trim() || fallback;
+  }
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object' && 'msg' in item) {
+          const loc = Array.isArray((item as any).loc)
+            ? (item as any).loc.filter((p: unknown) => p !== 'body').join('.')
+            : '';
+          const msg = String((item as any).msg);
+          return loc ? `${loc}: ${msg}` : msg;
+        }
+        return null;
+      })
+      .filter((p): p is string => !!p);
+    return parts.length ? parts.join('; ') : fallback;
+  }
+  if (detail && typeof detail === 'object') {
+    const obj = detail as { message?: unknown; violations?: unknown };
+    const message = typeof obj.message === 'string' ? obj.message.trim() : '';
+    const violations = Array.isArray(obj.violations)
+      ? obj.violations.filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+      : [];
+    if (message && violations.length) return `${message}: ${violations.join('; ')}`;
+    if (message) return message;
+    if (violations.length) return violations.join('; ');
+  }
+  return fallback;
+}
+
 export function BlueprintArchitect() {
   const [prompt, setPrompt] = useState('');
   const [templateName, setTemplateName] = useState('');
@@ -50,8 +90,8 @@ export function BlueprintArchitect() {
         body: JSON.stringify({ prompt, template_name: templateName || undefined }),
       });
       if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || 'AI generation failed');
+        const body = await res.json().catch(() => ({}));
+        throw new Error(formatApiError(body.detail, 'AI generation failed'));
       }
       const data: Template = await res.json();
       setTemplate(data);
@@ -73,10 +113,13 @@ export function BlueprintArchitect() {
         body: JSON.stringify({ template_data: template }),
       });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) {
+      if (res.ok && data.status !== 'invalid') {
         setValidation({ status: 'valid', message: data.message || 'Template structure is correct' });
+      } else if (res.ok) {
+        // 200 with status "invalid": the template failed the save-time validators.
+        setValidation({ status: 'invalid', message: formatApiError(data.message ?? data.violations, 'Validation failed') });
       } else {
-        setValidation({ status: 'invalid', message: data.detail || 'Validation failed' });
+        setValidation({ status: 'invalid', message: formatApiError(data.detail, 'Validation failed') });
       }
     } catch (e: any) {
       setValidation({ status: 'invalid', message: e.message || 'Validation request failed' });
@@ -123,8 +166,8 @@ export function BlueprintArchitect() {
         body: JSON.stringify({ template_id: templateId, ...template }),
       });
       if (!res.ok) {
-        const detail = await res.json().catch(() => ({}));
-        throw new Error(detail.detail || 'Failed to save template');
+        const body = await res.json().catch(() => ({}));
+        throw new Error(formatApiError(body.detail, 'Failed to save template'));
       }
       toast.success('Template saved to library');
     } catch (e: any) {
