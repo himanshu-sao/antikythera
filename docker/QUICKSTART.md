@@ -6,7 +6,7 @@
 # Step 1: Create config
 mkdir -p ~/.antikythera
 cat > ~/.antikythera/.env << EOF
-PORT=8006
+PORT=18006
 JIRA_BASE_URL=https://your-domain.atlassian.net
 JIRA_PAT=your_token_here
 NVIDIA_API_KEY=your_key_here
@@ -19,10 +19,33 @@ mkdir -p ~/antikythera-data
 docker-compose pull && docker-compose up
 ```
 
-**Access:**
-- UI: http://localhost:5173
-- API: http://localhost:8006
-- Docs: http://localhost:8006/docs
+**Access:** the stack is published on the Docker host's loopback only (nothing is published off-loopback), so from a laptop open an SSH tunnel first:
+
+```bash
+ssh -N -L 18006:127.0.0.1:18006 -L 15173:127.0.0.1:15173 <user>@<docker-host>
+```
+
+Suggested `~/.ssh/config` block (then `ssh antikythera -N`):
+
+```
+Host antikythera
+    HostName <docker-host>
+    User <user>
+    LocalForward 18006 127.0.0.1:18006
+    LocalForward 15173 127.0.0.1:15173
+    ExitOnForwardFailure yes
+```
+
+- UI: http://localhost:15173
+- API: http://localhost:18006
+- Docs: off by default; set `ANTIKYTHERA_ENABLE_DOCS=1` to serve http://localhost:18006/docs
+
+| Service | Container port | Published on the Docker host |
+|---------|----------------|------------------------------|
+| API | 8006 | `127.0.0.1:18006` |
+| UI | 5173 (80 in the prod compose) | `127.0.0.1:15173` |
+
+After pulling the port change, recreate the containers (`docker-compose up -d --build --force-recreate`).
 
 ---
 
@@ -60,9 +83,9 @@ cd docker
 ## Config Template (~/.antikythera/.env)
 
 ```ini
-# Required
-PORT=8006
-VITE_API_URL=http://localhost:8006
+# Required (host-side values; the container always listens on 8006)
+PORT=18006
+VITE_API_URL=http://localhost:18006
 JIRA_BASE_URL=https://your-domain.atlassian.net
 JIRA_PAT=your_jira_token
 

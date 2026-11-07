@@ -33,8 +33,12 @@ vim ~/.antikythera/.env
 
 ```ini
 # Server Configuration
-PORT=8006
-VITE_API_URL=http://localhost:8006
+# PORT and VITE_API_URL are the HOST-side values (D8). The container itself always listens on 8006
+# and ignores PORT for its bind port; the local start script uses PORT.
+PORT=18006
+VITE_API_URL=http://localhost:18006
+
+# Optional (see .env.example): ANTIKYTHERA_API_TOKEN, ANTIKYTHERA_CORS_ORIGINS, ANTIKYTHERA_ENABLE_DOCS
 
 # Jira Integration (Optional: leave unset or remove to skip; the container only warns)
 JIRA_BASE_URL=https://your-domain.atlassian.net
@@ -118,11 +122,53 @@ See [TESTING.md](TESTING.md) for detailed test documentation.
 
 ### Step 5: Access the Application
 
-Once all services are healthy:
+Nothing is published off-loopback. The compose files publish the API and the UI on the **Docker host's loopback only** (`127.0.0.1:18006` and `127.0.0.1:15173`). From a laptop, open the SSH tunnel below, then browse:
 
-- **Frontend UI**: http://localhost:5173
-- **Backend API**: http://localhost:8006
-- **API Docs**: http://localhost:8006/docs
+- **Frontend UI**: http://localhost:15173
+- **Backend API**: http://localhost:18006
+- **API Docs**: disabled by default; set `ANTIKYTHERA_ENABLE_DOCS=1` to serve http://localhost:18006/docs
+
+If Docker runs on the same machine as your browser, the same URLs work without a tunnel.
+
+---
+
+## Ports and Remote Access (SSH Tunnel)
+
+### Port table
+
+| Service | Container port (internal, unchanged) | Published on the Docker host | URL on your laptop (via tunnel) |
+|---------|--------------------------------------|------------------------------|---------------------------------|
+| `backend` (API) | 8006 | `127.0.0.1:18006` | http://localhost:18006 |
+| `frontend` (UI) | 5173 (dev image) or 80 (`docker-compose.prod.yml` nginx) | `127.0.0.1:15173` | http://localhost:15173 |
+| `orchestrator` | none | none | none |
+
+Containers keep 8006/5173 internally; only the host-side published ports changed. Nothing is published on any other interface, so the services are not reachable from the network, only from the Docker host itself.
+
+### SSH tunnel
+
+When the Docker daemon runs on a remote host (for example `DOCKER_HOST=ssh://...`), forward both ports to your laptop:
+
+```bash
+ssh -N -L 18006:127.0.0.1:18006 -L 15173:127.0.0.1:15173 <user>@<docker-host>
+```
+
+Leave it running, then open http://localhost:15173. The UI calls the API at `http://localhost:18006` (`VITE_API_URL`), which is the same tunnel.
+
+Suggested block for `~/.ssh/config`, so `ssh antikythera -N` does the same thing:
+
+```
+Host antikythera
+    HostName <docker-host>
+    User <user>
+    LocalForward 18006 127.0.0.1:18006
+    LocalForward 15173 127.0.0.1:15173
+    ExitOnForwardFailure yes
+    ServerAliveInterval 30
+```
+
+### Rebuild after the port change
+
+The published ports are in the compose files, and `VITE_API_URL` is read when the UI container starts. After pulling this change, recreate the containers (`docker-compose up -d --build --force-recreate`), and update `PORT=18006` and `VITE_API_URL=http://localhost:18006` in `~/.antikythera/.env` on the Docker host.
 
 ---
 
@@ -130,8 +176,8 @@ Once all services are healthy:
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `backend` | 8006 | FastAPI REST API server |
-| `frontend` | 5173 | React 19 + Vite development server |
+| `backend` | 8006 in the container, published as `127.0.0.1:18006` | FastAPI REST API server |
+| `frontend` | 5173 in the container, published as `127.0.0.1:15173` | React 19 + Vite development server |
 | `orchestrator` | - | Background pipeline processor (runs every 30s) |
 
 ---
@@ -180,7 +226,7 @@ On startup, Antikythera validates your configuration:
 [OK] Found AI environment file: /root/.antikythera/.ai_env
 [OK] AI provider configured: NVIDIA_API_KEY
 [OK] Configuration validation passed!
-[INFO]   - Port: 8006
+[INFO]   - Port: 18006
 [INFO]   - Jira Base URL: https://your-domain.atlassian.net
 [INFO]   - Data directory: /app/automation-ideas
 [INFO]   - AI Provider: NVIDIA_API_KEY
@@ -270,17 +316,18 @@ cat ~/.antikythera/.env
 
 ### Port Already in Use
 
-If port 8006 or 5173 is already in use:
+If port 18006 or 15173 is already in use on the Docker host:
 
-1. Edit `docker-compose.yml` and change the port mapping:
+1. Edit `docker-compose.yml` and change the host side of the port mapping (keep the loopback address):
    ```yaml
    ports:
-     - "8007:8006"  # Use port 8007 externally
+     - "127.0.0.1:18007:8006"  # Use host port 18007; the container still listens on 8006
    ```
+   Then tunnel the new port too, and set `VITE_API_URL` to match.
 
 2. Or stop the conflicting process:
    ```bash
-   lsof -i :8006
+   lsof -i :18006
    kill <PID>
    ```
 
@@ -365,7 +412,7 @@ services:
 
    The entrypoint reads `.env` and `.ai_env` as plain `KEY=VALUE` lines (it never runs them as shell), so a `$(...)` or backtick in a value is kept as text and is not executed.
 
-3. **Network isolation**: All services communicate over an internal Docker network. Only backend (8006) and frontend (5173) are exposed.
+3. **Network isolation**: All services communicate over an internal Docker network. Only the backend (`127.0.0.1:18006`) and the frontend (`127.0.0.1:15173`) are published, and only on the Docker host's loopback. Nothing is published off-loopback; reach them with the SSH tunnel described under "Ports and Remote Access".
 
 4. **Health checks**: Backend has a health check endpoint. Consider adding one for orchestrator if you need liveness probes.
 
@@ -441,8 +488,10 @@ A: Restart the container: `docker-compose restart backend`. Environment variable
 
 **A:** Add this to `~/.antikythera/.env` (values starting with `your_` or `dummy` count as unconfigured):
 ```ini
-PORT=8006
+PORT=18006
 ```
+
+(The container listens on 8006 regardless; `PORT` is the host-side value.)
 
 Jira is optional. If `JIRA_BASE_URL` or `JIRA_PAT` is missing or still a placeholder, the container logs a warning and starts without Jira. To enable it:
 ```ini
@@ -477,17 +526,17 @@ Common causes:
 
 **Q: Health check keeps failing**
 
-**A:** The backend isn't responding on port 8006. Check:
+**A:** The backend isn't responding on its internal port 8006. Check:
 1. Is the container running? `docker-compose ps`
 2. Any startup errors? `docker-compose logs backend`
-3. Is another process using port 8006? `lsof -i :8006`
+3. Is another process using the published host port 18006? `lsof -i :18006`
 
 **Q: Port already in use**
 
-**A:** Change the external port in `docker-compose.yml`:
+**A:** Change the host port in `docker-compose.yml`, keeping the loopback address:
 ```yaml
 ports:
-  - "8007:8006"  # Use 8007 externally, 8006 internally
+  - "127.0.0.1:18007:8006"  # Use 18007 on the host, 8006 inside the container
 ```
 
 **Q: "Read-only file system" or a 500 when saving AI Engine settings**
@@ -598,6 +647,8 @@ docker-compose up orchestrator
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
 │  │  frontend   │  │   backend   │  │   orchestrator      │  │
 │  │  (5173)     │──▶│   (8006)    │  │   (background)      │  │
+│  │ 127.0.0.1:  │   │ 127.0.0.1:  │  │                     │  │
+│  │   15173     │   │   18006     │  │                     │  │
 │  └─────────────┘  └──────┬──────┘  └──────────┬──────────┘  │
 │                          │                      │            │
 │         ┌────────────────┴──────────────────────┘            │
@@ -622,14 +673,14 @@ docker-compose up orchestrator
                                      │
                                      ▼
                     ┌────────────────────────────────┐
-                    │      http://localhost:5173     │
+                    │     http://localhost:15173     │
                     │         (Frontend UI)          │
                     └────────────────┬───────────────┘
                                      │
                                      │ API requests
                                      ▼
                     ┌────────────────────────────────┐
-                    │      http://localhost:8006     │
+                    │     http://localhost:18006     │
                     │        (Backend API)           │
                     │                                │
                     │  ┌──────────────────────────┐  │
@@ -657,7 +708,7 @@ docker-compose up orchestrator
        │
        ▼
 ┌──────────────────┐
-│   Host Machine   │  Ports: 8006 (API), 5173 (UI)
+│   Docker host    │  127.0.0.1:18006 (API), 127.0.0.1:15173 (UI)
 └────────┬─────────┘
          │
          │ Docker Bridge Network
@@ -685,5 +736,5 @@ If your issue isn't covered in the FAQ above:
 
 - **Documentation**: See `docs/` directory in the repository or the `docker/` folder
 - **Issues**: https://github.com/himanshusao/antikythera/issues
-- **API Docs**: http://localhost:8006/docs (when running)
+- **API Docs**: http://localhost:18006/docs (when running with `ANTIKYTHERA_ENABLE_DOCS=1`, through the tunnel)
 - **First step**: Always check `docker-compose logs <service>` for error details

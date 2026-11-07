@@ -97,10 +97,10 @@ docker-compose ps
 
 ```bash
 # Test backend health
-curl http://localhost:8006/
+curl http://localhost:18006/
 
 # Test API docs
-curl http://localhost:8006/docs
+curl http://localhost:18006/docs   # 404 unless ANTIKYTHERA_ENABLE_DOCS=1
 
 # Expected:
 # {"message":"Antikythera API is running"}
@@ -138,8 +138,8 @@ docker-compose down -v
 
 # Create test config
 cat > ~/.antikythera/.env.test << EOF
-PORT=8006
-VITE_API_URL=http://localhost:8006
+PORT=18006
+VITE_API_URL=http://localhost:18006
 JIRA_BASE_URL=https://test.atlassian.net
 JIRA_PAT=test_token_123
 NVIDIA_API_KEY=nvapi_test_key_456
@@ -173,8 +173,8 @@ rm ~/.antikythera/.env.test ~/.antikythera/.env.real
 | **Backend starts** | `docker-compose logs backend` | `Uvicorn running on http://0.0.0.0:8006` |
 | **Frontend starts** | `docker-compose logs frontend` | `VITE ready in xxx ms` |
 | **Health check passes** | `docker-compose ps` | All services show `(healthy)` |
-| **API responds** | `curl http://localhost:8006/` | `{"message":"Antikythera API is running"}` |
-| **UI loads** | Browser: http://localhost:5173 | Kanban board renders |
+| **API responds** | `curl http://localhost:18006/` (published 127.0.0.1:18006) | `{"message":"Antikythera API is running"}` |
+| **UI loads** | Browser: http://localhost:15173 (published 127.0.0.1:15173) | Kanban board renders |
 | **Data persists** | `docker-compose down` + `up`, check `~/antikythera-data/` | Files unchanged |
 | **Config is writable** | `docker exec antikythera-backend touch /root/.antikythera/.rwcheck` | No error (backend and orchestrator only) |
 
