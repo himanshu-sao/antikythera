@@ -1,18 +1,17 @@
-fastapi
-uvicorn
-pydantic
-watchdog
-httpx
-pyyaml>=6.0
-schedule>=1.2.0
-apscheduler==3.11.2
-pytest>=7.0
-pytest-asyncio==1.2.0
-filelock>=3.13.0
-openai
-google-genai
-python-dotenv
-
-# Dev/test tooling (not required at runtime)
-coverage==7.15.2
-pytest-cov==7.1.0
+# Antikythera runtime dependencies (pinned to the versions verified in ./venv, Python 3.12).
+# Dev/test tooling lives in requirements-dev.txt.
+# Transitive dependencies are resolved by pip; only direct imports are pinned here.
+fastapi==0.139.2
+uvicorn==0.51.0
+pydantic==2.13.4
+httpx==0.28.1
+PyYAML==6.0.3
+schedule==1.2.2
+APScheduler==3.11.2
+filelock==3.32.0
+watchdog==6.0.0
+openai==2.46.0
+google-genai==2.13.0
+python-dotenv==1.2.2
+jsonschema==4.26.0
+cryptography==49.0.0
