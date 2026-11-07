@@ -318,12 +318,29 @@ class TestManagerPersistsComplexity:
 # automation-ideas dir (one level up from agents/, not two).
 # ---------------------------------------------------------------------------
 
+# Captured at import (collection), before any fixture redirects agents.handlers.DATA_DIR,
+# so the regression below checks the value the handler really computes.
+import agents.handlers as _handlers_module  # noqa: E402
+_REAL_HANDLER_DATA_DIR = _handlers_module.DATA_DIR
+
+
 class TestExecutingDataDir:
-    def test_workflow_state_manager_gets_repo_automation_ideas(self):
+    """Regression for the executor data-dir bug (2.2): the handler resolved
+    ``../../automation-ideas`` from agents/, which lands above the repo."""
+
+    def test_handler_data_dir_resolves_inside_repo(self):
+        import os
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(_handlers_module.__file__)))
+        expected = os.path.join(repo_root, "automation-ideas")
+        assert os.path.abspath(_REAL_HANDLER_DATA_DIR) == expected
+        assert os.path.commonpath([_REAL_HANDLER_DATA_DIR, repo_root]) == repo_root
+
+    def test_handler_builds_state_manager_inside_repo(self, monkeypatch):
         import os
         from unittest.mock import MagicMock
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        expected = os.path.join(repo_root, "automation-ideas")
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(_handlers_module.__file__)))
+        # Use the real (un-redirected) constant for this one test.
+        monkeypatch.setattr(_handlers_module, "DATA_DIR", _REAL_HANDLER_DATA_DIR)
 
         item = make_item(stage="EXECUTING", title="t", confidence=None)
         item["complexity"] = "complex"
@@ -337,6 +354,6 @@ class TestExecutingDataDir:
 
         assert spy.call_count == 1
         got = os.path.abspath(spy.call_args[0][0])
-        assert got == expected
+        assert got == os.path.join(repo_root, "automation-ideas")
         # Must stay inside the repo (the old bug resolved to the repo's parent).
         assert os.path.commonpath([got, repo_root]) == repo_root
