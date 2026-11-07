@@ -1,6 +1,6 @@
 import os
 import json
-from typing import Dict, Any, Optional, List
+from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from api.workflow_state_manager import WorkflowStateManager
 from api.integration_hub import IntegrationHub
@@ -53,7 +53,9 @@ async def handle_webhook(provider: str, request: Request):
     run_data = {
         "template_id": template_id,
         "status": "RUNNING",
-        "current_step": 0,
+        # The engine reads current_step_index; a run written with any other key
+        # cannot be resumed (KeyError).
+        "current_step_index": 0,
         "trigger_payload": payload,
         "retry_count": 0
     }
