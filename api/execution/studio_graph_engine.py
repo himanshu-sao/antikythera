@@ -227,12 +227,19 @@ class PathStepGraphEngine:
         return logs[:limit]
 
     def get_undefined_queue(self, graph_id: str) -> List[Dict[str, Any]]:
-        """Get undefined queue items for a graph (cap 100, dec #20)."""
+        """Get undefined queue items for a graph, clipped to its cap (dec #20).
+
+        S8: the clip uses the graph's own ``undefined_queue_cap`` (default 100)
+        instead of a hard-coded 100. Items still come from the most recent run
+        only; cross-run retention is a separate open decision.
+        """
         # Load from the most recent completed/partial run
         logs = self.list_run_logs(graph_id, limit=1)
         if not logs:
             return []
-        return logs[0].undefined_items[:100]
+        graph = self.studio_graph_manager.get_graph(graph_id) if self.studio_graph_manager else None
+        cap = graph.undefined_queue_cap if graph else 100
+        return logs[0].undefined_items[:cap]
 
     # -------------------------------------------------------------------------
     # Interactive Preview (Slice 1 authoring — live-results-led compiler)
