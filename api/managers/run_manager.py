@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from filelock import FileLock
-from api.managers.base import BaseJSONManager
+from api.managers.base import BaseJSONManager, CorruptStateError
 
 logger = logging.getLogger(__name__)
 
@@ -111,23 +111,29 @@ class RunManager(BaseJSONManager):
         return reaped
 
     def create_run(self, run_id: str, run_data: Dict[str, Any]) -> bool:
-        try:
-            runs = self._load()
+        def apply(runs: Dict[str, Any]):
             run_data["started_at"] = datetime.utcnow().isoformat() + "Z"
             runs[run_id] = run_data
-            self._save(runs)
-            return True
+            return True, True
+        try:
+            return self._update(apply)
+        except CorruptStateError:
+            raise
         except Exception:
             return False
 
     def update_run(self, run_id: str, updates: Dict[str, Any]) -> bool:
-        try:
-            runs = self._load()
+        # Load, merge and save under one lock acquisition so concurrent
+        # updates to different keys of the same run cannot lose each other.
+        def apply(runs: Dict[str, Any]):
             if run_id not in runs:
-                return False
+                return False, False
             runs[run_id].update(updates)
-            self._save(runs)
-            return True
+            return True, True
+        try:
+            return self._update(apply)
+        except CorruptStateError:
+            raise
         except Exception:
             return False
 

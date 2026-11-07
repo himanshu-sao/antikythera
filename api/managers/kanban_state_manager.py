@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from filelock import FileLock
-from api.managers.base import BaseJSONManager
+from api.managers.base import BaseJSONManager, CorruptStateError
 from api.managers._timestamps import sanitize_state
 
 class KanbanStateManager(BaseJSONManager):
@@ -18,8 +18,8 @@ class KanbanStateManager(BaseJSONManager):
             try:
                 with open(self.path, "r") as f:
                     state = json.load(f)
-            except Exception:
-                return {"items": {}}
+            except ValueError as exc:
+                raise self._quarantine(exc) from exc
         # P3.6: self-heal any non-ISO created_at (e.g. historical ``"now"``)
         # so stale fixtures and older writers don't leak to the UI/API.
         return sanitize_state(state)

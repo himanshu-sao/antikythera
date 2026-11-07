@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-from api.managers.base import BaseJSONManager
+from api.managers.base import BaseJSONManager, CorruptStateError
 
 class TemplateManager(BaseJSONManager):
     def __init__(self, base_dir: str):
@@ -17,25 +17,29 @@ class TemplateManager(BaseJSONManager):
                             print(f"Validation Error: ORCHESTRATOR_TASK in {template_id} missing 'target_phase'")
                             return False
             
-            templates = self._load()
-            template_data["updated_at"] = datetime.utcnow().isoformat() + "Z"
-            if "created_at" not in template_data:
-                template_data["created_at"] = datetime.utcnow().isoformat() + "Z"
-            
-            templates[template_id] = template_data
-            self._save(templates)
-            return True
+            def apply(templates):
+                template_data["updated_at"] = datetime.utcnow().isoformat() + "Z"
+                if "created_at" not in template_data:
+                    template_data["created_at"] = datetime.utcnow().isoformat() + "Z"
+                templates[template_id] = template_data
+                return True, True
+
+            return self._update(apply)
+        except CorruptStateError:
+            raise
         except Exception:
             return False
 
     def delete_template(self, template_id: str) -> bool:
-        try:
-            templates = self._load()
+        def apply(templates):
             if template_id not in templates:
-                return False
+                return False, False
             del templates[template_id]
-            self._save(templates)
-            return True
+            return True, True
+        try:
+            return self._update(apply)
+        except CorruptStateError:
+            raise
         except Exception:
             return False
 
