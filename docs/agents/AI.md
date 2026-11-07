@@ -265,7 +265,7 @@ INTAKE → DISCOVERY → BLUEPRINT → IMPLEMENTATION → UNIT_VERIFY → INTEGR
 
 ### Error Propagation
 - All errors logged to `logs/{idea_id}/agent-{name}.log`
-- Critical errors (unrecoverable) → Orchestrator → Human notification via Telegram
+- Critical errors (unrecoverable) → Orchestrator → logged to the item timeline
 - Non-critical errors (retryable) → Bounded retry loop (max 3 attempts) → Blocked state
 
 ---

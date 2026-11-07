@@ -20,7 +20,7 @@ Unlike the linear Pipeline, Workflows are **graphs of executable steps** that ca
 ### 3. Trigger System (`TriggerManager`)
 - **Event-Driven**: Watches for external events (e.g., GitHub PR, Jira ticket) via adapters.
 - **Scheduled**: Runs on a heartbeat via the `Scheduler`.
-- **Manual**: Triggered via the UI or Telegram.
+- **Manual**: Triggered via the UI.
 
 ## 🔄 Workflow $\rightarrow$ Pipeline Integration
 Workflows can "inject" items into the Pipeline. For example, a "Bug Report" workflow can automatically create an `INTAKE` card on the Kanban board.

@@ -57,7 +57,7 @@ Antikythera implements "Self-Learning" through human intervention:
 | **Phase 0** | Directory structure + state schema + `ideas.md` format | ✅ Completed |
 | **Phase 1** | Orchestrator + Refiner Agent + heartbeat scheduler | ✅ Completed |
 | **Phase 2** | Architect Agent + Tester Agent + Audit Agent | ✅ Completed |
-| **Phase 3** | Telegram notifications + slash commands | ✅ Completed |
+| **Phase 3** | Stage-transition logging | ✅ Completed |
 | **Phase 4** | Memory Agent + brain loop + pending-updates review flow | ✅ Completed |
 | **Phase 5** | Kanban UI (Phase 1: read + drag/drop) | ✅ Completed |
 | **Phase 6** | Kanban UI (Phase 2: inline review, real-time updates) | ✅ Completed |
