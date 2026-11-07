@@ -1,4 +1,5 @@
 import logging
+import threading
 import uuid
 import json
 from typing import Dict, Any, Optional, Tuple
@@ -22,6 +23,15 @@ class ExecutionEngine:
         self.escalator = escalator
         self.retry_manager = retry_manager
         self.run_manager = state_manager.runs
+        # Pending retry timers, keyed by run_id. Timers live in memory only and
+        # are not persisted across restarts (a restarted server leaves a
+        # RETRYING run waiting for an explicit resume).
+        self._timers: Dict[str, threading.Timer] = {}
+        self._timers_lock = threading.Lock()
+        # One non-blocking claim per run, so a timer firing and a resume cannot
+        # advance the same run concurrently.
+        self._claims: Dict[str, threading.Lock] = {}
+        self._claims_lock = threading.Lock()
 
     def start_run(self, template_id: str, inputs: Dict[str, Any]) -> str:
         """
@@ -88,6 +98,9 @@ class ExecutionEngine:
                     {"step": steps[idx].get("name", f"Step {idx}"), "result": "HITL_RESOLVED"},
                 )
 
+        # A manual resume supersedes any pending automatic retry.
+        self._cancel_timer(run_id)
+
         # Mark run as RUNNING again and trigger next step
         self.run_manager.update_run(run_id, updates)
         self.process_next_step(run_id)
@@ -96,6 +109,53 @@ class ExecutionEngine:
     def process_next_step(self, run_id: str):
         """
         The main loop that executes the next step in a run's lifecycle.
+        """
+        claim = self._claim_for(run_id)
+        if not claim.acquire(blocking=False):
+            logger.info(f"Run {run_id} is already being advanced; skipping this trigger")
+            return
+        try:
+            self._advance(run_id)
+        finally:
+            claim.release()
+
+    def _claim_for(self, run_id: str) -> threading.Lock:
+        with self._claims_lock:
+            claim = self._claims.get(run_id)
+            if claim is None:
+                claim = threading.Lock()
+                self._claims[run_id] = claim
+            return claim
+
+    def _cancel_timer(self, run_id: str) -> None:
+        with self._timers_lock:
+            timer = self._timers.pop(run_id, None)
+        if timer is not None:
+            timer.cancel()
+
+    def _schedule_retry(self, run_id: str, delay_minutes: int) -> None:
+        """Replace any pending retry for this run with a new one."""
+        def fire():
+            with self._timers_lock:
+                # Only the timer that still owns the slot may act. A cancelled or
+                # replaced timer must not advance the run.
+                if self._timers.get(run_id) is not timer:
+                    return
+                self._timers.pop(run_id, None)
+            self.process_next_step(run_id)
+
+        with self._timers_lock:
+            previous = self._timers.pop(run_id, None)
+            if previous is not None:
+                previous.cancel()
+            timer = threading.Timer(delay_minutes * 60, fire)
+            timer.daemon = True
+            self._timers[run_id] = timer
+        timer.start()
+
+    def _advance(self, run_id: str):
+        """
+        Executes the step at the current index. Callers must hold the run claim.
         """
         run = self.run_manager.get_run(run_id)
         if not run or run["status"] != "RUNNING":
@@ -106,6 +166,7 @@ class ExecutionEngine:
         idx = run["current_step_index"]
 
         if idx >= len(steps):
+            self._cancel_timer(run_id)
             self.run_manager.update_run(run_id, {"status": "COMPLETED"})
             self.run_manager.log_event(run_id, "RUN_COMPLETED", {})
             return
@@ -143,8 +204,9 @@ class ExecutionEngine:
                 "context": run_context
             })
             
-            # Recurse to next step
-            self.process_next_step(run_id)
+            # Continue with the next step. The claim is still held, so this must
+            # call _advance directly, not process_next_step (which would deadlock).
+            self._advance(run_id)
 
         except Exception as e:
             self._handle_failure(run_id, step_name, e)
@@ -198,16 +260,14 @@ class ExecutionEngine:
             if delay is not None:
                 self.retry_manager.record_failure(run_id, error_msg)
                 # Schedule a retry after the prescribed interval
-                import threading
-                timer = threading.Timer(delay * 60, self.process_next_step, args=[run_id])
-                timer.daemon = True
-                timer.start()
+                self._schedule_retry(run_id, delay)
                 logger.info(
                     f"Retry scheduled for run {run_id} in {delay} minutes"
                 )
                 return
 
         # No retry manager or retries exhausted — escalate to BLOCKED
+        self._cancel_timer(run_id)
         self.run_manager.update_run(run_id, {"status": "BLOCKED"})
 
         self.escalator.escalate_to_orchestrator(
