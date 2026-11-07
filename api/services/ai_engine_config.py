@@ -10,12 +10,15 @@ Manages AI model configurations, API keys, and connection settings for multiple 
 - Anthropic
 """
 
+import copy
 import os
 import json
 import logging
 import re
 import secrets
 import shlex
+import stat
+import tempfile
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from datetime import datetime
@@ -52,6 +55,57 @@ def _format_env_line(key: str, value: str) -> str:
     _validate_env_value(value)
     quoted = "'" + value.replace("'", "'\\''") + "'"
     return f"{key}={quoted}"
+
+
+def _backup_corrupt_config(path: str) -> Optional[str]:
+    """Copy an unreadable config to ``<path>.corrupt-<UTC>``; reuse an identical copy. Never deletes."""
+    from datetime import timezone
+    try:
+        with open(path, "rb") as f:
+            payload = f.read()
+        base = os.path.basename(path) + ".corrupt-"
+        folder = os.path.dirname(path) or "."
+        for name in sorted(os.listdir(folder)):
+            if name.startswith(base):
+                with open(os.path.join(folder, name), "rb") as f:
+                    if f.read() == payload:
+                        return os.path.join(folder, name)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        backup = f"{path}.corrupt-{stamp}"
+        with open(backup, "wb") as f:
+            f.write(payload)
+        return backup
+    except OSError as exc:
+        logger.error("Could not back up unreadable AI config %s: %s", path, exc)
+        return None
+
+
+def _atomic_write_text(path: str, text: str, default_mode: int = 0o644) -> None:
+    """Write *text* to *path* via a same-directory temp file, fsync, then ``os.replace``.
+
+    The existing file's permission bits are kept; a new file gets *default_mode* (umask applied).
+    """
+    directory = os.path.dirname(os.path.abspath(path))
+    try:
+        mode = stat.S_IMODE(os.stat(path).st_mode)
+    except FileNotFoundError:
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = default_mode & ~umask
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=".ai_config.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp_path, mode)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _antikythera_dir(use_pwd: bool = False) -> Path:
@@ -104,33 +158,45 @@ class AIEngineConfigService:
         return str(antikythera_dir / "ai_config.json")
     
     def load_config(self) -> AIEngineConfig:
-        """Load configuration from file"""
-        if os.path.exists(self.config_path):
-            try:
-                with open(self.config_path, 'r') as f:
-                    data = json.load(f)
-                
-                # Convert to Pydantic model
-                config = AIEngineConfig(**data)
-                logger.info(f"Loaded AI config from {self.config_path}")
-                return config
-            except Exception as e:
-                logger.warning(f"Failed to load config: {e}, using defaults")
-                return DEFAULT_AI_ENGINE_CONFIG
-        else:
-            logger.info("No config found, using defaults")
-            return DEFAULT_AI_ENGINE_CONFIG
+        """Load configuration from file.
+
+        A file that exists but cannot be parsed or validated is copied to
+        ``<file>.corrupt-<UTC>`` (the original is left in place) and a WARNING names it.
+        The service then uses a deep copy of the defaults, so the shared
+        ``DEFAULT_AI_ENGINE_CONFIG`` is never mutated by later edits.
+        """
+        if not os.path.exists(self.config_path):
+            logger.info("No config found at %s, using defaults", self.config_path)
+            return copy.deepcopy(DEFAULT_AI_ENGINE_CONFIG)
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            config = AIEngineConfig(**data)
+        except Exception as e:
+            backup = _backup_corrupt_config(self.config_path)
+            logger.warning(
+                "AI engine config %s could not be loaded (%s); using defaults. "
+                "The unreadable file was preserved at %s",
+                self.config_path, e, backup or "(backup failed)",
+            )
+            return copy.deepcopy(DEFAULT_AI_ENGINE_CONFIG)
+        logger.info("Loaded AI config from %s", self.config_path)
+        return config
     
     def save_config(self) -> None:
-        """Save current configuration to file"""
+        """Save current configuration to file, atomically.
+
+        The JSON goes to a temp file in the same directory, is fsynced, and then replaces
+        the target with ``os.replace``. A reader never sees a half-written file. An existing
+        file's mode is kept; a new file gets 0644 (the file holds no secrets).
+        """
         try:
-            with open(self.config_path, 'w') as f:
-                # Convert Pydantic model to dict, excluding datetime for JSON compatibility
-                data = self.config.model_dump()
-                data['updated_at'] = datetime.utcnow().isoformat()
-                json.dump(data, f, indent=2, default=str)
-            
-            logger.info(f"Saved AI config to {self.config_path}")
+            # Convert Pydantic model to dict, excluding datetime for JSON compatibility
+            data = self.config.model_dump()
+            data['updated_at'] = datetime.utcnow().isoformat()
+            payload = json.dumps(data, indent=2, default=str)
+            _atomic_write_text(self.config_path, payload)
+            logger.info("Saved AI config to %s", self.config_path)
         except Exception as e:
             raise AIEngineConfigError(f"Failed to save config: {e}")
     
