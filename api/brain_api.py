@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Body, Request
 
 from typing import List, Dict, Any
-from api.brain_schemas import CognitiveDelta, ObserverEvent
+from api.brain_schemas import ObserverEvent
 import os
 
 router = APIRouter()
@@ -75,10 +75,19 @@ async def approve_delta(request: Request, delta_id: str):
     try:
         from api.main import get_state_manager
         state_manager = get_state_manager()
-        if state_manager.brain.commit_delta(delta_id):
+        brain = state_manager.brain
+        if brain.commit_delta(delta_id):
             return {"success": True}
-        else:
+        if not brain.delta_exists(delta_id):
             raise HTTPException(status_code=404, detail="Delta not found")
+        # The delta exists but was refused, e.g. an empty REVISE or REPLACE that
+        # would have truncated the artifact. Conflict, not missing.
+        raise HTTPException(
+            status_code=409,
+            detail="Delta was refused: its proposed content is empty, so applying it would clear the artifact. Reject it or refine it first.",
+        )
+    except HTTPException:
+        raise
     except AttributeError:
         raise HTTPException(status_code=500, detail="State manager not initialized in app.state")
     except Exception as e:

@@ -3,7 +3,7 @@ import json
 import uuid
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Literal
+from typing import List, Dict, Any
 from api.brain_schemas import CognitiveDelta, ObserverEvent
 from api.brain_interfaces import BrainManagerInterface, ObserverManagerInterface
 
@@ -34,7 +34,16 @@ class BrainManager(BrainManagerInterface):
             artifacts[filename] = self.get_artifact_content(filename)
         return artifacts
 
+    def delta_exists(self, delta_id: str) -> bool:
+        return os.path.exists(self._get_delta_path(delta_id))
+
     def commit_delta(self, delta_id: str) -> bool:
+        """Apply a delta to its artifact. Returns False if it is missing or refused.
+
+        A REVISE or REPLACE with empty content is refused (returns False) so the
+        artifact is not truncated. Use ``delta_exists`` to tell "missing" apart
+        from "refused".
+        """
         delta_path = self._get_delta_path(delta_id)
         if not os.path.exists(delta_path):
             return False
