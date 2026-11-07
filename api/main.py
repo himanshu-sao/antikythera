@@ -5,8 +5,9 @@ try:
     asyncio.get_event_loop()
 except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 # Ensure the latest version of brain_api is loaded (in case it was imported before code changes)
 import importlib, sys
@@ -22,6 +23,7 @@ def get_state_manager():
     """
     return state_manager
 
+from api.managers.base import CorruptStateError, public_message
 from api.workflow_state_manager import WorkflowStateManager
 from api.integration_hub import IntegrationHub
 # SecretVault removed – credentials now come from environment variables
@@ -51,13 +53,15 @@ from api.studio_router import router as studio_router
 async def lifespan(app: FastAPI):
     """Startup: reap orphaned runs, then boot the scheduler.  Shutdown: stop it cleanly."""
     # P3.3: any run left in an in-flight status (RUNNING/executing/...) from a
-    # previous process is an orphan — nothing is driving it. Mark it FAILED on
-    # boot so the board doesn't show ghost "in progress" runs forever. Safe to
-    # call before the scheduler starts since it only touches workflow_runs.json.
+    # previous process is an orphan. Retry timers live in memory only, so no run
+    # has a driver after a restart, however recently it started. Mark every
+    # in-flight run FAILED on boot (max_age_seconds=0 disables the age gate) so
+    # the board doesn't show ghost "in progress" runs forever. Safe to call
+    # before the scheduler starts since it only touches workflow_runs.json.
     # Uses get_state_manager() so tests that swap the module-level state_manager
-    # (per conftest.reset_state_manager) also redirect this reap to their temp dir.
+    # (the autouse isolate_data_dir fixture in conftest.py) also redirect this reap to their temp dir.
     try:
-        get_state_manager().runs.reap_stale_runs()
+        get_state_manager().runs.reap_stale_runs(max_age_seconds=0)
     except Exception:
         # Reaping is best-effort; never block app startup on it.
         import logging
@@ -71,6 +75,18 @@ async def lifespan(app: FastAPI):
         scheduler.stop()
 
 app = FastAPI(title="Antikythera API", lifespan=lifespan)
+
+
+@app.exception_handler(CorruptStateError)
+async def corrupt_state_handler(request: Request, exc: CorruptStateError):
+    """Any route that hits a corrupt state file returns the same safe 500.
+
+    The exception text holds absolute file paths, so the client gets a fixed
+    message (see ``public_message``) and the full text goes to the server log.
+    """
+    import logging
+    logging.getLogger("antikythera.api").error("Corrupt state file on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(status_code=500, content={"detail": public_message(exc)})
 
 # Enable CORS for frontend development.
 # allow_origins=["*"] cannot be combined with allow_credentials=True (per spec,

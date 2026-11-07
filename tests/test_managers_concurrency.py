@@ -296,3 +296,139 @@ class TestCorruptFiles:
         with pytest.raises(CorruptStateError):
             BaseJSONManager(str(tmp_path), "x.json")._load()
         assert len(_backups(str(path))) == 1
+
+
+# ---------------------------------------------------------------------------
+# W3: non-object roots, bad UTF-8, error propagation, public_message
+# ---------------------------------------------------------------------------
+
+class TestNonObjectRootIsCorrupt:
+    @pytest.mark.parametrize("payload", ["[]", "[1, 2, 3]", '"just a string"', "42", "null", "true"])
+    def test_base_load_quarantines_non_dict_root(self, tmp_path, payload):
+        path = tmp_path / "x.json"
+        path.write_text(payload)
+        m = BaseJSONManager(str(tmp_path), "x.json")
+        with pytest.raises(CorruptStateError) as info:
+            m._load()
+        # The file is left in place and a backup with the same bytes exists.
+        assert path.read_text() == payload
+        (name,) = _backups(str(path))
+        assert open(os.path.join(str(tmp_path), name)).read() == payload
+        assert "expected a JSON object" in str(info.value)
+
+    def test_non_dict_root_is_not_overwritten_by_update(self, tmp_path):
+        path = tmp_path / "x.json"
+        path.write_text("[1, 2]")
+        m = BaseJSONManager(str(tmp_path), "x.json")
+        with pytest.raises(CorruptStateError):
+            m._update(lambda d: (True, None))
+        assert path.read_text() == "[1, 2]"
+
+    def test_empty_object_is_valid(self, tmp_path):
+        (tmp_path / "x.json").write_text("{}")
+        assert BaseJSONManager(str(tmp_path), "x.json")._load() == {}
+        assert _backups(str(tmp_path / "x.json")) == []
+
+    def test_invalid_utf8_raises_corrupt_not_unicode_error(self, tmp_path):
+        path = tmp_path / "x.json"
+        path.write_bytes(b'{"a": "\xff\xfe"}')
+        with pytest.raises(CorruptStateError):
+            BaseJSONManager(str(tmp_path), "x.json")._load()
+        assert len(_backups(str(path))) == 1
+
+    @pytest.mark.parametrize("payload", ["[]", '"s"', "7"])
+    def test_kanban_load_state_quarantines_non_dict_root(self, tmp_path, payload):
+        path = tmp_path / "pipeline-state.json"
+        path.write_text(payload)
+        km = KanbanStateManager(str(tmp_path))
+        with pytest.raises(CorruptStateError):
+            km.load_state()
+        with pytest.raises(CorruptStateError):
+            km.create_item("K-1", "must not overwrite")
+        assert path.read_text() == payload
+        assert len(_backups(str(path))) == 1
+
+    def test_kanban_load_state_invalid_utf8(self, tmp_path):
+        path = tmp_path / "pipeline-state.json"
+        path.write_bytes(b"\xff\xfe\x00")
+        with pytest.raises(CorruptStateError):
+            KanbanStateManager(str(tmp_path)).load_state()
+        assert len(_backups(str(path))) == 1
+
+    def test_run_and_binding_managers_reject_list_root(self, tmp_path):
+        (tmp_path / "workflow_runs.json").write_text("[]")
+        (tmp_path / "workflow_bindings.json").write_text("[]")
+        with pytest.raises(CorruptStateError):
+            RunManager(str(tmp_path)).get_run("R1")
+        with pytest.raises(CorruptStateError):
+            BindingManager(str(tmp_path)).get_run_id_for_item("I-1")
+
+
+class TestWritesPropagateErrors:
+    def test_create_run_propagates_corrupt_state(self, tmp_path):
+        (tmp_path / "workflow_runs.json").write_text(BAD_JSON)
+        with pytest.raises(CorruptStateError):
+            RunManager(str(tmp_path)).create_run("R1", {"status": "RUNNING"})
+
+    def test_create_run_propagates_oserror_instead_of_returning_false(self, tmp_path, monkeypatch):
+        rm = RunManager(str(tmp_path))
+
+        def boom(data):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(rm, "_save", boom)
+        with pytest.raises(OSError):
+            rm.create_run("R1", {"status": "RUNNING"})
+
+    def test_create_run_still_returns_true_on_success(self, tmp_path):
+        rm = RunManager(str(tmp_path))
+        assert rm.create_run("R1", {"status": "RUNNING"}) is True
+        assert rm.get_run("R1")["status"] == "RUNNING"
+
+    def test_bind_run_to_item_propagates_corrupt_state(self, tmp_path):
+        (tmp_path / "workflow_bindings.json").write_text(BAD_JSON)
+        with pytest.raises(CorruptStateError):
+            BindingManager(str(tmp_path)).bind_run_to_item("R1", "i-1")
+        assert (tmp_path / "workflow_bindings.json").read_text() == BAD_JSON
+
+    def test_bind_run_to_item_propagates_oserror(self, tmp_path, monkeypatch):
+        bm = BindingManager(str(tmp_path))
+        monkeypatch.setattr(bm, "_save", lambda data: (_ for _ in ()).throw(OSError("ro fs")))
+        with pytest.raises(OSError):
+            bm.bind_run_to_item("R1", "i-1")
+
+    def test_bind_run_to_item_still_returns_true_and_uppercases(self, tmp_path):
+        bm = BindingManager(str(tmp_path))
+        assert bm.bind_run_to_item("R1", "i-1") is True
+        assert bm.get_run_id_for_item("I-1") == "R1"
+
+    def test_facade_create_run_and_bind_propagate_corrupt(self, tmp_path):
+        from api.workflow_state_manager import WorkflowStateManager
+        sm = WorkflowStateManager(str(tmp_path))
+        (tmp_path / "workflow_runs.json").write_text(BAD_JSON)
+        (tmp_path / "workflow_bindings.json").write_text(BAD_JSON)
+        with pytest.raises(CorruptStateError):
+            sm.create_run("R1", {"status": "RUNNING"})
+        with pytest.raises(CorruptStateError):
+            sm.bind_run_to_item("R1", "I-1")
+
+
+class TestPublicMessage:
+    def test_corrupt_error_message_has_no_path(self, tmp_path):
+        from api.managers.base import public_message
+        path = tmp_path / "x.json"
+        path.write_text(BAD_JSON)
+        with pytest.raises(CorruptStateError) as info:
+            BaseJSONManager(str(tmp_path), "x.json")._load()
+        # The full message names the path; the public one must not.
+        assert str(tmp_path) in str(info.value)
+        msg = public_message(info.value)
+        assert str(tmp_path) not in msg
+        assert "x.json" not in msg
+        assert "/" not in msg
+        assert "corrupt" in msg.lower()
+        assert "backup" in msg.lower()
+
+    def test_other_exceptions_pass_through(self):
+        from api.managers.base import public_message
+        assert public_message(ValueError("plain")) == "plain"

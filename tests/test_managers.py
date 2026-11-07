@@ -661,7 +661,7 @@ class TestLifespanReaping:
 
     Entering ``TestClient(app)`` as a context manager fires lifespan startup,
     which calls ``get_state_manager().runs.reap_stale_runs()``. The autouse
-    ``reset_state_manager`` conftest fixture points ``api.main.state_manager``
+    ``isolate_data_dir`` conftest fixture points ``api.main.state_manager``
     at a per-test ``tmp_path/automation-ideas`` dir, so we write a stale run
     there and assert it flips to FAILED on startup.
     """
@@ -670,7 +670,7 @@ class TestLifespanReaping:
         import api.main
         from fastapi.testclient import TestClient
 
-        # The autouse reset_state_manager conftest fixture already swapped
+        # The autouse isolate_data_dir conftest fixture already swapped
         # api.main.state_manager to a fresh temp dir for this test, and the
         # lifespan reads via get_state_manager() — so we just plant a stale
         # run in its runs file and enter the client to fire startup.
@@ -694,3 +694,109 @@ class TestLifespanReaping:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+class TestReapRewrite:
+    """W3 (R17a, R17b): reap uses one lock acquisition and can reap every in-flight run."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        return RunManager(str(tmp_path))
+
+    def test_zero_age_reaps_a_run_that_started_seconds_ago(self, manager):
+        now = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
+        runs = {"fresh": {"status": "RUNNING", "started_at": _iso(now - timedelta(seconds=5))}}
+        with open(manager.path, "w") as f:
+            json.dump(runs, f)
+
+        assert manager.reap_stale_runs(max_age_seconds=0, now=now) == ["fresh"]
+        run = manager.get_run("fresh")
+        assert run["status"] == "FAILED"
+        assert run["reap_reason"] == "orphaned: server restart"
+
+    def test_default_age_still_keeps_a_fresh_run(self, manager):
+        now = datetime(2026, 7, 13, 12, 0, 0, tzinfo=timezone.utc)
+        runs = {"fresh": {"status": "RUNNING", "started_at": _iso(now - timedelta(minutes=5))}}
+        with open(manager.path, "w") as f:
+            json.dump(runs, f)
+        assert manager.reap_stale_runs(now=now) == []
+        assert manager.get_run("fresh")["status"] == "RUNNING"
+
+    def test_zero_age_still_skips_terminal_runs(self, manager):
+        runs = {
+            "done": {"status": "COMPLETED", "started_at": "2026-07-13T11:59:59Z"},
+            "blocked": {"status": "BLOCKED"},
+            "waiting": {"status": "WAITING_FOR_HUMAN"},
+            "live": {"status": "RUNNING"},
+        }
+        with open(manager.path, "w") as f:
+            json.dump(runs, f)
+        assert manager.reap_stale_runs(max_age_seconds=0) == ["live"]
+        assert manager.get_run("done")["status"] == "COMPLETED"
+        assert manager.get_run("blocked")["status"] == "BLOCKED"
+        assert manager.get_run("waiting")["status"] == "WAITING_FOR_HUMAN"
+
+    def test_reap_logs_event_with_previous_status(self, manager):
+        with open(manager.path, "w") as f:
+            json.dump({"r": {"status": "executing"}}, f)
+        manager.reap_stale_runs(max_age_seconds=0)
+        (event,) = manager.get_run_timeline("r")
+        assert event["event_type"] == "RUN_REAPED"
+        assert event["payload"]["previous_status"] == "executing"
+        assert event["actor"] == "lifespan"
+
+    def test_reap_keeps_a_write_made_by_a_concurrent_updater(self, manager, monkeypatch):
+        """A write that lands during the reap must not be lost.
+
+        The old code loaded, mutated and saved in separate lock acquisitions, so
+        a writer in between was overwritten. Simulate one by writing a new run
+        from inside the log_event hook, which the old code ran before its save.
+        """
+        with open(manager.path, "w") as f:
+            json.dump({"orphan": {"status": "RUNNING"}}, f)
+
+        original = RunManager.log_event
+
+        def log_and_write(self, run_id, event_type, payload, actor="system"):
+            # Another process adds a run while the reap is in progress.
+            other = RunManager(self.base_dir)
+            other.create_run("late", {"status": "COMPLETED"})
+            return original(self, run_id, event_type, payload, actor)
+
+        monkeypatch.setattr(RunManager, "log_event", log_and_write)
+        assert manager.reap_stale_runs(max_age_seconds=0) == ["orphan"]
+        assert manager.get_run("late") is not None
+        assert manager.get_run("orphan")["status"] == "FAILED"
+
+    def test_reap_on_corrupt_file_returns_empty_and_leaves_it_alone(self, manager):
+        with open(manager.path, "w") as f:
+            f.write("[1, 2]")
+        assert manager.reap_stale_runs(max_age_seconds=0) == []
+        with open(manager.path) as f:
+            assert f.read() == "[1, 2]"
+
+    def test_reap_does_not_write_when_nothing_to_reap(self, manager):
+        with open(manager.path, "w") as f:
+            json.dump({"r": {"status": "COMPLETED"}}, f)
+        before = os.stat(manager.path).st_mtime_ns
+        assert manager.reap_stale_runs(max_age_seconds=0) == []
+        assert os.stat(manager.path).st_mtime_ns == before
+
+
+class TestLifespanReapsFreshRuns:
+    def test_lifespan_reaps_a_run_started_moments_ago(self):
+        """R17b: the boot reap has no age gate, since timers do not survive a restart."""
+        import api.main
+        from fastapi.testclient import TestClient
+
+        sm = api.main.get_state_manager()
+        fresh = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        with open(sm.runs.path, "w") as f:
+            json.dump({
+                "run_just_started": {"template_id": "T", "status": "RUNNING", "started_at": fresh},
+                "run_done": {"template_id": "T", "status": "COMPLETED", "started_at": fresh},
+            }, f)
+
+        with TestClient(api.main.app):
+            assert sm.runs.get_run("run_just_started")["status"] == "FAILED"
+            assert sm.runs.get_run("run_just_started")["reap_reason"] == "orphaned: server restart"
+            assert sm.runs.get_run("run_done")["status"] == "COMPLETED"

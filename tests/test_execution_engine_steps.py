@@ -520,3 +520,225 @@ class TestResolveContext:
         (action, params) = hub.calls[0]
         assert action == "HTTP"
         assert params == {"body": 'a"b\\c', "q": 'x "a"b\\c"'}
+
+
+# ---------------------------------------------------------------------------
+# W3 (P0-4): start_run must not return an id for a run that was not saved
+# ---------------------------------------------------------------------------
+
+class TestStartRunPersistence:
+    def test_start_run_raises_when_run_cannot_be_saved(self, sm, escalator, monkeypatch):
+        _template(sm, "p1", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        hub = FakeHub()
+        engine = ExecutionEngine(sm, hub, escalator)
+        monkeypatch.setattr(sm.runs, "create_run", lambda run_id, data: False)
+        with pytest.raises(RuntimeError, match="could not be saved"):
+            engine.start_run("p1", {})
+        # Nothing ran and nothing was recorded.
+        assert hub.calls == []
+        assert sm.runs.get_all_runs() == {}
+
+    def test_start_run_wraps_write_errors_in_runtime_error(self, sm, escalator, monkeypatch):
+        _template(sm, "p2", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        engine = ExecutionEngine(sm, FakeHub(), escalator)
+
+        def boom(run_id, data):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(sm.runs, "create_run", boom)
+        with pytest.raises(RuntimeError, match="could not be saved") as info:
+            engine.start_run("p2", {})
+        assert isinstance(info.value.__cause__, OSError)
+
+    def test_start_run_on_corrupt_runs_file_raises_runtime_error(self, sm, escalator, tmp_path):
+        _template(sm, "p3", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        engine = ExecutionEngine(sm, FakeHub(), escalator)
+        (tmp_path / "workflow_runs.json").write_text("{not json")
+        with pytest.raises(RuntimeError):
+            engine.start_run("p3", {})
+        # The corrupt file is preserved, not overwritten.
+        assert (tmp_path / "workflow_runs.json").read_text() == "{not json"
+
+    def test_successful_start_run_returns_a_persisted_id(self, sm, escalator):
+        _template(sm, "p4", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        run_id = ExecutionEngine(sm, FakeHub(), escalator).start_run("p4", {})
+        assert sm.runs.get_run(run_id) is not None
+
+    def test_unknown_template_still_raises_value_error(self, sm, escalator):
+        with pytest.raises(ValueError):
+            ExecutionEngine(sm, FakeHub(), escalator).start_run("nope", {})
+
+    def test_engine_route_returns_500_when_run_cannot_be_saved(self, sm, escalator, monkeypatch):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from api import engine_router
+
+        _template(sm, "p5", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        monkeypatch.setattr(sm.runs, "create_run", lambda run_id, data: False)
+        app = FastAPI()
+        app.include_router(engine_router.router)
+        app.state.engine = ExecutionEngine(sm, FakeHub(), escalator)
+        r = TestClient(app).post("/api/engine/start", json={"template_id": "p5", "inputs": {}})
+        assert r.status_code == 500
+        assert "run_id" not in r.json()
+
+
+# ---------------------------------------------------------------------------
+# W3 (P0-3, R5): the timer thread must never die silently
+# ---------------------------------------------------------------------------
+
+class TestTimerGuard:
+    def _failing_run(self, sm, escalator, timers, tid="g1"):
+        _template(sm, tid, [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        engine = ExecutionEngine(sm, AlwaysFailHub(), escalator, RetryManager(sm))
+        run_id = engine.start_run(tid, {})
+        (pending,) = _live(timers)
+        return engine, run_id, pending
+
+    def test_missing_template_at_fire_time_blocks_run_with_escalation(self, sm, escalator, timers):
+        engine, run_id, pending = self._failing_run(sm, escalator, timers)
+        assert sm.templates.delete_template("g1")
+        pending.fire()  # must not raise
+        assert _status(sm, run_id) == "BLOCKED"
+        assert len(escalator.escalations) == 1
+        assert "g1" in escalator.escalations[0]["error"]
+        assert "not found" in escalator.escalations[0]["error"]
+        types = [e["event_type"] for e in sm.runs.get_run_timeline(run_id)]
+        assert "RUN_BLOCKED" in types
+        assert _live(timers) == []
+
+    def test_missing_template_does_not_raise_attribute_error(self, sm, escalator):
+        _template(sm, "g2", [{"name": "A", "type": "HTTP", "config": {}}])
+        engine = ExecutionEngine(sm, FakeHub(), escalator)
+        sm.runs.create_run("RUN-G2", {"template_id": "gone", "status": "RUNNING",
+                                      "current_step_index": 0, "inputs": {}, "context": {}, "results": {}})
+        engine.process_next_step("RUN-G2")  # used to raise AttributeError on None.get
+        assert _status(sm, "RUN-G2") == "BLOCKED"
+        assert len(escalator.escalations) == 1
+
+    def test_corrupt_runs_file_at_fire_time_is_contained(self, sm, escalator, timers, tmp_path, caplog):
+        engine, run_id, pending = self._failing_run(sm, escalator, timers, "g3")
+        (tmp_path / "workflow_runs.json").write_text("{broken")
+        with caplog.at_level("ERROR"):
+            pending.fire()  # must not raise out of the timer thread
+        assert any("Retry timer" in r.message for r in caplog.records)
+        # The corrupt file is left alone; the escalation is still attempted.
+        assert (tmp_path / "workflow_runs.json").read_text() == "{broken"
+        assert len(escalator.escalations) == 1
+
+    def test_claim_is_released_after_a_timer_crash(self, sm, escalator, timers):
+        engine, run_id, pending = self._failing_run(sm, escalator, timers, "g4")
+        sm.templates.delete_template("g4")
+        pending.fire()
+        claim = engine._claim_for(run_id)
+        assert claim.acquire(blocking=False), "claim lock was left held"
+        claim.release()
+
+    def test_unexpected_error_in_advance_blocks_and_releases_claim(self, sm, escalator, timers, monkeypatch):
+        engine, run_id, pending = self._failing_run(sm, escalator, timers, "g5")
+
+        def explode(rid):
+            raise RuntimeError("kaboom")
+
+        monkeypatch.setattr(engine, "_advance", explode)
+        pending.fire()
+        assert _status(sm, run_id) == "BLOCKED"
+        assert "kaboom" in escalator.escalations[0]["error"]
+        claim = engine._claim_for(run_id)
+        assert claim.acquire(blocking=False)
+        claim.release()
+
+    def test_escalator_failure_inside_guard_is_swallowed(self, sm, timers):
+        class BrokenEscalator:
+            def escalate_to_orchestrator(self, **kw):
+                raise RuntimeError("board down")
+
+        _template(sm, "g6", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        engine = ExecutionEngine(sm, AlwaysFailHub(), BrokenEscalator(), RetryManager(sm))
+        run_id = engine.start_run("g6", {})
+        (pending,) = _live(timers)
+        sm.templates.delete_template("g6")
+        pending.fire()  # nothing escapes
+        assert _status(sm, run_id) == "BLOCKED"
+        types = [e["event_type"] for e in sm.runs.get_run_timeline(run_id)]
+        assert "RUN_BLOCKED" in types
+
+    def test_normal_retry_path_is_unchanged(self, sm, escalator, timers):
+        _template(sm, "g7", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        engine = ExecutionEngine(sm, FakeHub(fail_times=1), escalator, RetryManager(sm))
+        run_id = engine.start_run("g7", {})
+        (pending,) = _live(timers)
+        pending.fire()
+        assert _status(sm, run_id) == "COMPLETED"
+        assert escalator.escalations == []
+
+
+# ---------------------------------------------------------------------------
+# W3 (R18): the retry budget is per step, not cumulative per run
+# ---------------------------------------------------------------------------
+
+class FlakyOnceHub:
+    """Fails the first call of every distinct step name, then succeeds."""
+
+    def __init__(self):
+        self.seen = set()
+        self.calls = []
+
+    def execute_action(self, action_type, params):
+        self.calls.append((action_type, params))
+        key = params.get("key")
+        if key not in self.seen:
+            self.seen.add(key)
+            raise RuntimeError("first attempt fails")
+        return {"ok": True}
+
+
+class TestRetryBudgetPerStep:
+    def test_retry_count_resets_after_a_step_succeeds(self, sm, escalator, timers):
+        _template(sm, "b1", [
+            {"name": "One", "type": "HTTP", "config": {"key": "one"}},
+            {"name": "Two", "type": "HTTP", "config": {"key": "two"}},
+        ])
+        engine = ExecutionEngine(sm, FlakyOnceHub(), escalator, RetryManager(sm))
+        run_id = engine.start_run("b1", {})
+        assert sm.runs.get_run(run_id)["retry_count"] == 1
+        (t1,) = _live(timers)
+        t1.fire()  # step One succeeds, step Two fails once
+        run = sm.runs.get_run(run_id)
+        assert run["current_step_index"] == 1
+        # Without the reset this would be 2: step One's failure would count against step Two.
+        assert run["retry_count"] == 1
+        assert [t.interval for t in timers.instances] == [300, 300]
+        (t2,) = _live(timers)
+        t2.fire()
+        assert _status(sm, run_id) == "COMPLETED"
+        assert sm.runs.get_run(run_id)["retry_count"] == 0
+
+    def test_many_steps_each_failing_once_never_block(self, sm, escalator, timers):
+        steps = [{"name": f"S{i}", "type": "HTTP", "config": {"key": f"k{i}"}} for i in range(5)]
+        _template(sm, "b2", steps)
+        engine = ExecutionEngine(sm, FlakyOnceHub(), escalator, RetryManager(sm))
+        run_id = engine.start_run("b2", {})
+        for _ in range(5):
+            live = _live(timers)
+            if not live:
+                break
+            live[0].fire()
+        assert _status(sm, run_id) == "COMPLETED"
+        assert escalator.escalations == []
+
+    def test_consecutive_failures_of_one_step_still_exhaust_the_budget(self, sm, escalator, timers):
+        _template(sm, "b3", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        engine = ExecutionEngine(sm, AlwaysFailHub(), escalator, RetryManager(sm))
+        run_id = engine.start_run("b3", {})
+        for _ in range(3):
+            (pending,) = _live(timers)
+            pending.fire()
+        assert _status(sm, run_id) == "BLOCKED"
+        assert sm.runs.get_run(run_id)["retry_count"] == 3
+        assert len(escalator.escalations) == 1
+
+    def test_success_without_retry_keeps_count_zero(self, sm, escalator):
+        _template(sm, "b4", [{"name": "A", "type": "HTTP", "config": {}}])
+        run_id = ExecutionEngine(sm, FakeHub(), escalator, RetryManager(sm)).start_run("b4", {})
+        assert sm.runs.get_run(run_id).get("retry_count", 0) == 0

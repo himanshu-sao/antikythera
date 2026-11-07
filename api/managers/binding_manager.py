@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-from api.managers.base import BaseJSONManager, CorruptStateError
+from api.managers.base import BaseJSONManager
 
 class BindingManager(BaseJSONManager):
     def __init__(self, base_dir: str):
@@ -22,12 +22,8 @@ class BindingManager(BaseJSONManager):
             }
             return True, True
 
-        try:
-            return self._update(apply)
-        except CorruptStateError:
-            raise
-        except Exception:
-            return False
+        # Write failures (including CorruptStateError) propagate to the caller.
+        return self._update(apply)
 
     def get_bindings_for_run(self, run_id: str) -> List[Dict[str, Any]]:
         bindings = self._load()

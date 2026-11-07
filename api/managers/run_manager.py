@@ -3,7 +3,6 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
-from filelock import FileLock
 from api.managers.base import BaseJSONManager, CorruptStateError
 
 logger = logging.getLogger(__name__)
@@ -54,13 +53,20 @@ class RunManager(BaseJSONManager):
         max_age_seconds: int = 3600,
         now: Optional[datetime] = None,
     ) -> List[str]:
-        """Mark runs stuck in an active state since before ``max_age_seconds`` as FAILED.
+        """Mark in-flight runs as FAILED so nothing shows them as still running.
 
-        On server restart any run left in an in-flight status is an orphan —
-        nothing is driving it forward. This walks ``workflow_runs.json`` and
-        flips each stale active run to ``FAILED`` with an
-        ``"orphaned: server restart"`` reason, leaving an audit trail on the
-        run and a ``RUN_REAPED`` timeline entry.
+        Any run in an active status (see ``_ACTIVE_STATUSES``) whose
+        ``started_at`` is at least ``max_age_seconds`` old is flipped to
+        ``FAILED`` with reap_reason ``"orphaned: server restart"``, and a
+        ``RUN_REAPED`` timeline event is logged.
+
+        ``max_age_seconds <= 0`` reaps every in-flight run regardless of age.
+        The server calls it that way at boot, because a run's driver (its retry
+        timers) lives only in memory, so every in-flight run is an orphan at
+        that point.
+
+        Load, mark and save happen under one lock acquisition (``_update``), so
+        a concurrent writer cannot be lost between them.
 
         ``now`` is injectable for deterministic tests; it defaults to the
         current UTC time. Returns the list of run IDs that were reaped.
@@ -72,55 +78,63 @@ class RunManager(BaseJSONManager):
         else:
             now = now.astimezone(timezone.utc)
 
+        reaped_events: List[tuple] = []
+
+        def apply(runs: Dict[str, Any]):
+            reaped: List[str] = []
+            for run_id, run in runs.items():
+                if not isinstance(run, dict):
+                    continue
+                status = run.get("status")
+                if not isinstance(status, str) or status.lower() not in _ACTIVE_STATUSES:
+                    continue
+                if max_age_seconds > 0:
+                    started = _parse_started_at(run.get("started_at"))
+                    # Treat an unparseable start time as ancient -> stale (safe default).
+                    if started is not None and (now - started).total_seconds() < max_age_seconds:
+                        continue
+
+                run["status"] = "FAILED"
+                run["reaped_at"] = now.isoformat().replace("+00:00", "Z")
+                run["reap_reason"] = "orphaned: server restart"
+                reaped.append(run_id)
+                reaped_events.append((run_id, status))
+            return bool(reaped), reaped
+
         try:
-            runs = self._load()
+            reaped = self._update(apply)
         except Exception:
-            logger.exception("Failed to load runs for orphan reaping")
+            logger.exception("Failed to reap orphaned runs")
             return []
 
-        reaped: List[str] = []
-        for run_id, run in runs.items():
-            if not isinstance(run, dict):
-                continue
-            status = run.get("status")
-            if not isinstance(status, str) or status.lower() not in _ACTIVE_STATUSES:
-                continue
-            started = _parse_started_at(run.get("started_at"))
-            # Treat an unparseable start time as ancient -> stale (safe default).
-            if started is not None and (now - started).total_seconds() < max_age_seconds:
-                continue
-
-            run["status"] = "FAILED"
-            run["reaped_at"] = now.isoformat().replace("+00:00", "Z")
-            run["reap_reason"] = "orphaned: server restart"
-            reaped.append(run_id)
-            # Best-effort event log; a missing events dir shouldn't fail the reap.
+        # Best-effort audit trail, written after the state save. A missing
+        # events dir must not fail the reap.
+        for run_id, previous_status in reaped_events:
             try:
                 self.log_event(
                     run_id,
                     "RUN_REAPED",
-                    {"reason": run["reap_reason"], "previous_status": status},
+                    {"reason": "orphaned: server restart", "previous_status": previous_status},
                     actor="lifespan",
                 )
             except Exception:
                 logger.warning("Reaped %s but failed to log timeline event", run_id, exc_info=True)
-
         if reaped:
-            self._save(runs)
-            logger.info("Reaped %d stale run(s): %s", len(reaped), reaped)
+            logger.info("Reaped %d in-flight run(s): %s", len(reaped), reaped)
         return reaped
 
     def create_run(self, run_id: str, run_data: Dict[str, Any]) -> bool:
+        """Persist a new run and return True.
+
+        Write failures (including ``CorruptStateError``) propagate to the
+        caller instead of being reported as False, so a run id is never handed
+        out for a run that was not saved.
+        """
         def apply(runs: Dict[str, Any]):
             run_data["started_at"] = datetime.utcnow().isoformat() + "Z"
             runs[run_id] = run_data
             return True, True
-        try:
-            return self._update(apply)
-        except CorruptStateError:
-            raise
-        except Exception:
-            return False
+        return self._update(apply)
 
     def update_run(self, run_id: str, updates: Dict[str, Any]) -> bool:
         # Load, merge and save under one lock acquisition so concurrent

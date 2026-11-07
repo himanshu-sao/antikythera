@@ -3,12 +3,11 @@ import re
 import threading
 import uuid
 import json
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional
 from api.workflow_state_manager import WorkflowStateManager
 from api.integration_hub import IntegrationHub
 from api.escalation_manager import EscalationManager
 from api.retry_manager import RetryManager
-from api.managers.run_manager import RunManager
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +24,9 @@ class ExecutionEngine:
         self.retry_manager = retry_manager
         self.run_manager = state_manager.runs
         # Pending retry timers, keyed by run_id. Timers live in memory only and
-        # are not persisted across restarts (a restarted server leaves a
-        # RETRYING run waiting for an explicit resume).
+        # are not persisted across restarts. A run whose timer was lost in a
+        # restart is RUNNING with no driver; the startup reaper in api/main.py
+        # marks such runs FAILED.
         self._timers: Dict[str, threading.Timer] = {}
         self._timers_lock = threading.Lock()
         # One non-blocking claim per run, so a timer firing and a resume cannot
@@ -52,7 +52,17 @@ class ExecutionEngine:
             "results": {}
         }
 
-        self.run_manager.create_run(run_id, run_data)
+        # A run id must never be handed back for a run that was not saved, or
+        # every later lookup 404s. Write errors (e.g. CorruptStateError) are
+        # re-raised as RuntimeError so the route returns a 500.
+        try:
+            created = self.run_manager.create_run(run_id, run_data)
+        except Exception as exc:
+            logger.exception("Run %s for template %s could not be persisted", run_id, template_id)
+            raise RuntimeError(f"Run {run_id} could not be saved; the workflow was not started") from exc
+        if not created:
+            logger.error("Run %s for template %s was not saved", run_id, template_id)
+            raise RuntimeError(f"Run {run_id} could not be saved; the workflow was not started")
         self.run_manager.log_event(run_id, "RUN_STARTED", {"template_id": template_id, "inputs": inputs})
         
         # Trigger the first step asynchronously (simulated here by a direct call)
@@ -143,7 +153,15 @@ class ExecutionEngine:
                 if self._timers.get(run_id) is not timer:
                     return
                 self._timers.pop(run_id, None)
-            self.process_next_step(run_id)
+            # The timer thread has no caller to report to, so any failure here
+            # (missing template, corrupt state file, ...) must be contained:
+            # log it and block the run so it does not sit RUNNING forever.
+            # process_next_step releases the run claim in its own finally.
+            try:
+                self.process_next_step(run_id)
+            except Exception as exc:
+                logger.exception("Retry timer for run %s failed", run_id)
+                self._block_after_crash(run_id, exc)
 
         with self._timers_lock:
             previous = self._timers.pop(run_id, None)
@@ -163,6 +181,11 @@ class ExecutionEngine:
             return
 
         template = self.state_manager.templates.get_template(run["template_id"])
+        if template is None:
+            # A deleted template cannot be retried into success, so block the
+            # run now and escalate instead of raising from a timer thread.
+            self._block(run_id, "Template lookup", f"Template {run['template_id']} not found")
+            return
         steps = template.get("steps", [])
         idx = run["current_step_index"]
 
@@ -199,10 +222,12 @@ class ExecutionEngine:
             run_context = run.get("context", {})
             run_context[step_name] = result
             
-            # Move to next step
+            # Move to next step. The retry budget is per step, so a step that
+            # succeeds resets it; otherwise failures across steps would add up.
             self.run_manager.update_run(run_id, {
                 "current_step_index": idx + 1,
-                "context": run_context
+                "context": run_context,
+                "retry_count": 0,
             })
             
             # Continue with the next step. The claim is still held, so this must
@@ -306,6 +331,10 @@ class ExecutionEngine:
                 return
 
         # No retry manager or retries exhausted — escalate to BLOCKED
+        self._block(run_id, step_name, error_msg)
+
+    def _block(self, run_id: str, step_name: str, error_msg: str) -> None:
+        """Move the run to BLOCKED, escalate it to the orchestrator and log why."""
         self._cancel_timer(run_id)
         self.run_manager.update_run(run_id, {"status": "BLOCKED"})
 
@@ -316,3 +345,25 @@ class ExecutionEngine:
         )
 
         self.run_manager.log_event(run_id, "RUN_BLOCKED", {"error": error_msg})
+
+    def _block_after_crash(self, run_id: str, exc: Exception) -> None:
+        """Best-effort BLOCKED transition after an unexpected error on a timer thread.
+
+        Each step is attempted even when an earlier one fails (the run file may
+        be the very thing that is corrupt, while the board file is fine), and
+        nothing is raised: the timer thread has nobody to report to, and the
+        original error is already logged by the caller.
+        """
+        error_msg = f"Unexpected error while retrying: {exc}"
+        self._cancel_timer(run_id)
+        steps = (
+            ("block the run", lambda: self.run_manager.update_run(run_id, {"status": "BLOCKED"})),
+            ("escalate the run", lambda: self.escalator.escalate_to_orchestrator(
+                run_id=run_id, step_name="Retry timer", error_message=error_msg)),
+            ("log RUN_BLOCKED", lambda: self.run_manager.log_event(run_id, "RUN_BLOCKED", {"error": error_msg})),
+        )
+        for label, action in steps:
+            try:
+                action()
+            except Exception:
+                logger.exception("Could not %s for run %s after a timer failure", label, run_id)
