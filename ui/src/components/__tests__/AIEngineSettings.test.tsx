@@ -126,3 +126,52 @@ describe('AIEngineSettings logs tab (P3-1)', () => {
     expect(screen.queryByTestId('logs-truncated')).not.toBeInTheDocument();
   });
 });
+
+describe('AIEngineSettings per-card Delete (U3)', () => {
+  async function openModelsTab() {
+    await screen.findByText(/AI Engine Configuration/i);
+    fireEvent.click(screen.getByRole('button', { name: /^Connections$/ }));
+  }
+
+  test('deletes through DELETE /api/ai-engine/remove-model/{id}, not the non-existent /config/{id}', async () => {
+    installFetch();
+    render(<AIEngineSettings />);
+    await openModelsTab();
+    const deleteButtons = await screen.findAllByRole('button', { name: /^Delete$/ });
+    fireEvent.click(deleteButtons[1]); // second card (llama3.1), the first is the default model
+
+    await waitFor(() => {
+      const del = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'DELETE');
+      expect(del).toBeTruthy();
+      expect(String(del![0])).toBe('/api/ai-engine/remove-model/llama3.1');
+    });
+    expect(
+      fetchMock.mock.calls.some((c) => String(c[0]).startsWith('/api/ai-engine/config/')),
+    ).toBe(false);
+    // Card is removed optimistically on success.
+    await waitFor(() => expect(screen.queryByText('Llama 3.1')).not.toBeInTheDocument());
+  });
+
+  test('a server refusal keeps the card and shows the backend detail', async () => {
+    installFetch();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        return Promise.resolve(
+          jsonResponse({ detail: 'Cannot remove default model. Set a different default first.' }, { ok: false }),
+        );
+      }
+      return original(url, init);
+    });
+    const toast = (await import('react-hot-toast')).toast;
+    const errSpy = vi.spyOn(toast, 'error').mockImplementation(() => '' as any);
+
+    render(<AIEngineSettings />);
+    await openModelsTab();
+    const deleteButtons = await screen.findAllByRole('button', { name: /^Delete$/ });
+    fireEvent.click(deleteButtons[0]);
+
+    await waitFor(() => expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('Cannot remove default model')));
+    expect(screen.getByText('Gemma 7B')).toBeInTheDocument();
+  });
+});

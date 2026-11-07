@@ -54,9 +54,6 @@ export function IntegrationsManager() {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newInt, setNewInt] = useState({ name: '', type: 'native', config: '' });
-  const [showSecretModal, setShowSecretModal] = useState(false);
-  const [secretProfile, setSecretProfile] = useState('');
-  const [secretData, setSecretData] = useState('');
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   
   const [editingInt, setEditingInt] = useState<Integration | null>(null);
@@ -84,7 +81,6 @@ export function IntegrationsManager() {
   const addCardRef = useRef<HTMLDivElement>(null);
   const addNameRef = useRef<HTMLInputElement>(null);
   const editConfigRef = useRef<HTMLTextAreaElement>(null);
-  const secretProfileRef = useRef<HTMLInputElement>(null);
   const drawerCloseBtnRef = useRef<HTMLButtonElement>(null);
 
   // Helper to get capabilities
@@ -120,13 +116,6 @@ export function IntegrationsManager() {
       editConfigRef.current?.focus();
     }
   }, [editingInt]);
-
-  // Effect: focus Secret modal first input when opened
-  useEffect(() => {
-    if (showSecretModal) {
-      secretProfileRef.current?.focus();
-    }
-  }, [showSecretModal]);
 
   // Effect: focus drawer close button when drawer opens
   useEffect(() => {
@@ -266,24 +255,6 @@ export function IntegrationsManager() {
     }
   };
 
-  const handleSaveSecret = async () => {
-    try {
-      const secrets = JSON.parse(secretData);
-      const res = await fetch(`${apiUrl}/api/integrations/secrets`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile_id: secretProfile, secrets }),
-      });
-      if (!res.ok) throw new Error('Failed to store secrets');
-      setShowSecretModal(false);
-      setSecretProfile('');
-      setSecretData('');
-      toast.success("Secrets updated");
-    } catch (e: any) {
-      toast.error("Invalid JSON secrets");
-    }
-  };
-
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Page Header */}
@@ -293,12 +264,6 @@ export function IntegrationsManager() {
           <p className="text-[#6f6a63] mt-1">Connect external services via Native Adapters or MCP Servers</p>
         </div>
         <div className="flex gap-3">
-          <button 
-            onClick={() => setShowSecretModal(true)}
-            className="px-4 py-2 bg-white border border-[#d8d3ca] rounded-full text-sm text-[#6f6a63] hover:bg-gray-50 transition-all"
-          >
-            Manage Secrets
-          </button>
           <button 
             onClick={(e) => { e.stopPropagation(); setShowAddModal(true); }}
             className="px-4 py-2 bg-[#0b6b72] text-white rounded-full text-sm font-medium hover:bg-[#0a5c62] transition-all shadow-sm"
@@ -782,58 +747,6 @@ export function IntegrationsManager() {
         </div>
       )}
 
-      {/* Secret Modal */}
-      {showSecretModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" role="dialog" aria-modal="true" aria-labelledby="secret-modal-title">
-          <div className="bg-white rounded-2xl shadow-xl w-full md:w-1/2 p-6">
-            <h2 id="secret-modal-title" className="text-xl font-bold mb-4 text-[#231f19]">Secret Vault</h2>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Profile ID</label>
-                <input type="text" ref={secretProfileRef} className="w-full p-2 border rounded-lg" value={secretProfile} onChange={e => setSecretProfile(e.target.value)} placeholder="e.g. github_prod" />
-                <div className="flex gap-2 mt-2">
-                  <button
-                    onClick={async () => {
-                      if (!secretProfile) { toast.error('Enter profile ID first'); return; }
-                      try {
-                        const res = await fetch(`${apiUrl}/api/integrations/secrets/${secretProfile}`);
-                        if (!res.ok) throw new Error('Failed to load secrets');
-                        const data = await res.json();
-                        setSecretData(JSON.stringify(data, null, 2));
-                        toast.success('Secrets loaded');
-                      } catch (e:any) {
-                        toast.error(e.message);
-                      }
-                    }}
-                    className="px-3 py-1 bg-gray-200 text-gray-800 rounded hover:bg-gray-300"
-                  >
-                    Load
-                  </button>
-                  <button
-                    onClick={() => { setSecretData(''); setSecretProfile(''); }}
-                    className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Secrets (JSON)</label>
-                <textarea 
-                  className="w-full p-2 border rounded-lg font-mono text-xs h-32" 
-                  value={secretData} 
-                  onChange={e => setSecretData(e.target.value)} 
-                  placeholder='{"api_key": "***", "token": "***"}'
-                />
-              </div>
-              <div className="flex justify-end gap-3 pt-4">
-                <button onClick={() => setShowSecretModal(false)} className="px-4 py-2 text-gray-600">Cancel</button>
-                <button onClick={handleSaveSecret} className="px-4 py-2 bg-[#0b6b72] text-white rounded-lg font-medium">Save Secrets</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

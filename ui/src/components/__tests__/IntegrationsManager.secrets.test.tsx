@@ -163,3 +163,29 @@ describe('IntegrationsManager secrets (P3-3)', () => {
     expect(textarea.value).toBe('{"token": "typed-now"}');
   });
 });
+
+describe('IntegrationsManager dead Secret Vault removed (U3)', () => {
+  test('there is no Manage Secrets button and no Secret Vault dialog', async () => {
+    installFetch([jiraIntegration]);
+    render(<IntegrationsManager />);
+    await screen.findByRole('heading', { name: 'jira-prod' });
+    expect(screen.queryByRole('button', { name: /Manage Secrets/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Secret Vault/i)).not.toBeInTheDocument();
+  });
+
+  test('the manager never requests the /api/integrations/secrets routes', async () => {
+    const calls = installFetch([jiraIntegration]);
+    render(<IntegrationsManager />);
+    await screen.findByRole('heading', { name: 'jira-prod' });
+    await openEdit('jira-prod');
+    expect(calls.some(c => c.url.includes('/secrets'))).toBe(false);
+  });
+
+  test('Add Connection still works', async () => {
+    installFetch([]);
+    render(<IntegrationsManager />);
+    fireEvent.click(screen.getByRole('button', { name: /\+ Add Connection/i }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByText('Add Integration')).toBeInTheDocument();
+  });
+});

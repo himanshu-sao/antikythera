@@ -29,7 +29,6 @@ import { ArtifactViewer } from './components/ArtifactViewer';
 import { SkeletonBoard } from './components/SkeletonBoard';
 import { CardEditor } from './components/CardEditor';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { VirtualBoard } from './components/VirtualBoard';
 import { Toaster } from 'react-hot-toast';
 import { PipelineDashboard } from './components/PipelineDashboard';
 import { WorkflowManager } from './components/WorkflowManager';
@@ -91,7 +90,6 @@ export default function App() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [showWorkflowGuide, setShowWorkflowGuide] = useState(false);
-  const [virtualBoardTemplate, setVirtualBoardTemplate] = useState<string | null>(null);
 
   useEffect(() => {
     const savedTheme = localStorage.getItem('theme') as 'light' | 'dark';
@@ -487,15 +485,6 @@ export default function App() {
                 </div>
               </div>
             </>
-          )}
-
-          {virtualBoardTemplate && (
-            <div className="fixed inset-0 bg-white z-50 overflow-auto">
-              <VirtualBoard 
-                templateId={virtualBoardTemplate} 
-                onBack={() => setVirtualBoardTemplate(null)} 
-              />
-            </div>
           )}
 
           <CreateItemModal 

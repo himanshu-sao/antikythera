@@ -924,10 +924,13 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                                              onClick={async () => {
                                                                if (!window.confirm('Are you sure you want to delete this model?')) return;
                                                                try {
-                                                                 const res = await fetch(`/api/ai-engine/config/${model.model_id}`, {
+                                                                 const res = await fetch(`/api/ai-engine/remove-model/${encodeURIComponent(model.model_id)}`, {
                                                                    method: 'DELETE',
                                                                  });
-                                                                 if (!res.ok) throw new Error('Delete failed');
+                                                                 if (!res.ok) {
+                                                                   const err = await res.json().catch(() => ({}));
+                                                                   throw new Error(typeof err.detail === 'string' ? err.detail : 'Delete failed');
+                                                                 }
                                                                  // Optimistically remove model from UI
                                                                  setConfig(prev => {
                                                                    if (!prev) return prev;
@@ -937,8 +940,8 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                                                    };
                                                                  });
                                                                  toast.success('Model deleted');
-                                                               } catch (e) {
-                                                                 toast.error('Failed to delete model');
+                                                               } catch (e: any) {
+                                                                 toast.error(e?.message || 'Failed to delete model');
                                                                }
                                                              }}
                                                              className="px-3 py-1.5 bg-red-100 text-red-700 rounded text-sm font-medium flex items-center gap-1.5 hover:bg-red-200 transition"
