@@ -1,28 +1,13 @@
 import React, { useState } from 'react';
-let ReactMarkdown: any;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  ReactMarkdown = require('react-markdown').default;
-} catch {
-  // Fallback stub for testing environment
-  ReactMarkdown = (props: any) => null;
-}
-let remarkGfm: any;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  remarkGfm = require('remark-gfm');
-} catch {
-  // No-op plugin for testing
-  remarkGfm = () => {};
-}
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { AlertCircle } from 'lucide-react';
 import { Mermaid } from './artifacts/Mermaid';
 import { Timeline } from './artifacts/Timeline';
 import { ReviewForm } from './artifacts/ReviewForm';
 import { ZoomableArtifact } from './artifacts/ZoomableArtifact';
 import { useArtifacts } from '../hooks/useArtifacts';
-
-const apiUrl = 'http://localhost:8006';
+import { apiUrl } from '../config';
 
 interface ArtifactViewerProps {
   itemId: string;
@@ -232,7 +217,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                   onClick={async () => {
                     if (window.confirm(`Promote ${selectedArtifact.name} to a reusable pattern? This will train the system.`)) {
                       try {
-                        const res = await fetch(`${apiUrl}/api/item/${itemId}/promote-pattern?artifact_name=${selectedArtifact.name}`, {
+                        const res = await fetch(`${apiUrl}/api/item/${itemId}/promote-pattern?artifact_name=${encodeURIComponent(selectedArtifact.name)}`, {
                           method: 'POST'
                         });
                         if (!res.ok) throw new Error('Promotion failed');
@@ -297,7 +282,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                           ),
                           code: ({node, className, children, ...props}: any) => {
                             const match = /language-mermaid/i.test(className || '');
-                            return !className?.includes('language-mermaid') && match ? (
+                            return match ? (
                               <ZoomableArtifact>
                                 <Mermaid chart={String(children).replace(/\\n/g, ' ')} isCodeBlock={true} />
                               </ZoomableArtifact>

@@ -1,29 +1,24 @@
 import React, { useEffect, useRef } from 'react';
-let mermaid: any;
-try {
-  // Dynamically require mermaid; fallback to no‑op stub in test/Jest environment
-  mermaid = require('mermaid');
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: 'dark',
-    securityLevel: 'loose',
-  });
-} catch {
-  // Provide minimal stub with required methods
-  mermaid = {
-    init: () => {},
-    contentLoaded: () => {},
-  } as any;
-}
+import mermaid from 'mermaid';
+
+// securityLevel 'strict' keeps diagram text from injecting HTML/JS (mermaid's 'loose' allows
+// click handlers and raw HTML labels). Configured once at module load.
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'dark',
+  securityLevel: 'strict',
+});
 
 export const Mermaid = ({ chart, isCodeBlock = false }: { chart: string, isCodeBlock?: boolean }) => {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (containerRef.current) {
+      const node = containerRef.current;
       const timer = setTimeout(() => {
-        mermaid.contentLoaded();
-        mermaid.init(undefined, containerRef.current!);
+        mermaid.run({ nodes: [node] }).catch((err: unknown) => {
+          console.error('Mermaid render failed', err);
+        });
       }, 50);
       return () => clearTimeout(timer);
     }
