@@ -9,7 +9,7 @@ API endpoints for managing AI model configurations:
 - Update model settings
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from pydantic import BaseModel, Field
 import os
 from typing import Optional, List, Dict, Any
@@ -122,8 +122,12 @@ def _resolve_backend_log_path() -> str:
 BACKEND_LOG_PATH = _resolve_backend_log_path()
 
 
-def _read_log_tail(path: str, max_lines: int, max_bytes: int = _LOG_MAX_BYTES) -> str:
-    """Return the last *max_lines* lines of *path*, reading at most *max_bytes* from the end."""
+def _read_log_window(path: str, max_lines: int, max_bytes: int = _LOG_MAX_BYTES) -> tuple[str, bool]:
+    """Return ``(text, cut)``: the last *max_lines* lines of *path*, reading at most *max_bytes* from the end.
+
+    ``cut`` is True when the byte window began after the start of the file, so older
+    content exists that was not read.
+    """
     try:
         size = os.path.getsize(path)
         with open(path, "rb") as f:
@@ -131,34 +135,55 @@ def _read_log_tail(path: str, max_lines: int, max_bytes: int = _LOG_MAX_BYTES) -
             f.seek(start)
             data = f.read(size - start)
     except OSError:
-        return ""
+        return "", False
     text = data.decode(errors="replace")
     if start > 0:
         # The first line is probably cut mid-way; drop it.
         nl = text.find("\n")
         text = text[nl + 1:] if nl != -1 else ""
     lines = text.splitlines()
-    return "\n".join(lines[-max_lines:])
+    return "\n".join(lines[-max_lines:]), start > 0
+
+
+def _read_log_tail(path: str, max_lines: int, max_bytes: int = _LOG_MAX_BYTES) -> str:
+    """Return the last *max_lines* lines of *path*, reading at most *max_bytes* from the end."""
+    return _read_log_window(path, max_lines, max_bytes)[0]
 
 
 # GET /api/ai-engine/logs
 @router.get("/logs", response_model=Dict[str, Any])
 async def get_logs(
+    response: Response,
     lines: int = Query(_LOG_DEFAULT_LINES),
     tail: Optional[int] = Query(None),
 ) -> Dict[str, Any]:
     """Return the last *lines* lines of backend.log (SEC-10).
 
+    Response shape: ``{"logs": str}``, the lines joined with newlines (``""`` when the
+    file does not exist).
+
     Bounded: at most ``_LOG_MAX_LINES`` lines and ``_LOG_MAX_BYTES`` bytes are read,
     whatever the request asks for. ``tail`` is accepted for backwards compatibility
     with the UI (it used to be a byte count) and is only honoured as a further cap on
     bytes, never as a way to read more than the byte cap.
+
+    The request is clamped, not rejected. When it was clamped (more lines or bytes
+    asked for than the server allows, or the byte cap cut the result short of the
+    lines asked for) the response carries the header ``X-Log-Truncated: true``;
+    otherwise the header is absent.
     """
     line_cap = min(max(lines, 1), _LOG_MAX_LINES)
     max_bytes = _LOG_MAX_BYTES
     if tail is not None and tail > 0:
         max_bytes = min(_LOG_MAX_BYTES, tail)
-    return {"logs": _read_log_tail(BACKEND_LOG_PATH, line_cap, max_bytes)}
+    text, cut = _read_log_window(BACKEND_LOG_PATH, line_cap, max_bytes)
+
+    truncated = lines > _LOG_MAX_LINES or (tail is not None and tail > _LOG_MAX_BYTES)
+    if cut and max_bytes == _LOG_MAX_BYTES and len(text.splitlines()) < line_cap:
+        truncated = True  # the server byte cap, not the line count, ended the read
+    if truncated:
+        response.headers["X-Log-Truncated"] = "true"
+    return {"logs": text}
 
 
 # GET /api/ai-engine/models
