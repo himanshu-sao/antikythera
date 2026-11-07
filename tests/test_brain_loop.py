@@ -52,17 +52,51 @@ class TestBrainLoop(unittest.TestCase):
         self.assertTrue(len(os.listdir(self.history_dir)) > 0)
 
     def test_nightly_loop_integration(self):
-        # Mock memory.analyze_and_propose to return True
+        # Proposals found: the loop logs the pending-proposal count, no notifier involved.
         with patch('agents.memory.analyze_and_propose', return_value=True), \
-             patch('agents.brain_loop.apply_approved_updates', return_value=0), \
-             patch('agents.telegram.TelegramHandler.send_brain_update_notification') as mock_notify:
+             patch('agents.brain_loop.apply_approved_updates', return_value=0):
 
-            # Create a mock pending file to allow notification count to work
             with open(self.pending_file, "w") as f:
                 f.write("### Proposed Change 1\n### Proposed Change 2\n")
 
+            with self.assertLogs('agents.brain_loop', level='INFO') as logs:
+                brain_loop.run_nightly_loop()
+
+        proposal_lines = [m for m in logs.output if "proposed pattern" in m]
+        self.assertEqual(len(proposal_lines), 1)
+        self.assertIn("2 proposed pattern(s)", proposal_lines[0])
+        self.assertFalse(any("Telegram" in m for m in logs.output))
+
+    def test_nightly_loop_has_no_telegram_dependency(self):
+        import sys
+        self.assertNotIn("agents.telegram", sys.modules)
+        self.assertFalse(hasattr(brain_loop, "TelegramHandler"))
+
+    def test_nightly_loop_no_proposals_does_not_read_pending_file(self):
+        # No proposals: pending file is not required and nothing about proposals is logged.
+        self.assertFalse(os.path.exists(self.pending_file))
+        with patch('agents.memory.analyze_and_propose', return_value=False), \
+             patch('agents.brain_loop.apply_approved_updates', return_value=0), \
+             self.assertLogs('agents.brain_loop', level='INFO') as logs:
             brain_loop.run_nightly_loop()
-            mock_notify.assert_called_once_with(2)
+        self.assertFalse(any("proposed pattern" in m for m in logs.output))
+
+    def test_nightly_loop_logs_applied_count(self):
+        with patch('agents.memory.analyze_and_propose', return_value=False), \
+             patch('agents.brain_loop.apply_approved_updates', return_value=3), \
+             self.assertLogs('agents.brain_loop', level='INFO') as logs:
+            brain_loop.run_nightly_loop()
+        self.assertTrue(any("applied 3 approved patterns" in m for m in logs.output))
+
+    def test_nightly_loop_proposals_and_applied_together(self):
+        with open(self.pending_file, "w") as f:
+            f.write("### Proposed Change 1\n")
+        with patch('agents.memory.analyze_and_propose', return_value=True), \
+             patch('agents.brain_loop.apply_approved_updates', return_value=1), \
+             self.assertLogs('agents.brain_loop', level='INFO') as logs:
+            brain_loop.run_nightly_loop()
+        self.assertTrue(any("1 proposed pattern(s)" in m for m in logs.output))
+        self.assertTrue(any("applied 1 approved patterns" in m for m in logs.output))
 
 if __name__ == "__main__":
     unittest.main()

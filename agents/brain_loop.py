@@ -95,26 +95,13 @@ def run_nightly_loop():
     applied = apply_approved_updates()
 
     if proposals_found:
-        # Trigger Telegram notification
-        from agents.telegram import TelegramHandler
-        import yaml
-        import os
-
-        PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        config_path = os.path.join(PROJECT_ROOT, "config.yaml")
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-
-        tg = TelegramHandler(config)
-        # We don't have the exact count easily, so we'll check the file or just notify.
-        # Let's just count the "### Proposed Change" markers.
+        # Count the "### Proposed Change" markers so the log says how many proposals await review.
         with open(PENDING_UPDATES_FILE, "r") as f:
-            content = f.read()
-            count = content.count("### Proposed Change")
-
-        tg.send_brain_update_notification(count)
-        logger.info("Brain Loop: Notified owner via Telegram about %d proposals.", count)
-
+            count = f.read().count("### Proposed Change")
+        logger.info(
+            "Brain Loop: %d proposed pattern(s) awaiting review in %s.",
+            count, PENDING_UPDATES_FILE,
+        )
 
     if applied > 0:
         logger.info("Brain Loop: Successfully applied %d approved patterns.", applied)
