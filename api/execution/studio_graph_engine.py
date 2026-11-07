@@ -272,6 +272,9 @@ class PathStepGraphEngine:
         """
         # Seed an ephemeral ExecutionState from the client-supplied state.
         # run_id is synthetic — preview never persists a run log.
+        # S1/T2: previews are always dry_run. A preview must never perform a live
+        # adapter write (update_resource); the conditional handler reports the
+        # would-have-run summary instead of dispatching execute_step.
         exec_state = ExecutionState(
             graph_id=f"preview:{node.node_id}",
             run_id=f"preview_{uuid.uuid4().hex[:8]}",
@@ -279,6 +282,7 @@ class PathStepGraphEngine:
             run_log=[],
             undefined_queue=[],
             loop_stack=[],
+            dry_run=True,
         )
 
         # Ephemeral one-node graph so the shared handlers can resolve adjacency;
