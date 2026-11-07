@@ -33,8 +33,8 @@ pkill -f "scripts/run_orchestrator.py" || echo "No Orchestrator process found."
 
 # 2. Aggressive cleanup: Kill anything else running on your known ports
 # This is the "nuclear option" to ensure no ghost processes remain.
-echo "Cleaning up orphaned processes on ports 8006 and 5173..."
-for port in 8006 5173; do
+echo "Cleaning up orphaned processes on ports 18006 and 15173..."
+for port in 18006 15173; do
     PID=$(lsof -t -i:$port)
     if [ -n "$PID" ]; then
         echo "Killing process $PID on port $port..."

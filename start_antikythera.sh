@@ -68,6 +68,8 @@ echo -e "\n${BLUE}🚀 Starting Antikythera Full Stack...${NC}"
 echo -e "Loading port from .env..."
 # Extract PORT value using grep and cut
 PORT=$(grep '^PORT=' "$ROOT_DIR/.env" | cut -d '=' -f2)
+# D8: default the API port to 18006 when .env does not set PORT.
+PORT=${PORT:-18006}
 set -a
 source "$ROOT_DIR/.env"
 # Load API keys from .ai_env and export them
@@ -82,14 +84,18 @@ if [ -z "$PORT" ]; then
   exit 1
 fi
 
-echo -e "Starting Backend API on port $PORT..."
+echo -e "Starting Backend API on 127.0.0.1:$PORT (loopback only; D1/D8)..."
 # Use PYTHONPATH to ensure the 'api' package is discoverable
-PYTHONPATH=$ROOT_DIR $PYTHON_EXE -m uvicorn api.main:app --host 0.0.0.0 --port $PORT >> backend.log 2>&1 &
+# Bound to loopback (D1/D8): reach it from another machine through an SSH tunnel.
+PYTHONPATH=$ROOT_DIR $PYTHON_EXE -m uvicorn api.main:app --host 127.0.0.1 --port $PORT >> backend.log 2>&1 &
 BACKEND_PID=$!
 echo -e "${GREEN}✅ Backend started (PID: $BACKEND_PID) - logs: backend.log${NC}"
 
 # 2. Start Frontend UI
 echo -e "Starting Frontend UI..."
+# Keep the Vite /api proxy pointed at the backend started above (vite.config.ts reads
+# API_PROXY_TARGET; its own default is http://localhost:18006). An explicit value wins.
+export API_PROXY_TARGET="${API_PROXY_TARGET:-http://127.0.0.1:$PORT}"
 cd "$UI_DIR" || exit 1
 npm run dev >> ui.log 2>&1 &
 UI_PID=$!
@@ -105,9 +111,10 @@ echo -e "${GREEN}✅ Orchestrator started (PID: $ORCH_PID) - logs: orchestrator.
 echo -e "\n${BLUE}✨ Antikythera is now running!${NC}"
 # The backend is served on PORT (from .env); VITE_API_URL is the URL the UI calls, which
 # should point at the same place. Warn when they disagree instead of printing a wrong URL.
-echo -e "Backend: http://localhost:$PORT"
+echo -e "Backend: http://localhost:$PORT (bound to 127.0.0.1 only)"
 if [ -n "$VITE_API_URL" ] && [ "$VITE_API_URL" != "http://localhost:$PORT" ]; then
   echo -e "${RED}Warning: VITE_API_URL=$VITE_API_URL does not match PORT=$PORT. Set VITE_API_URL=http://localhost:$PORT in .env.${NC}"
 fi
-echo -e "Frontend: http://localhost:5173"
+echo -e "Frontend: http://localhost:15173 (Vite dev server, loopback only)"
+echo -e "Remote Docker host: tunnel with ssh -N -L 18006:127.0.0.1:18006 -L 15173:127.0.0.1:15173 <user>@<host>"
 echo -e "Use ./stop_antikythera.sh to shut down everything."
