@@ -63,7 +63,6 @@ def test_parsing_skill_regex_extraction():
     assert extracted["priority"] == "HIGH", f"Expected 'HIGH' priority"
     
     print("✓ All parsing extractions passed!")
-    return True
 
 def test_nested_field_access():
     """Test _get_nested_value with nested dictionaries."""
@@ -106,7 +105,6 @@ def test_nested_field_access():
     print(f"✓ Empty path returns full data object")
     
     print("✓ All nested field access tests passed!")
-    return True
 
 def test_multiple_skills():
     """Test applying multiple parsing skills to the same text."""
@@ -155,7 +153,6 @@ def test_multiple_skills():
     assert "Ubuntu" in extracted["os"]
     
     print("✓ Multiple skills applied successfully!")
-    return True
 
 def test_graceful_degradation_no_skills():
     """Test that execution works without parsing skills."""
@@ -175,7 +172,6 @@ def test_graceful_degradation_no_skills():
     assert extracted == {}, f"Expected empty dict with empty skills, got: {extracted}"
     print("✓ Empty skill list returns empty extraction (no error)")
     
-    return True
 
 def test_non_matching_patterns():
     """Test that non-matching patterns don't cause errors."""
@@ -202,7 +198,6 @@ def test_non_matching_patterns():
     assert "required_field" not in extracted
     print("✓ Non-matching patterns result in empty field (no error)")
     
-    return True
 
 if __name__ == "__main__":
     print("\n" + "="*60)

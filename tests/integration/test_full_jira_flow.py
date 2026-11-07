@@ -300,13 +300,14 @@ async def test_full_jira_vulnerability_flow():
         print("⚠️  SOME CHECKS FAILED - Review errors above")
     print("=" * 80)
     
-    return all_passed
+    failed = [check for check, passed in checks.items() if not passed]
+    assert not failed, f"Full Jira flow checks failed: {failed}"
 
 
 if __name__ == "__main__":
     try:
-        result = asyncio.run(test_full_jira_vulnerability_flow())
-        sys.exit(0 if result else 1)
+        asyncio.run(test_full_jira_vulnerability_flow())
+        sys.exit(0)
     except Exception as e:
         print(f"\n❌ TEST FAILED WITH EXCEPTION: {e}")
         import traceback
