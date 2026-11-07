@@ -2,8 +2,9 @@
 #
 # This compose file is optimized for production deployments:
 # - Frontend: NOT YET FUNCTIONAL. The frontend service is stock nginx:alpine with only
-#   nginx.conf mounted, and nothing places the built UI at /usr/share/nginx/html, so it
-#   serves the nginx default page (the /api proxy to backend works). See the O1 note below.
+#   nginx.conf mounted, and nothing places the built UI at /usr/share/nginx/html, so the
+#   UI root has no index.html to serve. nginx.conf also proxies /api/ to backend.
+#   See the O1 TODO below.
 # - Named volumes for data persistence
 # - No bind mounts except for config
 # - Resource limits and restart policies
