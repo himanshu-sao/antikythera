@@ -1,4 +1,5 @@
 import logging
+import re
 import threading
 import uuid
 import json
@@ -211,20 +212,58 @@ class ExecutionEngine:
         except Exception as e:
             self._handle_failure(run_id, step_name, e)
 
-    def _resolve_context(self, config: Dict[str, Any], run: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Replaces {{variable}} placeholders in config with values from run inputs or context.
-        """
-        import re
-        
-        def replace_match(match):
-            var_name = match.group(1)
-            # Priority: Context (previous steps) -> Inputs (start of run)
-            return str(run.get("context", {}).get(var_name, run.get("inputs", {}).get(var_name, match.group(0))))
+    # A placeholder name cannot contain braces, so "{{a}}-{{b}}" is two placeholders.
+    _PLACEHOLDER = re.compile(r"\{\{([^{}]*)\}\}")
 
-        resolved = json.dumps(config)
-        resolved = re.sub(r"\{\{(.*?)\}\}", replace_match, resolved)
-        return json.loads(resolved)
+    def _resolve_context(self, config: Any, run: Dict[str, Any]) -> Any:
+        """
+        Replaces {{variable}} placeholders in string values of ``config``.
+
+        The config is walked recursively. Substitution happens only inside string
+        values, never on the JSON text, so quotes or backslashes in an input cannot
+        break out of a string or inject keys. A string that is exactly one
+        placeholder is replaced by the raw value, keeping its type. Otherwise the
+        value is inserted as text (JSON for dicts, lists, booleans and None).
+        Unknown placeholders are left unchanged.
+        """
+        def lookup(raw_name: str):
+            # Priority: Context (previous steps) -> Inputs (start of run)
+            name = raw_name.strip()
+            context = run.get("context", {}) or {}
+            if name in context:
+                return True, context[name]
+            inputs = run.get("inputs", {}) or {}
+            if name in inputs:
+                return True, inputs[name]
+            return False, None
+
+        def as_text(value: Any) -> str:
+            if isinstance(value, str):
+                return value
+            if isinstance(value, (dict, list, bool)) or value is None:
+                return json.dumps(value)
+            return str(value)
+
+        def resolve(node: Any) -> Any:
+            if isinstance(node, dict):
+                return {key: resolve(val) for key, val in node.items()}
+            if isinstance(node, list):
+                return [resolve(item) for item in node]
+            if not isinstance(node, str):
+                return node
+
+            whole = self._PLACEHOLDER.fullmatch(node)
+            if whole:
+                found, value = lookup(whole.group(1))
+                return value if found else node
+
+            def replace_match(match):
+                found, value = lookup(match.group(1))
+                return as_text(value) if found else match.group(0)
+
+            return self._PLACEHOLDER.sub(replace_match, node)
+
+        return resolve(config)
 
     def _handle_hitl_step(self, run_id: str, step: Dict[str, Any]):
         """

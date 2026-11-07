@@ -397,3 +397,126 @@ class TestRunClaim:
         b = engine._claim_for("B")
         assert a is not b
         assert engine._claim_for("A") is a
+
+
+# ---------------------------------------------------------------------------
+# SEC-12 (engine part): {{var}} substitution must not break out of JSON
+# strings, and must keep value types.
+# ---------------------------------------------------------------------------
+
+def _resolve(sm, escalator, config, inputs=None, context=None):
+    engine = ExecutionEngine(sm, FakeHub(), escalator)
+    run = {"inputs": inputs or {}, "context": context or {}}
+    return engine._resolve_context(config, run)
+
+
+class TestResolveContext:
+    def test_plain_string_substitution(self, sm, escalator):
+        assert _resolve(sm, escalator, {"url": "https://{{host}}/x"}, {"host": "example.com"}) == \
+            {"url": "https://example.com/x"}
+
+    def test_context_takes_priority_over_inputs(self, sm, escalator):
+        out = _resolve(sm, escalator, {"v": "{{name}}"},
+                       inputs={"name": "from-input"}, context={"name": "from-context"})
+        assert out == {"v": "from-context"}
+
+    def test_input_used_when_no_context_value(self, sm, escalator):
+        assert _resolve(sm, escalator, {"v": "{{name}}"}, inputs={"name": "x"}) == {"v": "x"}
+
+    def test_double_quote_in_value_stays_a_string_value(self, sm, escalator):
+        out = _resolve(sm, escalator, {"q": "say {{msg}} now"}, {"msg": 'he said "hi"'})
+        assert out == {"q": 'say he said "hi" now'}
+
+    def test_backslash_in_value_is_preserved(self, sm, escalator):
+        out = _resolve(sm, escalator, {"p": "C:\\temp\\{{f}}"}, {"f": "a\\b"})
+        assert out == {"p": "C:\\temp\\a\\b"}
+
+    def test_injection_cannot_add_a_new_key(self, sm, escalator):
+        payload = '", "admin": true, "x": "'
+        out = _resolve(sm, escalator, {"name": "{{v}}"}, {"v": payload})
+        assert out == {"name": payload}
+        assert "admin" not in out
+
+    def test_injection_with_closing_braces_stays_inside_value(self, sm, escalator):
+        payload = '"}, "evil": {"a": "b'
+        out = _resolve(sm, escalator, {"name": "{{v}}", "other": "ok"}, {"v": payload})
+        assert set(out) == {"name", "other"}
+        assert out["name"] == payload
+
+    def test_whole_string_placeholder_keeps_int_type(self, sm, escalator):
+        out = _resolve(sm, escalator, {"n": "{{count}}"}, {"count": 42})
+        assert out == {"n": 42}
+        assert isinstance(out["n"], int)
+
+    def test_whole_string_placeholder_keeps_bool_and_none(self, sm, escalator):
+        out = _resolve(sm, escalator, {"b": "{{flag}}", "z": "{{nothing}}"},
+                       inputs={"flag": True, "nothing": None})
+        assert out == {"b": True, "z": None}
+
+    def test_whole_string_placeholder_keeps_list_and_dict(self, sm, escalator):
+        out = _resolve(sm, escalator, {"items": "{{rows}}", "obj": "{{meta}}"},
+                       inputs={"rows": [1, "two"], "meta": {"k": "v"}})
+        assert out == {"items": [1, "two"], "obj": {"k": "v"}}
+
+    def test_embedded_dict_value_is_json_text_not_python_repr(self, sm, escalator):
+        out = _resolve(sm, escalator, {"msg": "data: {{meta}}"}, inputs={"meta": {"k": True}})
+        assert out["msg"] == 'data: {"k": true}'
+        assert "{'k'" not in out["msg"]
+
+    def test_embedded_list_value_is_json_text(self, sm, escalator):
+        out = _resolve(sm, escalator, {"msg": "ids={{ids}}"}, inputs={"ids": [1, 2]})
+        assert out["msg"] == "ids=[1, 2]"
+
+    def test_embedded_none_and_bool_are_json_text(self, sm, escalator):
+        out = _resolve(sm, escalator, {"msg": "a={{a}} b={{b}}"}, inputs={"a": None, "b": False})
+        assert out["msg"] == "a=null b=false"
+
+    def test_nested_dict_and_list_are_walked(self, sm, escalator):
+        config = {
+            "outer": {"inner": ["{{x}}", {"deep": "v={{x}}"}]},
+            "keep": 1,
+        }
+        out = _resolve(sm, escalator, config, {"x": "9"})
+        assert out == {"outer": {"inner": ["9", {"deep": "v=9"}]}, "keep": 1}
+
+    def test_nested_whole_placeholder_keeps_type(self, sm, escalator):
+        out = _resolve(sm, escalator, {"a": {"b": ["{{n}}"]}}, {"n": 3})
+        assert out == {"a": {"b": [3]}}
+
+    def test_non_string_values_pass_through_unchanged(self, sm, escalator):
+        config = {"i": 5, "f": 1.5, "b": False, "n": None, "l": [1, None]}
+        assert _resolve(sm, escalator, config) == config
+
+    def test_keys_are_not_substituted(self, sm, escalator):
+        out = _resolve(sm, escalator, {"{{k}}": "v"}, {"k": "x"})
+        assert out == {"{{k}}": "v"}
+
+    def test_unknown_placeholder_is_left_unchanged(self, sm, escalator):
+        assert _resolve(sm, escalator, {"v": "{{missing}}"}) == {"v": "{{missing}}"}
+        assert _resolve(sm, escalator, {"v": "a {{missing}} b"}) == {"v": "a {{missing}} b"}
+
+    def test_placeholder_with_spaces_is_matched_as_before(self, sm, escalator):
+        assert _resolve(sm, escalator, {"v": "{{ name }}"}, {"name": "x"}) == {"v": "x"}
+
+    def test_multiple_placeholders_in_one_string(self, sm, escalator):
+        out = _resolve(sm, escalator, {"v": "{{a}}-{{b}}"}, {"a": 1, "b": "two"})
+        assert out == {"v": "1-two"}
+
+    def test_empty_config(self, sm, escalator):
+        assert _resolve(sm, escalator, {}) == {}
+
+    def test_input_config_is_not_mutated(self, sm, escalator):
+        config = {"v": "{{x}}", "n": {"m": "{{x}}"}}
+        snapshot = json.loads(json.dumps(config))
+        _resolve(sm, escalator, config, {"x": 1})
+        assert config == snapshot
+
+    def test_resolved_value_reaches_the_hub(self, sm, escalator):
+        hub = FakeHub()
+        _template(sm, "sec12", [{"name": "Call", "type": "HTTP",
+                                 "config": {"body": "{{payload}}", "q": "x \"{{payload}}\""}}])
+        engine = ExecutionEngine(sm, hub, escalator)
+        engine.start_run("sec12", {"payload": 'a"b\\c'})
+        (action, params) = hub.calls[0]
+        assert action == "HTTP"
+        assert params == {"body": 'a"b\\c', "q": 'x "a"b\\c"'}
