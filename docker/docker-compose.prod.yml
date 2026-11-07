@@ -23,11 +23,15 @@ services:
     ports:
       - "8006:8006"
     volumes:
-      - ~/.antikythera:/root/.antikythera:ro
+      # Read-write on purpose (P0-9): AI Engine settings persist ai_config.json and
+      # .ai_env here. A :ro mount made set-default fail with a 500 and set-key silently
+      # not persist. Keep the host directory private (chmod 700).
+      - ~/.antikythera:/root/.antikythera
       - antikythera-data:/app/automation-ideas
       - antikythera-logs:/app/logs
     environment:
       - HOME=/root
+      - ANTIKYTHERA_HOME=/root/.antikythera
     networks:
       - antikythera-network
     healthcheck:
@@ -78,11 +82,15 @@ services:
     restart: always
     command: --start-orchestrator
     volumes:
-      - ~/.antikythera:/root/.antikythera:ro
+      # Read-write on purpose (P0-9): AI Engine settings persist ai_config.json and
+      # .ai_env here. A :ro mount made set-default fail with a 500 and set-key silently
+      # not persist. Keep the host directory private (chmod 700).
+      - ~/.antikythera:/root/.antikythera
       - antikythera-data:/app/automation-ideas
       - antikythera-logs:/app/logs
     environment:
       - HOME=/root
+      - ANTIKYTHERA_HOME=/root/.antikythera
     networks:
       - antikythera-network
     depends_on:
