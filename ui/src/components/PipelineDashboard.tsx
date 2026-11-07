@@ -5,6 +5,7 @@ import { PipelineFlowchart } from './PipelineFlowchart';
 import { ExecutionHistory } from './ExecutionHistory';
 import { ExecutionAuditLog } from './ExecutionAuditLog';
 import toast from 'react-hot-toast';
+import { apiFetch } from '../api/client';
 
 
 interface PipelineDashboardProps {
@@ -26,7 +27,7 @@ export function PipelineDashboard({ pipelineId, onBack }: PipelineDashboardProps
   const fetchPipeline = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/pipelines/${pipelineId}`);
+      const res = await apiFetch(`${apiUrl}/api/pipelines/${pipelineId}`);
       if (!res.ok) throw new Error('Failed to fetch pipeline');
       const data = await res.json();
       setPipelineData(data);
@@ -39,7 +40,7 @@ export function PipelineDashboard({ pipelineId, onBack }: PipelineDashboardProps
 
   const fetchRunHistory = async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/pipelines/${pipelineId}/runs?limit=10`);
+      const res = await apiFetch(`${apiUrl}/api/pipelines/${pipelineId}/runs?limit=10`);
       if (res.ok) {
         const data = await res.json();
         setRunHistory(data);
@@ -175,7 +176,7 @@ export function PipelineDashboard({ pipelineId, onBack }: PipelineDashboardProps
                 <button
                   onClick={async () => {
                     try {
-                      const res = await fetch(`${apiUrl}/api/pipelines/${pipelineId}/run`, { method: 'POST' });
+                      const res = await apiFetch(`${apiUrl}/api/pipelines/${pipelineId}/run`, { method: 'POST' });
                       if (res.ok) {
                         toast.success('Pipeline triggered');
                         fetchRunHistory();

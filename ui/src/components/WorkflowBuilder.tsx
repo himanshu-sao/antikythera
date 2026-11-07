@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { apiUrl } from '../config';
+import { apiFetch } from '../api/client';
 
 interface Step {
   id: number;
@@ -34,7 +35,7 @@ export function WorkflowBuilder() {
     }
     setIsGenerating(true);
     try {
-      const res = await fetch(`${apiUrl}/api/builder/generate`, {
+      const res = await apiFetch(`${apiUrl}/api/builder/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt }),
@@ -53,7 +54,7 @@ export function WorkflowBuilder() {
   const saveTemplate = async () => {
     if (!template) return;
     try {
-      const res = await fetch(`${apiUrl}/api/workflows/templates`, {
+      const res = await apiFetch(`${apiUrl}/api/workflows/templates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(template),

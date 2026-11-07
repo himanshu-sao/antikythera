@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { apiUrl } from '../config';
+import { apiFetch } from '../api/client';
 
 // Custom hook for managing selected item state
 export function useSelectedItem() {
@@ -12,7 +13,7 @@ export function useSelectedItem() {
     setSelectedId(id);
     setEditMode(false);
     try {
-      const res = await fetch(`${apiUrl}/api/workflows/items/${id}/run`);
+      const res = await apiFetch(`${apiUrl}/api/workflows/items/${id}/run`);
       if (res.ok) {
         const data = await res.json();
         if (data.run_id) setSelectedRunId(data.run_id);

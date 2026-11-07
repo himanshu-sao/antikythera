@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import { apiUrl } from '../config';
+import { apiFetch } from '../api/client';
 
 // Mirrors the Template/Step shape used by WorkflowBuilder.tsx and produced by
 // POST /api/builder/generate. Kept local so this panel stays self-contained;
@@ -84,7 +85,7 @@ export function BlueprintArchitect() {
     setIsGenerating(true);
     setValidation(null);
     try {
-      const res = await fetch(`${apiUrl}/api/builder/generate`, {
+      const res = await apiFetch(`${apiUrl}/api/builder/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt, template_name: templateName || undefined }),
@@ -107,7 +108,7 @@ export function BlueprintArchitect() {
     if (!template) return;
     setIsValidating(true);
     try {
-      const res = await fetch(`${apiUrl}/api/builder/validate`, {
+      const res = await apiFetch(`${apiUrl}/api/builder/validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_data: template }),
@@ -160,7 +161,7 @@ export function BlueprintArchitect() {
       const templateId =
         template.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
         'blueprint';
-      const res = await fetch(`${apiUrl}/api/workflows/templates`, {
+      const res = await apiFetch(`${apiUrl}/api/workflows/templates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_id: templateId, ...template }),

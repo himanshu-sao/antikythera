@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Terminal, CheckCircle2, AlertCircle, Info, ChevronDown, ChevronUp } from 'lucide-react';
 import { apiUrl } from "../../config";
+import { apiFetch } from '../../api/client';
 
 interface TimelineEvent {
   timestamp: string;
@@ -18,7 +19,7 @@ export const Timeline = ({ itemId }: { itemId: string }) => {
 
   const fetchTimeline = async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/item/${itemId}/timeline`);
+      const res = await apiFetch(`${apiUrl}/api/item/${itemId}/timeline`);
       if (res.ok) {
         const data = await res.json();
         setTimeline(data);

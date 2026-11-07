@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../config';
 import toast from 'react-hot-toast';
+import { apiFetch } from '../api/client';
 
 interface ExecutionLog {
   run_id?: string;
@@ -47,7 +48,7 @@ export function ExecutionHistory({ pipelineId, pipelineName }: ExecutionHistoryP
   const fetchRuns = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/pipelines/${pipelineId}/runs?limit=10`);
+      const res = await apiFetch(`${apiUrl}/api/pipelines/${pipelineId}/runs?limit=10`);
       if (!res.ok) throw new Error('Failed to fetch run history');
       const data = await res.json();
       setRuns(data);
@@ -60,7 +61,7 @@ export function ExecutionHistory({ pipelineId, pipelineName }: ExecutionHistoryP
 
   const triggerRun = async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/pipelines/${pipelineId}/run`, { method: 'POST' });
+      const res = await apiFetch(`${apiUrl}/api/pipelines/${pipelineId}/run`, { method: 'POST' });
       if (res.ok) {
         toast.success('Pipeline triggered');
         setTimeout(fetchRuns, 1000);

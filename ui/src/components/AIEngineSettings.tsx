@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { DeleteConfirmModal } from './modals/DeleteConfirmModal';
 import { AIEngineOverview } from './AIEngineOverview';
+import { apiFetch } from '../api/client';
 
 
 interface ModelConfig {
@@ -108,7 +109,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       if (providerId) {
         url.searchParams.append('provider', providerId);
       }
-      const res = await fetch(url.toString());
+      const res = await apiFetch(url.toString());
       const data = await res.json();
       setAvailableModels(data.models ?? []);
     } catch (e) {
@@ -192,7 +193,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       setLogsLoading(true);
       try {
         // The endpoint returns {"logs": "..."} and clamps to 2000 lines / 256 KiB.
-        const res = await fetch('/api/ai-engine/logs?lines=2000');
+        const res = await apiFetch('/api/ai-engine/logs?lines=2000');
         if (!res.ok) throw new Error('Failed to fetch logs');
         const data = await res.json();
         setLogsContent(typeof data?.logs === 'string' ? data.logs : '');
@@ -211,7 +212,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   const fetchConfig = async () => {
     try {
       setLoading(true);
-      const res = await fetch('/api/ai-engine/config');
+      const res = await apiFetch('/api/ai-engine/config');
       const data = await res.json();
       setConfig(data);
       setError(null);
@@ -226,7 +227,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
     setTestResults(prev => ({ ...prev, [modelId]: { ...prev[modelId], testing: true } }));
     
     try {
-      const res = await fetch('/api/ai-engine/test-connection', {
+      const res = await apiFetch('/api/ai-engine/test-connection', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model_id: modelId })
@@ -255,7 +256,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
 
   const setDefaultModel = async (modelId: string) => {
     try {
-      const res = await fetch('/api/ai-engine/set-default', {
+      const res = await apiFetch('/api/ai-engine/set-default', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model_id: modelId })
@@ -282,7 +283,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
     }
 
     try {
-      const res = await fetch('/api/ai-engine/set-api-key', {
+      const res = await apiFetch('/api/ai-engine/set-api-key', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ model_id: modelId, api_key: apiKey })
@@ -514,7 +515,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                           max_tokens: apiKeys['new_max_tokens'] || undefined,
                         };
                         try {
-                          const res = await fetch('/api/ai-engine/add-model', {
+                          const res = await apiFetch('/api/ai-engine/add-model', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload),
@@ -930,7 +931,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                                                              onClick={async () => {
                                                                if (!window.confirm('Are you sure you want to delete this model?')) return;
                                                                try {
-                                                                 const res = await fetch(`/api/ai-engine/remove-model/${encodeURIComponent(model.model_id)}`, {
+                                                                 const res = await apiFetch(`/api/ai-engine/remove-model/${encodeURIComponent(model.model_id)}`, {
                                                                    method: 'DELETE',
                                                                  });
                                                                  if (!res.ok) {
@@ -1050,7 +1051,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                     <button
                       onClick={async () => {
                         try {
-                          const res = await fetch('/api/ai-engine/set-provider-api-key', {
+                          const res = await apiFetch('/api/ai-engine/set-provider-api-key', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({ provider_id: provider.id, api_key: apiKeys[provider.id] })
@@ -1184,7 +1185,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
           onConfirm={async () => {
             if (!deleteTarget) return;
             try {
-              const res = await fetch(`/api/ai-engine/remove-model/${deleteTarget}`, { method: 'DELETE' });
+              const res = await apiFetch(`/api/ai-engine/remove-model/${deleteTarget}`, { method: 'DELETE' });
               if (!res.ok) {
                 const err = await res.json();
                 alert('Delete failed: ' + (err.detail || err.message));

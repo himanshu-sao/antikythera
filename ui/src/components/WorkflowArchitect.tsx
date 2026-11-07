@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { LIFECYCLE_PIPELINE, LifecyclePhase, TransactionProposal } from '../types';
 import { TransactionPanel } from './TransactionPanel';
 import { apiUrl } from '../config';
+import { apiFetch } from '../api/client';
 
 interface WorkflowArchitectProps {
   itemId?: string;
@@ -111,7 +112,7 @@ export const WorkflowArchitect = ({
   const fetchOrchestratorState = async () => {
     if (!hasRealItemId(itemId)) return; // U6: never request /api/orchestrator/default
     try {
-      const res = await fetch(`${apiUrl}/api/orchestrator/${itemId}`);
+      const res = await apiFetch(`${apiUrl}/api/orchestrator/${itemId}`);
       if (res.ok) {
         const data = await res.json();
         setCurrentPhase(data.current_phase);
@@ -128,7 +129,7 @@ export const WorkflowArchitect = ({
     setCurrentPhase(targetPhase);
     setLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/orchestrator/transition`, {
+      const res = await apiFetch(`${apiUrl}/api/orchestrator/transition`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item_id: itemId, target_phase: targetPhase })
@@ -157,7 +158,7 @@ export const WorkflowArchitect = ({
   // current_proposal and the next poll picks it up (POST /api/orchestrator/propose).
   const handleModify = async (text: string) => {
     try {
-      await fetch(`${apiUrl}/api/orchestrator/propose`, {
+      await apiFetch(`${apiUrl}/api/orchestrator/propose`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item_id: itemId, proposal: { ...proposal, description: text || proposal?.description } })

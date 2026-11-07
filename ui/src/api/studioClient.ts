@@ -25,6 +25,7 @@ import {
   type GraphEdge,
   type StudioNode,
 } from '../types/studio';
+import { apiFetch } from './client';
 
 // -----------------------------------------------------------------------------
 // List-endpoint response shapes (metadata superset that backend adds counts to)
@@ -90,7 +91,7 @@ async function studioFetch<T>(
   // Callers pass the schema; we cast its parsed output to the declared return T.
   schema?: { parse: (v: unknown) => unknown },
 ): Promise<T> {
-  const res = await fetch(`${apiUrl}${path}`, {
+  const res = await apiFetch(`${apiUrl}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });

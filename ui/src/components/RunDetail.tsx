@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../config';
+import { apiFetch } from '../api/client';
 
 interface TimelineEvent {
   timestamp: string;
@@ -40,7 +41,7 @@ export default function RunDetail({ runId, onClose }: { runId: string, onClose: 
   useEffect(() => {
     const fetchRun = async () => {
       try {
-        const res = await fetch(`${apiUrl}/api/workflows/runs/${runId}`);
+        const res = await apiFetch(`${apiUrl}/api/workflows/runs/${runId}`);
         if (!res.ok) throw new Error('Failed to fetch run details');
         setData(await res.json());
       } catch (e: any) {

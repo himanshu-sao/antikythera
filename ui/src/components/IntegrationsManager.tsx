@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { apiUrl } from '../config';
 import { Search } from 'lucide-react';
 import { MASK_PLACEHOLDER, maskForEditor, stripMasked } from '../utils/integrationConfig';
+import { apiFetch } from '../api/client';
 
 interface Integration {
   name: string;
@@ -138,7 +139,7 @@ export function IntegrationsManager() {
 
   const fetchIntegrations = async () => {
     try {
-      const res = await fetch(`${apiUrl}/api/integrations/`);
+      const res = await apiFetch(`${apiUrl}/api/integrations/`);
       if (!res.ok) throw new Error('Failed to fetch integrations');
       const data = await res.json();
       // Handle both legacy array response and new { integrations: [] } shape used in tests
@@ -151,7 +152,7 @@ export function IntegrationsManager() {
   const fetchTools = async (name: string) => {
     setIsFetchingTools(true);
     try {
-      const res = await fetch(`${apiUrl}/api/integrations/${name}/tools`);
+      const res = await apiFetch(`${apiUrl}/api/integrations/${name}/tools`);
       if (!res.ok) throw new Error('Failed to fetch tools');
       const data = await res.json();
       
@@ -175,7 +176,7 @@ export function IntegrationsManager() {
   const handleAdd = async () => {
     try {
       const config = JSON.parse(newInt.config);
-      const res = await fetch(`${apiUrl}/api/integrations/`, {
+      const res = await apiFetch(`${apiUrl}/api/integrations/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newInt, config }),
@@ -198,7 +199,7 @@ export function IntegrationsManager() {
     const newEnabled = !currentEnabled;
     const updatedConfig = { ...intg.config, enabled: newEnabled };
     try {
-      const res = await fetch(`${apiUrl}/api/integrations/${intg.name}`, {
+      const res = await apiFetch(`${apiUrl}/api/integrations/${intg.name}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: updatedConfig }),
@@ -216,7 +217,7 @@ export function IntegrationsManager() {
       return;
     }
     try {
-      const res = await fetch(`${apiUrl}/api/integrations/${name}`, { method: 'DELETE' });
+      const res = await apiFetch(`${apiUrl}/api/integrations/${name}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete');
       fetchIntegrations();
       toast.success("Deleted");
@@ -226,7 +227,7 @@ export function IntegrationsManager() {
   };
 
   const handleTest = async (name: string): Promise<any> => {
-    const res = await fetch(`${apiUrl}/api/integrations/${name}/test`, { method: 'POST' });
+    const res = await apiFetch(`${apiUrl}/api/integrations/${name}/test`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok) {
       throw { message: data.detail || 'Connection failed', data };
@@ -238,7 +239,7 @@ export function IntegrationsManager() {
     try {
       // Masked placeholders are not sent: the server keeps the stored value for any key left out.
       const config = stripMasked(JSON.parse(editConfig));
-      const res = await fetch(`${apiUrl}/api/integrations/${name}`, {
+      const res = await apiFetch(`${apiUrl}/api/integrations/${name}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config }),
@@ -691,7 +692,7 @@ export function IntegrationsManager() {
                           tool={tool} 
                           integrationName={editingInt!.name} 
                           onRun={async (name) => {
-                            const res = await fetch(`${apiUrl}/api/integrations/${editingInt!.name}/call`, {
+                            const res = await apiFetch(`${apiUrl}/api/integrations/${editingInt!.name}/call`, {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
                               body: JSON.stringify({ name, arguments: {} }),

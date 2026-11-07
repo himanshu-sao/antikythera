@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../config';
 import { KanbanColumn } from './KanbanColumn';
 import toast from 'react-hot-toast';
+import { apiFetch } from '../api/client';
 
 interface PipelineItem {
   id: string;
@@ -23,7 +24,7 @@ export function VirtualBoard({ templateId, onBack }: { templateId: string, onBac
   const fetchVirtualBoard = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/boards/virtual/${templateId}`);
+      const res = await apiFetch(`${apiUrl}/api/boards/virtual/${templateId}`);
       if (!res.ok) throw new Error('Failed to fetch virtual board');
       const data = await res.json();
       setItems(data.items);

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { debounce } from 'lodash';
 import { apiUrl } from '../config';
+import { apiFetch } from '../api/client';
 
 export interface Artifact {
   name: string;
@@ -33,7 +34,7 @@ export function useArtifacts({ itemId, onClose }: UseArtifactsProps) {
   useEffect(() => {
     const fetchItemDetails = async () => {
       try {
-        const res = await fetch(`${apiUrl}/api/item/${itemId}`);
+        const res = await apiFetch(`${apiUrl}/api/item/${itemId}`);
         if (res.ok) {
           const data = await res.json();
           setItemDetails(data);
@@ -61,7 +62,7 @@ export function useArtifacts({ itemId, onClose }: UseArtifactsProps) {
   const saveContent = async (name: string, content: string) => {
     setIsSaving(true);
     try {
-      const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}/content`, {
+      const res = await apiFetch(`${apiUrl}/api/item/${itemId}/artifact/${name}/content`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content }),
@@ -106,7 +107,7 @@ export function useArtifacts({ itemId, onClose }: UseArtifactsProps) {
       const nextStage = nextStageMap[itemDetails?.stage];
 
       if (nextStage) {
-        await fetch(`${apiUrl}/api/move`, {
+        await apiFetch(`${apiUrl}/api/move`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ item_id: itemId, new_stage: nextStage })
@@ -136,7 +137,7 @@ export function useArtifacts({ itemId, onClose }: UseArtifactsProps) {
 
       for (const name of artifactNames) {
         try {
-          const res = await fetch(`${apiUrl}/api/item/${itemId}/artifact/${name}`);
+          const res = await apiFetch(`${apiUrl}/api/item/${itemId}/artifact/${name}`);
           if (res.ok) {
             const content = await res.text();
             let type: Artifact['type'] = name.replace('.md', '') as Artifact['type'];

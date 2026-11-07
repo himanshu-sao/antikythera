@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { apiUrl } from '../config';
 import { ExecutionLog, PipelineRun } from '../types';
 import toast from 'react-hot-toast';
+import { apiFetch } from '../api/client';
 
 interface ExecutionAuditLogProps {
   pipelineId: string;
@@ -188,7 +189,7 @@ export function ExecutionAuditLog({ pipelineId, onClose }: ExecutionAuditLogProp
   const fetchRuns = async () => {
     setIsLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/pipelines/${pipelineId}/runs?limit=50`);
+      const res = await apiFetch(`${apiUrl}/api/pipelines/${pipelineId}/runs?limit=50`);
       if (!res.ok) throw new Error('Failed to fetch runs');
       const data = await res.json();
       setRuns(data);

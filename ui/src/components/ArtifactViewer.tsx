@@ -8,6 +8,7 @@ import { ReviewForm } from './artifacts/ReviewForm';
 import { ZoomableArtifact } from './artifacts/ZoomableArtifact';
 import { useArtifacts } from '../hooks/useArtifacts';
 import { apiUrl } from '../config';
+import { apiFetch } from '../api/client';
 
 interface ArtifactViewerProps {
   itemId: string;
@@ -217,7 +218,7 @@ export function ArtifactViewer({ itemId, onClose }: ArtifactViewerProps) {
                   onClick={async () => {
                     if (window.confirm(`Promote ${selectedArtifact.name} to a reusable pattern? This will train the system.`)) {
                       try {
-                        const res = await fetch(`${apiUrl}/api/item/${itemId}/promote-pattern?artifact_name=${encodeURIComponent(selectedArtifact.name)}`, {
+                        const res = await apiFetch(`${apiUrl}/api/item/${itemId}/promote-pattern?artifact_name=${encodeURIComponent(selectedArtifact.name)}`, {
                           method: 'POST'
                         });
                         if (!res.ok) throw new Error('Promotion failed');

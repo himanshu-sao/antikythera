@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { apiUrl } from '../config';
 import type { PipelineState } from '../types/legacy-pipeline';
+import { apiFetch } from '../api/client';
 
 export function usePipelineState() {
   const [state, setState] = useState<PipelineState>({ items: {} });
@@ -14,7 +15,7 @@ export function usePipelineState() {
   const fetchState = useCallback(async () => {
     try {
       setError(null);
-      const res = await fetch(`${apiUrl}/api/state`);
+      const res = await apiFetch(`${apiUrl}/api/state`);
       if (!res.ok) throw new Error('Failed to fetch state');
       const data = await res.json();
       if (mountedRef.current) setState(data);
@@ -62,7 +63,7 @@ export function usePipelineState() {
 
   const handleUpdateItem = async (itemId: string, updates: any) => {
     try {
-      const res = await fetch(`${apiUrl}/api/item/${itemId}`, {
+      const res = await apiFetch(`${apiUrl}/api/item/${itemId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
@@ -87,7 +88,7 @@ export function usePipelineState() {
 
   const handleDeleteItem = async (itemId: string) => {
     try {
-      const res = await fetch(`${apiUrl}/api/item/${itemId}`, { method: 'DELETE' });
+      const res = await apiFetch(`${apiUrl}/api/item/${itemId}`, { method: 'DELETE' });
       if (!res.ok) {
         let errorMessage = 'Failed to delete item';
         try {
@@ -109,7 +110,7 @@ export function usePipelineState() {
 
   const handleCreateItem = async (itemData: any) => {
     try {
-      const res = await fetch(`${apiUrl}/api/items`, {
+      const res = await apiFetch(`${apiUrl}/api/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -149,7 +150,7 @@ export function usePipelineState() {
 
   const handleReorder = async (stage: string, ordered_ids: string[]) => {
   try {
-    const res = await fetch(`${apiUrl}/api/items/reorder`, {
+    const res = await apiFetch(`${apiUrl}/api/items/reorder`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ stage, ordered_ids }), // matches ReorderRequest schema
@@ -176,7 +177,7 @@ export function usePipelineState() {
 
 const handleMoveItem = async (itemId: string, targetStage: string, targetOrder: number) => {
     try {
-      const res = await fetch(`${apiUrl}/api/move`, {
+      const res = await apiFetch(`${apiUrl}/api/move`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ item_id: itemId, new_stage: targetStage, order: targetOrder }),

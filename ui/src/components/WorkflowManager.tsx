@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { apiUrl } from '../config';
+import { apiFetch } from '../api/client';
 
 interface Template {
   id: string;
@@ -46,7 +47,7 @@ export function WorkflowManager() {
   const fetchTemplates = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${apiUrl}/api/workflows/templates`);
+      const res = await apiFetch(`${apiUrl}/api/workflows/templates`);
       if (!res.ok) throw new Error('Failed to fetch templates');
       const data = await res.json();
       setTemplates(data);
@@ -62,7 +63,7 @@ export function WorkflowManager() {
     if (!window.confirm(`Are you sure you want to delete template ${templateId}?`)) return;
     
     try {
-      const res = await fetch(`${apiUrl}/api/workflows/templates/${templateId}`, {
+      const res = await apiFetch(`${apiUrl}/api/workflows/templates/${templateId}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('Failed to delete template');
@@ -76,7 +77,7 @@ export function WorkflowManager() {
 
   const triggerTemplate = async (templateId: string) => {
     try {
-      const res = await fetch(`${apiUrl}/api/workflows/trigger`, {
+      const res = await apiFetch(`${apiUrl}/api/workflows/trigger`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ template_id: templateId, inputs: {} }),
