@@ -459,7 +459,9 @@ class PathStepGraphEngine:
             # ``output_ref`` (FanOut/ConditionalAction do not) — read it
             # defensively so non-output nodes don't AttributeError out here.
             output_ref = getattr(node, "output_ref", None)
-            if result and output_ref:
+            # S10: `is not None`, not truthiness, so [] / 0 / "" / False are kept —
+            # identical to preview_node's write rule.
+            if result is not None and output_ref:
                 self._write_to_state(exec_state.state, output_ref, result)
 
             # Recurse to successors, but skip "loop" edges — FanOut handler
