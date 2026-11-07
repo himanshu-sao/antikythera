@@ -344,3 +344,47 @@ class TestValidatorReportsOneViolationPerBadStep:
         adapter_v, shape_v = self._violations(
             [{"id": 4, "type": HITL_STEP_TYPE, "target_phase": "X"}])
         assert shape_v == [] and adapter_v == []
+
+
+class TestMigrateStoredTemplateShapes:
+    """The stored workflow_templates.json shapes (no top-level type or adapter)."""
+
+    def test_config_adapter_is_promoted(self):
+        step = {
+            "step_id": "S1", "name": "Fetch merged PR", "category": "FETCH",
+            "config": {"adapter": "github", "action": "fetch_resource",
+                       "description": "d", "resource_id": "{{number}}"},
+            "next_step": "S2",
+        }
+        m = migrate_step(step)
+        assert m["adapter"] == "github"
+        assert m["action"] == "fetch_resource"
+        assert "type" not in m
+        assert m["config"]["adapter"] == "github"  # config untouched
+        assert step.get("adapter") is None  # input not mutated
+
+    def test_config_adapter_is_lowercased(self):
+        step = {"step_id": "S1", "config": {"adapter": "BOB_SHELL", "prompt": "p"}}
+        m = migrate_step(step)
+        assert m["adapter"] == "bob_shell"
+        assert m["action"] == "fetch_resource"  # no action anywhere -> legacy default
+
+    def test_internal_default_without_config_adapter(self):
+        # AUTO-MOVE-TEST shape: config.action but no config.adapter.
+        step = {
+            "step_id": "S1", "name": "Move to Refinement", "category": "ACTION",
+            "config": {"action": "move_item", "new_stage": "REFINEMENT",
+                       "item_id": "RUN-TEST-ITEM"},
+            "next_step": "S2",
+        }
+        m = migrate_step(step)
+        assert m["adapter"] == "internal"
+        assert m["action"] == "move_item"
+
+    def test_no_adapter_anywhere_is_unchanged(self):
+        step = {"step_id": "S1", "config": {"description": "nothing usable"}}
+        assert migrate_step(step) == step
+
+    def test_explicit_null_adapter_still_unchanged(self):
+        step = {"step_id": "S1", "adapter": None, "config": {"adapter": "github"}}
+        assert migrate_step(step) == step

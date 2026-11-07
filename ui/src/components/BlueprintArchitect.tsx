@@ -8,7 +8,6 @@ import { apiFetch } from '../api/client';
 // if a third consumer appears, lift these into types.ts.
 interface Step {
   id: number;
-  type: 'action' | 'decision' | 'approval';
   adapter: string;
   action: string;
   config: any;
@@ -294,7 +293,7 @@ export function BlueprintArchitect() {
                         <div className="flex justify-between items-start">
                           <div className="font-bold text-sm">{step.action}</div>
                           <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full font-bold uppercase tracking-tighter">
-                            {step.type}
+                            {step.adapter}
                           </span>
                         </div>
                         <div className="text-xs text-gray-500">Adapter: {step.adapter} | Stage: {step.board_stage}</div>

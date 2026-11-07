@@ -151,10 +151,14 @@ def migrate_step(step: Any) -> Any:
     own non-blank action, else ``config.action`` for an internal adapter, else
     ``fetch_resource``. ``config`` and the other fields are kept.
 
+    A stored-template step with no ``type`` takes its adapter from
+    ``config.adapter`` (lowercased), or defaults to ``internal`` when only
+    ``config.action`` is present, matching the legacy engine's default.
+
     Returned unchanged (as a copy): ORCHESTRATOR_TASK steps, steps that already
     name an adapter (including an explicit null, which the validator reports),
-    and steps whose ``type`` is absent, null, blank or not a string. Non-dict
-    entries are returned as given.
+    and steps with neither a ``type`` nor a usable ``config.adapter`` /
+    ``config.action``. Non-dict entries are returned as given.
     """
     if not isinstance(step, dict):
         return step
@@ -167,6 +171,22 @@ def migrate_step(step: Any) -> Any:
         return migrated
     step_type = migrated.get("type")
     if not (isinstance(step_type, str) and step_type.strip()):
+        # Stored-template shape (pre-D2 workflow_templates.json): no top-level
+        # ``type`` or ``adapter``; the adapter sits in ``config.adapter`` (for
+        # example "github", "INTERNAL", "BOB_SHELL") or is implied by an
+        # ``config.action`` (the old engine defaulted those to INTERNAL).
+        config = migrated.get("config")
+        config = config if isinstance(config, dict) else {}
+        config_adapter = config.get("adapter")
+        if isinstance(config_adapter, str) and config_adapter.strip():
+            migrated["adapter"] = config_adapter.strip().lower()
+            migrated["action"] = _legacy_action(migrated, migrated["adapter"])
+            return migrated
+        config_action = config.get("action")
+        if isinstance(config_action, str) and config_action.strip():
+            migrated["adapter"] = "internal"
+            migrated["action"] = _legacy_action(migrated, "internal")
+            return migrated
         return migrated
     migrated.pop("type")
     migrated["adapter"] = step_type
