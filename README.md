@@ -27,7 +27,7 @@ The system supports two modes of operation:
 
 ### 2. The Integration Hub
 A centralized hub for managing external services:
-- **Secret Vault**: Encrypted storage for API keys and tokens (All integration secrets, including Jira credentials, are persisted here to survive system restarts)
+- **Credentials**: Read from environment variables (`~/.antikythera/.env`, then the project `.env`) and the AI Engine config (`~/.antikythera/.ai_env`). The Fernet Secret Vault code remains in the repo but is not used by the running app.
 - **Connector Types**:
   - **MCP Servers**: Plug-and-play discovery of tools from external MCP servers
   - **Native Adapters**: Custom Python glue code for complex local tasks or niche APIs
@@ -79,8 +79,8 @@ All kanban-fix branch enhancements have been integrated:
 ## ⚙️ Setup & Configuration
 
 ### 1. Environment Setup
-- Ensure Python 3.11+ and Node.js 18+ are installed
-- Install Python dependencies: `pip install fastapi uvicorn cryptography apscheduler requests`
+- Ensure Python 3.12 and Node.js 18+ are installed
+- Install Python dependencies: `./venv/bin/python -m pip install -r requirements.txt` (add `-r requirements-dev.txt` for tests)
 - Setup frontend: `cd ui && npm install`
 
 ### 2. Running the System
@@ -107,12 +107,42 @@ docker-compose pull && docker-compose up
 **Services:**
 - Frontend UI: http://localhost:5173
 - Backend API: http://localhost:8006
-- API Docs: http://localhost:8006/docs
+- API docs: disabled by default. Set `ANTIKYTHERA_ENABLE_DOCS=1` to serve Swagger at http://localhost:8006/docs
 
 #### Option B: Local Development
 
-- **Backend**: `source venv/bin/activate && python -m uvicorn api.main:app --host 0.0.0.0 --port 8006`
+- **Backend**: `./venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8006` (loopback only; see [Security and access](#-security-and-access))
 - **Frontend**: `cd ui && npm run dev`
+
+### 🔐 Security and access
+
+Antikythera is a single-user tool for a trusted machine. Treat it as local software, not a public service.
+
+**Current state (today):**
+- The API has **no authentication yet**. Anything that can reach the port can call it.
+- The local start script binds to `0.0.0.0`, the Docker compose files publish ports on all interfaces, and CORS allows all origins. These are being changed (see below).
+- Integration secrets are masked in list responses, but are stored in `~/.antikythera/` or `automation-ideas/integrations.json` as plain text.
+- Executor and Studio scripts run on the host. Only the terminal tool and SafeExecutor sandboxing are being tightened (see below).
+
+**Planned access model (decided, implementation pending):**
+- The backend listens on `127.0.0.1` by default. Publish it to other machines only on purpose.
+- Every `/api/*` request must send `Authorization: Bearer <token>`. The token comes from `ANTIKYTHERA_API_TOKEN`. If that variable is unset, a random token is generated on first start, saved to `~/.antikythera/api_token` (mode `0600`), and logged with its location. Do not commit it.
+- CORS is limited to the UI origin, set by `ANTIKYTHERA_CORS_ORIGINS` (default `http://localhost:5173`).
+- Swagger/OpenAPI at `/docs` is off unless `ANTIKYTHERA_ENABLE_DOCS=1`.
+- Until the token ships, run the backend on `127.0.0.1` and do not publish port 8006 to other machines. Note that `start_antikythera.sh` still binds `0.0.0.0` today; change it to `127.0.0.1` (or run uvicorn manually as shown in Option B).
+
+**Your responsibilities:**
+- Keep `~/.antikythera/` at mode `700` and its files at `600`. Do not commit `.env`, `.ai_env`, `api_token`, `automation-ideas/` or `registry/` data.
+- Rotate any provider key that was ever pasted into a shared log, screen share or Docker image. Images published before commit `eac8428` contain a copy of the local data folder, including the vault key and integration records. Rebuild those images, rotate the secrets they held, and delete the old tags.
+- Back up `automation-ideas/` with `scripts/backup_data.sh` (the archive is written with mode `0600`). Store the backup somewhere encrypted.
+- The Docker compose files currently publish ports 8006 and 5173 on **all** host interfaces (`"8006:8006"`). Until authentication ships, change those entries to `"127.0.0.1:8006:8006"` and `"127.0.0.1:5173:5173"` so only this machine can reach them.
+
+**Executor and automation safety (planned):**
+- The executor's terminal tool will run only allowlisted programs without a shell. File writes will stay inside each item's folder.
+- Studio and automation scripts will run in a subprocess with a time limit. Until then, treat them as trusted code.
+- Templates that contain shell steps are rejected on save.
+
+See [docs/decisions.md](docs/decisions.md) for the decisions behind this model and [docs/pending-items.md](docs/pending-items.md) for what is still open.
 
 ### 3. Key Directories
 ```
@@ -189,7 +219,7 @@ Every significant change follows: **Proposal → Approval → Execution**
 ---
 ## ✨ Updated Features
 
-- **Jira Integration Enhancements**: <br>  • Test Connection now performs a real request to `<JIRA_BASE_URL>/rest/api/3/myself` and reports precise HTTP status codes (e.g., 401, 403, 404). <br>  • Falls back to environment variables `JIRA_ISV_PERSONAL_ACCESS_TOKEN` and `JIRA_BASE_URL` (loaded from `~/.antikythera/.env` before the project `.env`). <br>  • Integration status (`connected`/`error`) is updated based on actual authentication success. <br>  • UI masks secret fields (`token`, `access_token`, `jira_url`, `url`) with `*****` and removes the unused `test` flag from the JSON editor, preventing credential leakage.
+- **Jira Integration Enhancements**: <br>  • Test Connection now performs a real request to `<JIRA_BASE_URL>/rest/api/3/myself` and reports precise HTTP status codes (e.g., 401, 403, 404). <br>  • Falls back to environment variables `JIRA_PAT` (or `JIRA_TOKEN`) and `JIRA_BASE_URL` (loaded from `~/.antikythera/.env` before the project `.env`). <br>  • Integration status (`connected`/`error`) is updated based on actual authentication success. <br>  • The API masks secret-looking keys (token, password, secret, key, auth and similar, including nested values and URL passwords) with `*****` in integration list responses, and the UI masks `jira_url` and `url` as well and removes the unused `test` flag from the JSON editor, preventing credential leakage.
 
 - Delete model action with confirmation dialog.
 - Provider‑based filter for model listings.
