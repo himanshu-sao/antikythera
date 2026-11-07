@@ -46,12 +46,84 @@ is_placeholder() {
 }
 
 # ------------------------------------------------------------------------------
+# Safe env-file loader (P5-3 C3)
+# ------------------------------------------------------------------------------
+# The user's .env and .ai_env were previously loaded with `set -a; . file`, which runs the
+# file as shell: a $(...) or backtick in a value would execute. This parser only reads
+# KEY=VALUE lines and never evaluates the value.
+#   - blank lines and lines starting with # are skipped
+#   - a leading "export " is accepted
+#   - the line is split on the FIRST '='; the name must match ^[A-Za-z_][A-Za-z0-9_]*$
+#   - one pair of surrounding double quotes is removed (contents kept literally)
+#   - a single-quoted value is unquoted the way bash does: the quotes are removed and each
+#     '\'' sequence (the form api/services/ai_engine_config.py writes) becomes one '
+#   - an unquoted value ends at an inline " #" comment and loses trailing blanks, as the
+#     shell did before (so existing files keep the same values)
+load_env_file() {
+    _lef_file="$1"
+    while IFS= read -r _lef_line || [ -n "$_lef_line" ]; do
+        _lef_line="${_lef_line%"$(printf '\r')"}"
+        # trim leading whitespace
+        _lef_line="${_lef_line#"${_lef_line%%[![:space:]]*}"}"
+        case "$_lef_line" in
+            ""|"#"*) continue ;;
+            "export "*) _lef_line="${_lef_line#export }"
+                        _lef_line="${_lef_line#"${_lef_line%%[![:space:]]*}"}" ;;
+        esac
+        case "$_lef_line" in
+            *=*) ;;
+            *) continue ;;
+        esac
+        _lef_key="${_lef_line%%=*}"
+        _lef_val="${_lef_line#*=}"
+        case "$_lef_key" in
+            ""|[0-9]*|*[!A-Za-z0-9_]*) continue ;;
+        esac
+        case "$_lef_val" in
+            \'*\')
+                if [ "${#_lef_val}" -ge 2 ]; then
+                    _lef_val="${_lef_val#\'}"
+                    _lef_val="${_lef_val%\'}"
+                    # turn each '\'' into a single quote (pure parameter expansion, no eval)
+                    _lef_out=""
+                    while :; do
+                        case "$_lef_val" in
+                            *"'\\''"*)
+                                _lef_out="${_lef_out}${_lef_val%%"'\\''"*}'"
+                                _lef_val="${_lef_val#*"'\\''"}"
+                                ;;
+                            *) _lef_out="${_lef_out}${_lef_val}"; break ;;
+                        esac
+                    done
+                    _lef_val="$_lef_out"
+                fi
+                ;;
+            \"*\")
+                if [ "${#_lef_val}" -ge 2 ]; then
+                    _lef_val="${_lef_val#\"}"
+                    _lef_val="${_lef_val%\"}"
+                fi
+                ;;
+            *)
+                # unquoted: drop an inline comment (whitespace then #), then trailing blanks
+                case "$_lef_val" in
+                    *[[:space:]]"#"*) _lef_val="${_lef_val%%[[:space:]]#*}" ;;
+                esac
+                _lef_val="${_lef_val%"${_lef_val##*[![:space:]]}"}"
+                ;;
+        esac
+        export "$_lef_key=$_lef_val"
+    done < "$_lef_file"
+    unset _lef_file _lef_line _lef_key _lef_val _lef_out
+}
+
+# ------------------------------------------------------------------------------
 # Configuration Validation
 # ------------------------------------------------------------------------------
 validate_config() {
     log_info "Validating Antikythera configuration..."
 
-    CONFIG_DIR="${HOME}/.antikythera"
+    CONFIG_DIR="${ANTIKYTHERA_HOME:-${HOME}/.antikythera}"
     ENV_FILE="${CONFIG_DIR}/.env"
     AI_ENV_FILE="${CONFIG_DIR}/.ai_env"
     MISSING_VARS=""
@@ -76,7 +148,7 @@ validate_config() {
         log_error "Please create this file with your credentials."
         log_error "Template:"
         log_error "  PORT=8006"
-        log_error "  VITE_API_URL=http://localhost:5173"
+        log_error "  VITE_API_URL=http://localhost:8006"
         log_error "  # Optional (Jira integration):"
         log_error "  JIRA_BASE_URL=https://your-domain.atlassian.net"
         log_error "  JIRA_PAT=your_personal_access_token"
@@ -84,10 +156,8 @@ validate_config() {
         exit 1
     fi
 
-    # Source the env file to check variables
-    set -a
-    . "$ENV_FILE"
-    set +a
+    # Load the env file to check variables (parsed, never executed as shell)
+    load_env_file "$ENV_FILE"
 
     # Required variables check (Jira is optional: warn only)
     REQUIRED_VARS="PORT"
@@ -122,10 +192,8 @@ validate_config() {
     if [ -f "$AI_ENV_FILE" ]; then
         log_success "Found AI environment file: $AI_ENV_FILE"
 
-        # Additional AI keys from .ai_env
-        set -a
-        . "$AI_ENV_FILE"
-        set +a
+        # Additional AI keys from .ai_env (parsed, never executed as shell)
+        load_env_file "$AI_ENV_FILE"
     else
         WARNINGS="$WARNINGS AI environment file not found ($AI_ENV_FILE)"
     fi
