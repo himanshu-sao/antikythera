@@ -14,64 +14,214 @@ logger = logging.getLogger("backend")
 
 MASK_PLACEHOLDER = "*****"
 
-# Config keys whose *segments* (split on _ - . or space) mark a secret.
-# Segment matching, not substring: "path" must not be treated as "pat".
+# Name segments that mark a secret. Matching is on whole segments after splitting
+# camelCase and snake/kebab/dot names, so "path" is not "pat" and "monkey" is not "key".
 _SECRET_SEGMENTS = {
-    "token", "pat", "password", "passwd", "pwd", "secret", "key", "apikey",
-    "credential", "credentials",
+    "token", "tokens", "pat", "password", "passwords", "passwd", "pwd", "secret", "secrets",
+    "key", "keys", "apikey", "credential", "credentials", "auth", "authorization",
+    "bearer", "cookie", "session",
 }
+
+_CAMEL_1 = re.compile(r"([a-z0-9])([A-Z])")
+_CAMEL_2 = re.compile(r"([A-Z]+)([A-Z][a-z])")
+_URL_USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.\-]*://[^/?#@\s:]*):([^/?#@\s]+)@")
+
+
+def _segments(name: str) -> List[str]:
+    """Split a config key into lower-case segments: accessToken -> [access, token]."""
+    spaced = _CAMEL_2.sub(r"\1_\2", _CAMEL_1.sub(r"\1_\2", str(name)))
+    return [seg for seg in re.split(r"[^A-Za-z0-9]+", spaced.lower()) if seg]
 
 
 def _is_secret_key(name: str) -> bool:
-    segments = re.split(r"[_\-. ]+", str(name).lower())
-    return any(seg in _SECRET_SEGMENTS for seg in segments)
+    return any(seg in _SECRET_SEGMENTS for seg in _segments(name))
+
+
+def _is_secret_flag(item: Any) -> bool:
+    """True for a command-line flag such as ``--api-key`` or ``-token``."""
+    if not isinstance(item, str) or not item.startswith("-"):
+        return False
+    return _is_secret_key(item.lstrip("-"))
+
+
+def _mask_url(text: str) -> str:
+    """Replace the password in ``scheme://user:password@host`` with MASK_PLACEHOLDER."""
+    return _URL_USERINFO.sub(lambda m: f"{m.group(1)}:{MASK_PLACEHOLDER}@", text, count=1)
+
+
+def _mask_all(value: Any) -> Any:
+    """Mask every non-empty scalar under *value* (used under a secret-named key)."""
+    if isinstance(value, dict):
+        return {k: _mask_all(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_mask_all(v) for v in value]
+    return MASK_PLACEHOLDER if value not in (None, "") else value
+
+
+def _mask_value(key: Optional[str], value: Any) -> Any:
+    """Mask one config value. *key* is the enclosing key, or None for a list element."""
+    if key is not None and _is_secret_key(key):
+        return _mask_all(value)
+    if isinstance(value, dict):
+        return _mask_tree(value)
+    if isinstance(value, list):
+        return _mask_list(value)
+    if isinstance(value, str):
+        return _mask_url(value)
+    return value
+
+
+def _mask_tree(config: Dict[str, Any]) -> Dict[str, Any]:
+    masked: Dict[str, Any] = {}
+    for key, value in config.items():
+        if key == "env" and isinstance(value, dict):
+            masked[key] = {k: (MASK_PLACEHOLDER if v not in (None, "") else v) for k, v in value.items()}
+        else:
+            masked[key] = _mask_value(key, value)
+    return masked
+
+
+def _mask_list(items: List[Any], all_secret: bool = False) -> List[Any]:
+    """Mask a list. A value after a secret flag, or after ``--flag=``, is masked.
+
+    With *all_secret* (the list sits under a secret key) every non-empty scalar is masked.
+    """
+    out: List[Any] = []
+    mask_next = False
+    for item in items:
+        if all_secret and not isinstance(item, (dict, list)):
+            out.append(MASK_PLACEHOLDER if item not in (None, "") else item)
+            continue
+        if mask_next and item not in (None, "") and not (isinstance(item, str) and item.startswith("-")):
+            out.append(MASK_PLACEHOLDER)
+            mask_next = False
+            continue
+        mask_next = False
+        if isinstance(item, str) and item.startswith("-"):
+            flag, sep, value = item.partition("=")
+            if sep and value != "" and _is_secret_flag(flag):
+                out.append(f"{flag}={MASK_PLACEHOLDER}")
+                continue
+            if not sep and _is_secret_flag(flag):
+                mask_next = True
+            out.append(item)
+            continue
+        out.append(_mask_value(None, item))
+    return out
 
 
 def mask_config(config: Dict[str, Any]) -> Dict[str, Any]:
     """Return a copy of *config* with secret-looking values replaced by MASK_PLACEHOLDER.
 
-    - Keys whose name marks a secret (token, pat, password, secret, api_key, key, ...)
-      are masked when they hold a non-empty value.
+    - Keys whose name marks a secret (token, pat, password, secret, api_key, auth, ...)
+      are masked when they hold a non-empty value. camelCase and snake/kebab names are
+      split into segments; dicts and lists under a secret key are masked element-wise.
     - Every value inside an ``env`` mapping (MCP environment) is masked.
+    - In ``args`` lists, the value after a secret flag (``--api-key X``, ``--token=X``) is masked.
+    - URL passwords (``scheme://user:pw@host``) are masked in any string value.
     Empty values are left as-is so the UI can show "not set".
     """
-    masked: Dict[str, Any] = {}
-    for key, value in config.items():
-        if key == "env" and isinstance(value, dict):
-            masked[key] = {k: (MASK_PLACEHOLDER if v not in (None, "") else v) for k, v in value.items()}
-        elif _is_secret_key(key) and value not in (None, ""):
-            masked[key] = MASK_PLACEHOLDER
-        else:
-            masked[key] = value
-    return masked
+    return _mask_tree(config)
+
+
+_MISSING = object()
+_DROP = object()
+
+
+def _restore_list(stored: List[Any], incoming: List[Any]) -> List[Any]:
+    out: List[Any] = []
+    for i, item in enumerate(incoming):
+        if item == MASK_PLACEHOLDER:
+            prev = incoming[i - 1] if i > 0 else None
+            if _is_secret_flag(prev):
+                value = _stored_after_flag(stored, prev)
+            elif i < len(stored):
+                # A masked element of a list under a secret key sits at the same index.
+                value = stored[i]
+            else:
+                value = _MISSING
+            if value is not _MISSING:
+                out.append(value)
+            continue
+        if isinstance(item, str) and item.startswith("-") and "=" in item:
+            flag, _, value = item.partition("=")
+            if value == MASK_PLACEHOLDER and _is_secret_flag(flag):
+                match = next((s for s in stored if isinstance(s, str) and s.startswith(flag + "=")), _MISSING)
+                if match is not _MISSING:
+                    out.append(match)
+                continue
+        if isinstance(item, str):
+            match = next((s for s in stored if isinstance(s, str) and _mask_url(s) == item), _MISSING)
+            out.append(item if match is _MISSING else match)
+            continue
+        if isinstance(item, (dict, list)):
+            base = stored[i] if i < len(stored) else _MISSING
+            restored = _restore(base, item)
+            if restored is not _DROP:
+                out.append(restored)
+            continue
+        out.append(item)
+    return out
+
+
+def _stored_after_flag(stored: List[Any], flag: Any) -> Any:
+    for j, item in enumerate(stored[:-1]):
+        if item == flag and not (isinstance(stored[j + 1], str) and stored[j + 1].startswith("-")):
+            return stored[j + 1]
+    return _MISSING
+
+
+def _restore(stored: Any, incoming: Any) -> Any:
+    """Return *incoming* with each masked placeholder replaced by the stored value at the same path.
+
+    A placeholder with no stored counterpart is dropped (``_DROP``) rather than stored.
+    A string equal to the masked form of the stored string (URL with a masked password)
+    keeps the stored string.
+    """
+    if isinstance(incoming, str):
+        if incoming == MASK_PLACEHOLDER:
+            return stored if stored is not _MISSING else _DROP
+        if isinstance(stored, str) and incoming == _mask_url(stored):
+            return stored
+        return incoming
+    if isinstance(incoming, dict):
+        base = stored if isinstance(stored, dict) else {}
+        out: Dict[str, Any] = {}
+        for key, value in incoming.items():
+            restored = _restore(base.get(key, _MISSING), value)
+            if restored is not _DROP:
+                out[key] = restored
+        return out
+    if isinstance(incoming, list):
+        return _restore_list(stored if isinstance(stored, list) else [], incoming)
+    return incoming
 
 
 def merge_config_preserving_mask(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
-    """Merge *incoming* over *existing*, keeping stored values where *incoming* sends MASK_PLACEHOLDER.
+    """Merge *incoming* over *existing*, keeping stored values where *incoming* sends a mask.
 
-    A placeholder for a key with no stored value is dropped rather than stored as a literal.
-    The ``env`` mapping is merged key by key so a masked env value keeps its stored value.
+    Masked values are restored at any depth: a masked nested value (``auth.token``,
+    ``headers.Authorization``, a secret element of ``args``, a URL password) takes the
+    stored value at the same path. A placeholder with no stored counterpart is dropped
+    rather than stored as a literal. The ``env`` mapping is merged key by key.
     """
     merged: Dict[str, Any] = dict(existing)
     for key, value in incoming.items():
         if key == "env" and isinstance(value, dict) and isinstance(existing.get("env"), dict):
             env = dict(existing["env"])
             for env_key, env_val in value.items():
-                if env_val == MASK_PLACEHOLDER:
-                    if env_key in existing["env"]:
-                        env[env_key] = existing["env"][env_key]
-                    else:
-                        env.pop(env_key, None)
+                restored = _restore(existing["env"].get(env_key, _MISSING), env_val)
+                if restored is _DROP:
+                    env.pop(env_key, None)
                 else:
-                    env[env_key] = env_val
+                    env[env_key] = restored
             merged["env"] = env
-        elif value == MASK_PLACEHOLDER:
-            if key in existing:
-                merged[key] = existing[key]
-            else:
-                merged.pop(key, None)
+            continue
+        restored = _restore(existing.get(key, _MISSING), value)
+        if restored is _DROP:
+            merged.pop(key, None)
         else:
-            merged[key] = value
+            merged[key] = restored
     return merged
 
 
