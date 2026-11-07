@@ -862,8 +862,10 @@ class PathStepGraphEngine:
             current = current[k]
         current[keys[-1]] = value
 
-    _PLACEHOLDER_RE = re.compile(r"\{\{(.*?)\}\}")
-    _WHOLE_PLACEHOLDER_RE = re.compile(r"^\{\{(.*?)\}\}$", re.DOTALL)
+    # Names exclude braces so "{{a}} and {{b}}" is two placeholders, never one
+    # placeholder named "a}} and {{b" (P2-2).
+    _PLACEHOLDER_RE = re.compile(r"\{\{([^{}]*)\}\}")
+    _WHOLE_PLACEHOLDER_RE = re.compile(r"^\{\{([^{}]*)\}\}$", re.DOTALL)
 
     def _resolve_params(self, params: Dict[str, Any], state: Dict[str, Any], loop_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Resolve {{variable}} placeholders in params from state (SEC-12).
@@ -893,7 +895,10 @@ class PathStepGraphEngine:
             whole = self._WHOLE_PLACEHOLDER_RE.match(text)
             if whole:
                 found, value = lookup(whole.group(1).strip())
-                return value if found else text
+                if found:
+                    return value
+                # Unresolved: fall through; embedded substitution leaves the
+                # placeholder text unchanged.
 
             def replace(match):
                 found, value = lookup(match.group(1).strip())
