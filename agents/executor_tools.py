@@ -67,7 +67,15 @@ def _resolve_item_path(path: str, item_id: str) -> str:
     if os.path.isabs(path):
         return path
     item_dir = os.path.join(os.getcwd(), "automation-ideas", "requirements", item_id)
-    return os.path.join(item_dir, path)
+    # SEC-7: a relative path may not escape the item dir ("../x", "a/../../x").
+    # Normalise and check containment before anything is written or read.
+    resolved = os.path.normpath(os.path.join(item_dir, path))
+    if os.path.commonpath([resolved, os.path.normpath(item_dir)]) != os.path.normpath(item_dir):
+        raise ValueError(
+            f"relative path {path!r} escapes the item directory for {item_id}; "
+            "use a path inside it"
+        )
+    return resolved
 
 # Hard cap on how many workspace file entries get baked into an executor prompt.
 # A multi-hundred-line file list (the old os.walk behaviour) ballooned every

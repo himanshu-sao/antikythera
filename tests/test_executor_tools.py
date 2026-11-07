@@ -15,6 +15,8 @@
 """
 import os
 
+import pytest
+
 from agents.executor_tools import (
     get_workspace_files,
     WORKSPACE_FILES_CAP,
@@ -279,3 +281,120 @@ def test_write_file_relative_lands_in_item_dir_not_cwd(tmp_path, monkeypatch):
     assert not os.path.isfile(os.path.join(str(tmp_path), "script.sh")), (
         "relative write_file escaped to cwd — the P3.2.7 defect regressed"
     )
+
+
+# ---------------------------------------------------------------------------
+# SEC-7 — relative tool paths must not escape requirements/<item_id>/.
+# Absolute-path behaviour is deliberately unchanged (policy pending).
+# ---------------------------------------------------------------------------
+
+def _item_dir(tmp_path, item_id):
+    d = os.path.join(str(tmp_path), "automation-ideas", "requirements", item_id)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def test_resolve_item_path_nested_relative_stays_in_item_dir(tmp_path, monkeypatch):
+    """A normal nested relative path resolves under the item dir."""
+    monkeypatch.chdir(str(tmp_path))
+    item_dir = os.path.join(str(tmp_path), "automation-ideas", "requirements", "SEC-1")
+    resolved = _resolve_item_path(os.path.join("scripts", "run.sh"), "SEC-1")
+    assert resolved == os.path.join(item_dir, "scripts", "run.sh")
+
+
+def test_resolve_item_path_dotdot_that_stays_inside_is_allowed(tmp_path, monkeypatch):
+    """``a/../b`` normalises to ``a``-sibling ``b`` inside the item dir — allowed."""
+    monkeypatch.chdir(str(tmp_path))
+    item_dir = os.path.join(str(tmp_path), "automation-ideas", "requirements", "SEC-1")
+    resolved = _resolve_item_path(os.path.join("a", "..", "b.txt"), "SEC-1")
+    assert resolved == os.path.join(item_dir, "b.txt")
+
+
+def test_resolve_item_path_rejects_parent_escape(tmp_path, monkeypatch):
+    """``../x`` would land in requirements/<x> (a sibling item dir) — reject."""
+    monkeypatch.chdir(str(tmp_path))
+    with pytest.raises(ValueError):
+        _resolve_item_path("../x", "SEC-1")
+
+
+def test_resolve_item_path_rejects_double_parent_escape(tmp_path, monkeypatch):
+    """``a/../../x`` normalises to requirements/x — outside the item dir — reject."""
+    monkeypatch.chdir(str(tmp_path))
+    with pytest.raises(ValueError):
+        _resolve_item_path(os.path.join("a", "..", "..", "x"), "SEC-1")
+
+
+def test_resolve_item_path_absolute_with_dotdot_is_unchanged(tmp_path):
+    """Absolute paths keep their pre-existing behaviour (policy pending)."""
+    p = os.path.join(str(tmp_path), "..", "elsewhere.txt")
+    assert _resolve_item_path(p, "SEC-1") == p
+
+
+def test_write_file_dotdot_escape_is_rejected_and_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(str(tmp_path))
+    item_dir = _item_dir(tmp_path, "SEC-1")
+    requirements = os.path.dirname(item_dir)
+
+    done, msg = execute_tool(
+        "write_file", {"path": "../escaped.sh", "content": _GOOD_CONTENT}, "SEC-1",
+    )
+    assert done is False
+    assert msg.startswith("ERROR")
+    assert not os.path.exists(os.path.join(requirements, "escaped.sh"))
+    assert os.listdir(item_dir) == []
+
+
+def test_write_file_double_dotdot_escape_is_rejected_and_writes_nothing(tmp_path, monkeypatch):
+    monkeypatch.chdir(str(tmp_path))
+    item_dir = _item_dir(tmp_path, "SEC-1")
+    requirements = os.path.dirname(item_dir)
+
+    done, msg = execute_tool(
+        "write_file",
+        {"path": os.path.join("a", "..", "..", "escaped.sh"), "content": _GOOD_CONTENT},
+        "SEC-1",
+    )
+    assert done is False
+    assert msg.startswith("ERROR")
+    assert not os.path.exists(os.path.join(requirements, "escaped.sh"))
+    assert not os.path.exists(os.path.join(item_dir, "a"))
+
+
+def test_write_file_nested_relative_still_lands_in_item_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(str(tmp_path))
+    item_dir = _item_dir(tmp_path, "SEC-1")
+    done, msg = execute_tool(
+        "write_file", {"path": "src/tool.sh", "content": _GOOD_CONTENT}, "SEC-1",
+    )
+    assert done is True, msg
+    assert open(os.path.join(item_dir, "src", "tool.sh")).read() == _GOOD_CONTENT
+
+
+def test_read_file_dotdot_escape_is_rejected(tmp_path, monkeypatch):
+    monkeypatch.chdir(str(tmp_path))
+    item_dir = _item_dir(tmp_path, "SEC-1")
+    secret = os.path.join(os.path.dirname(item_dir), "other.txt")
+    with open(secret, "w") as f:
+        f.write("not yours")
+
+    done, msg = execute_tool("read_file", {"path": "../other.txt"}, "SEC-1")
+    assert done is False
+    assert msg.startswith("ERROR")
+    assert "not yours" not in msg
+
+
+def test_patch_dotdot_escape_is_rejected_and_target_untouched(tmp_path, monkeypatch):
+    monkeypatch.chdir(str(tmp_path))
+    item_dir = _item_dir(tmp_path, "SEC-1")
+    victim = os.path.join(os.path.dirname(item_dir), "victim.txt")
+    with open(victim, "w") as f:
+        f.write("original")
+
+    done, msg = execute_tool(
+        "patch",
+        {"path": "../victim.txt", "old_string": "original", "new_string": "pwned"},
+        "SEC-1",
+    )
+    assert done is False
+    assert msg.startswith("ERROR")
+    assert open(victim).read() == "original"
