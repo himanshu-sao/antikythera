@@ -8,6 +8,7 @@ import re
 import logging
 from typing import List, Dict, Any
 from agents.llm_client import LLMClient
+from api.settings_store import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +19,9 @@ logger = logging.getLogger(__name__)
 # Cap the plan at a size the executor can realistically close, keeping the
 # most atomic, tool-actionable items.  Truncation keeps the leading tasks in
 # sequence (the planner emits logically-ordered files -> core -> endpoints).
-MAX_TASKS = 6
+# The live cap is the ``max_tasks`` setting (D14), read on every
+# create_checklist call so a Settings change applies without a restart.
+MAX_TASKS = 6  # default of the ``max_tasks`` setting; kept for import compatibility
 
 class ExecutorPlanner:
     def __init__(self, llm_client: LLMClient):
@@ -34,7 +37,7 @@ class ExecutorPlanner:
 Your goal is to decompose a technical specification and architecture into a granular, atomic, and sequential implementation checklist.
 
 ### OBJECTIVE
-Break down the implementation into a SMALL number of actionable tasks. Aim for no more than 6 tasks; merge closely-related work into a single task rather than splitting exhaustively. Each task MUST be one that lands a concrete artifact: write/create a file, edit existing content, or install a dependency.
+Break down the implementation into a SMALL number of actionable tasks. Aim for no more than __MAX_TASKS__ tasks; merge closely-related work into a single task rather than splitting exhaustively. Each task MUST be one that lands a concrete artifact: write/create a file, edit existing content, or install a dependency.
 
 ### DO NOT EMIT VERIFICATION TASKS
 The executor cannot complete a verification-only task. Its only run-command tool is `terminal`, and a `terminal` (or `read_file`) call NEVER marks a task complete — only a non-stub `write_file` or a completed `patch` does. So a task like "Run pytest", "Run ls", "Verify the handler returns JSON", or "Check no db imports" is guaranteed to loop forever and fail the run. OMIT every such task entirely:
@@ -79,6 +82,8 @@ Based on the following Specification and Architecture, generate a detailed imple
 ### ARCHITECTURE:
 {arch_content}
 """
+        max_tasks = int(get_setting("max_tasks"))
+        system_prompt = system_prompt.replace("__MAX_TASKS__", str(max_tasks))
         try:
             response_text = self.llm.chat(
                 system_prompt=system_prompt,
@@ -113,17 +118,17 @@ Based on the following Specification and Architecture, generate a detailed imple
                     "refusing to substitute a stub plan — executor will abort."
                 )
                 return []
-            # Cap the plan at MAX_TASKS.  A live run (P3.2.6) saw a 2-file idea
+            # Cap the plan at the max_tasks setting.  A live run (P3.2.6) saw a 2-file idea
             # become 11 tasks and time out; the executor closes far more reliably
             # on a bounded plan.  Keep the leading tasks (planner emits in
             # logical sequence) and drop the rest.  This is a plan-size guard,
             # not a stub substitution — the kept tasks are the planner's real work.
-            if len(checklist) > MAX_TASKS:
+            if len(checklist) > max_tasks:
                 logger.warning(
                     "Planner produced %d tasks; capping to %d (keeping the first "
-                    "%d in sequence). See MAX_TASKS.", len(checklist), MAX_TASKS, MAX_TASKS
+                    "%d in sequence). See the max_tasks setting.", len(checklist), max_tasks, max_tasks
                 )
-                checklist = checklist[:MAX_TASKS]
+                checklist = checklist[:max_tasks]
             logger.info(f"Successfully generated checklist with {len(checklist)} tasks.")
             return checklist
         except Exception as e:
