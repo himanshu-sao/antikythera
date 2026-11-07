@@ -14,6 +14,14 @@ NC='\033[0m' # No Color
 # Relative paths below (logs, scripts/, api.main) assume the repo root.
 cd "$ROOT_DIR" || exit 1
 
+# The project .env is sourced below and must exist. Check before anything is stopped or
+# sourced (P5-3 C-check), so a missing file gives a clear message instead of a shell error.
+if [ ! -f "$ROOT_DIR/.env" ]; then
+  echo -e "${RED}Error: $ROOT_DIR/.env not found.${NC}"
+  echo "Create it from the template: cp .env.example .env  (then set PORT and VITE_API_URL)."
+  exit 1
+fi
+
 # Load env vars from user home first (if present), then from project .env (project overrides)
 if [ -f "$HOME/.antikythera/.env" ]; then
   echo -e "${BLUE}Loading user env from $HOME/.antikythera/.env${NC}"
@@ -82,10 +90,10 @@ echo -e "${GREEN}✅ Backend started (PID: $BACKEND_PID) - logs: backend.log${NC
 
 # 2. Start Frontend UI
 echo -e "Starting Frontend UI..."
-cd $UI_DIR
+cd "$UI_DIR" || exit 1
 npm run dev >> ui.log 2>&1 &
 UI_PID=$!
-cd $ROOT_DIR
+cd "$ROOT_DIR" || exit 1
 echo -e "${GREEN}✅ UI started (PID: $UI_PID) - logs: ui.log${NC}"
 
 # 3. Start Orchestrator
@@ -95,6 +103,11 @@ ORCH_PID=$!
 echo -e "${GREEN}✅ Orchestrator started (PID: $ORCH_PID) - logs: orchestrator.log${NC}"
 
 echo -e "\n${BLUE}✨ Antikythera is now running!${NC}"
-echo -e "Backend: $VITE_API_URL"
+# The backend is served on PORT (from .env); VITE_API_URL is the URL the UI calls, which
+# should point at the same place. Warn when they disagree instead of printing a wrong URL.
+echo -e "Backend: http://localhost:$PORT"
+if [ -n "$VITE_API_URL" ] && [ "$VITE_API_URL" != "http://localhost:$PORT" ]; then
+  echo -e "${RED}Warning: VITE_API_URL=$VITE_API_URL does not match PORT=$PORT. Set VITE_API_URL=http://localhost:$PORT in .env.${NC}"
+fi
 echo -e "Frontend: http://localhost:5173"
 echo -e "Use ./stop_antikythera.sh to shut down everything."
