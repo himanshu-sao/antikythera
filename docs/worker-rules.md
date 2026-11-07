@@ -54,3 +54,25 @@ Plain markdown, no emojis, under 900 words:
 | W6 | Docker, scripts, ops | `docker/*`, `.dockerignore`, `.env.example`, `start_antikythera.sh`, `stop_antikythera.sh`, `restart_antikythera.sh`, `requirements*.txt`, new `scripts/backup_data.sh`, new `tests/test_backup_script.py` |
 | W7 | UI (non-Studio) | `ui/src/**` except the W4 files above, plus their vitest files and `ui/src/test/setup.tsx` |
 | W8 | Telegram removal | `agents/telegram.py`, `agents/notifications.py`, `agents/brain_loop.py`, `tests/test_telegram.py`, `tests/test_brain_loop.py`, `tests/test_notifications*.py`, and only the Telegram mentions in `README.md`, `docs/agents/AI.md`, `docs/CONTRIBUTING.md`, `api/workflow_AI.md`; plus the cron statements in `PROJECT_STATUS.md` |
+
+---
+
+# Arc A ownership map (2026-11-07, handsfree arc A)
+
+Arc A scope is defined in `docs/decisions.md` ("Session execution decisions" → Arc A). Baseline `2e16b17`. The map below overrides the earlier one for this run.
+
+| Worker | Area | Files |
+|---|---|---|
+| A1 | D1 auth backend | `api/main.py` (sole owner — also registers the new routers from A6/A7), new `api/security.py`, `conftest.py` (token env + dependency override), new `tests/test_auth.py` |
+| A2 | D8 ports and Docker | `docker/*`, `.env.example`, `start_antikythera.sh` (bind 127.0.0.1 + PORT 18006), `stop_antikythera.sh`, `ui/vite.config.ts`, `playwright.config.ts`, `tests/e2e/**`, any test hard-coding 8006/5173 |
+| A3 | D2 step schema | `api/execution_engine.py`, `api/workflow_router.py`, `api/builder_router.py`, `api/models/automation.py`, `tests/test_execution_engine_steps.py`, `tests/test_workflow_router_template*.py`, `tests/test_builder_router.py` |
+| A4 | D5 review backend | `api/board_router.py`, `api/schemas.py`, `agents/constants.py` (read-only; import TIER_STAGES), new `tests/test_review_api.py`, `tests/test_api.py` (move-gate cases) |
+| A5 | D7 sandbox | `agents/executor_tools.py`, `agents/executor.py` (only if needed for tool wiring), `api/executors/safe_executor.py`, `tools/verify_executor_p3_2.py`, `tests/test_executor_tools.py`, `api/executors/test_safe_executor.py` |
+| A6 | D14 settings backend | new `api/settings_store.py` + `api/settings_router.py` (**commit the minimal router module first** so A1 can register it), `api/retry_manager.py`, `api/managers/run_manager.py`, `agents/executor_planner.py`, `agents/llm_client.py` (_BOB_TIMEOUT only), `agents/orchestrator.py` (poison strikes), new `tests/test_settings.py` |
+| A7 | D9 setup wizard | new `api/setup_router.py` (**commit the minimal module first**), new `ui/src/components/SetupScreen.tsx`, `ui/src/App.tsx` (sole UI owner of App.tsx: wires SetupScreen and the TokenGate from A8), new tests |
+| A8 | D1/D5 UI | new `ui/src/api/client.ts` (apiFetch + token storage; **commit first**), new `ui/src/components/TokenGate.tsx`, `ui/src/config.ts`, every `ui/src` component/hook EXCEPT `App.tsx` and `SetupScreen.tsx` (migrate their fetch calls to apiFetch; wire the ArtifactViewer review form to the D5 API), their vitest files |
+
+Cross-worker protocol for this run:
+- A6 and A7 commit their new router/component modules as their FIRST commit (minimal but valid) so A1 and A7 can wire them; A1 polls (`git log --oneline -5`, wait up to 15 minutes) for `api/settings_router.py` and `api/setup_router.py` before finishing, and registers them; if still absent, register behind `try/except ImportError` and report.
+- A8's `SetupScreen`-adjacent rule: the setup screen's own fetches stay plain `fetch` (pre-token by design). A8 must not migrate them.
+- Nobody edits a file owned by another worker. Report needed changes instead.
