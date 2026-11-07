@@ -237,7 +237,7 @@ services:
       - $TEST_CONFIG_DIR:/root/.antikythera
       - $TEST_DATA_DIR:/app/automation-ideas
     ports:
-      - "8007:8006"
+      - "127.0.0.1:8007:8006"
     networks:
       - test-network
 networks:
@@ -283,7 +283,7 @@ services:
       - $TEST_CONFIG_DIR:/root/.antikythera
       - $TEST_DATA_DIR:/app/automation-ideas
     ports:
-      - "8007:8006"
+      - "127.0.0.1:8007:8006"
     networks:
       - test-network
 networks:

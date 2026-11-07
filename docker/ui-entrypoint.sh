@@ -43,8 +43,8 @@ validate_config() {
 
     # Check VITE_API_URL - required for API proxy
     if [ -z "$VITE_API_URL" ]; then
-        log_warn "VITE_API_URL not set, defaulting to http://localhost:8006"
-        export VITE_API_URL="http://localhost:8006"
+        log_warn "VITE_API_URL not set, defaulting to http://localhost:18006"
+        export VITE_API_URL="http://localhost:18006"
     fi
 
     # Vite dev-server proxy target for /api (vite.config.ts API_PROXY_TARGET)

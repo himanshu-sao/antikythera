@@ -147,8 +147,8 @@ validate_config() {
         log_error ""
         log_error "Please create this file with your credentials."
         log_error "Template:"
-        log_error "  PORT=8006"
-        log_error "  VITE_API_URL=http://localhost:8006"
+        log_error "  PORT=18006   # host-side; the container itself always listens on 8006"
+        log_error "  VITE_API_URL=http://localhost:18006"
         log_error "  # Optional (Jira integration):"
         log_error "  JIRA_BASE_URL=https://your-domain.atlassian.net"
         log_error "  JIRA_PAT=your_personal_access_token"
@@ -252,13 +252,20 @@ validate_config() {
 # Start Services
 # ------------------------------------------------------------------------------
 start_backend() {
-    log_info "Starting Antikythera Backend on port $PORT..."
+    # D8: the container always listens on 8006 (compose publishes 127.0.0.1:18006:8006 and the
+    # healthchecks target 8006). PORT in ~/.antikythera/.env is the HOST-side value used by the
+    # local start script (18006) and must not change the in-container port.
+    INTERNAL_PORT=8006
+    if [ "$PORT" != "$INTERNAL_PORT" ]; then
+        log_info "PORT=$PORT is the host-side port; the container listens on $INTERNAL_PORT (published as 127.0.0.1:18006)."
+    fi
+    log_info "Starting Antikythera Backend on port $INTERNAL_PORT..."
 
     # Use PYTHONPATH to ensure proper module resolution
     export PYTHONPATH=/app
 
     # Start uvicorn
-    exec python -m uvicorn api.main:app --host 0.0.0.0 --port "$PORT"
+    exec python -m uvicorn api.main:app --host 0.0.0.0 --port "$INTERNAL_PORT"
 }
 
 start_orchestrator() {

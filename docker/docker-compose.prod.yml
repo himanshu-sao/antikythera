@@ -19,7 +19,8 @@ services:
     container_name: antikythera-backend
     restart: always
     ports:
-      - "8006:8006"
+      # Loopback-only on the Docker host (D8); reach it from the laptop via an SSH tunnel.
+      - "127.0.0.1:18006:8006"
     volumes:
       # Read-write on purpose (P0-9): AI Engine settings persist ai_config.json and
       # .ai_env here. A :ro mount made set-default fail with a 500 and set-key silently
@@ -60,7 +61,8 @@ services:
     container_name: antikythera-frontend
     restart: always
     ports:
-      - "80:80"
+      # nginx listens on 80 inside the container; published loopback-only on 15173 (D8).
+      - "127.0.0.1:15173:80"
     networks:
       - antikythera-network
     depends_on:
