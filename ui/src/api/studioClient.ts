@@ -176,10 +176,19 @@ export async function deleteGraph(graphId: string): Promise<void> {
   await studioFetch<void>(`/api/studio/graphs/${graphId}`, { method: 'DELETE' });
 }
 
-export async function runGraph(graphId: string, inputs?: Record<string, unknown>): Promise<RunSummary> {
+/**
+ * Start a headless run. `dryRun` defaults to true (S2): a dry run short-circuits
+ * conditional adapter writes to a logged "would-have-run" result, so a run only
+ * performs live writes when the caller explicitly passes `dryRun: false`.
+ */
+export async function runGraph(
+  graphId: string,
+  inputs?: Record<string, unknown>,
+  dryRun = true,
+): Promise<RunSummary> {
   return studioFetch<RunSummary>(`/api/studio/graphs/${graphId}/run`, {
     method: 'POST',
-    body: JSON.stringify({ inputs: inputs ?? {} }),
+    body: JSON.stringify({ inputs: inputs ?? {}, dry_run: dryRun }),
   });
 }
 

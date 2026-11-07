@@ -281,7 +281,7 @@ describe('AutomationStudio (turn-UI compiler — T2a shell + T2b forms/handlers)
     // Run → POST .../run, status line renders in the Graph Outline.
     fireEvent.click(runBtn);
     await waitFor(() => {
-      expect(screen.getByText(/Run run-7 → running/)).toBeInTheDocument();
+      expect(screen.getByText(/Run run-7 \(dry run\) → running/)).toBeInTheDocument();
     });
     expect(calls.some((c) => c.method === 'POST' && c.path.endsWith('/run'))).toBe(true);
   });
@@ -704,5 +704,64 @@ describe('AutomationStudio (turn-UI compiler — T2a shell + T2b forms/handlers)
       expect(screen.getByText(/If extracted_fields\.os_distro equals brotli/)).toBeInTheDocument();
     });
     expect(screen.getByText('conditional_action')).toBeInTheDocument();
+  });
+  // S2: the UI must send dry_run. Default ON so a click on Run never writes.
+  describe('Run dry-run toggle (S2)', () => {
+    async function saveAndGetRunBody(toggle: 'keep' | 'off') {
+      const saveMock = vi.fn().mockResolvedValue({
+        graph_id: 'g-1', name: 'Studio Graph 1', description: '', version: '1.0.0',
+        created_at: '', updated_at: '', required_capability: 'generate',
+        cron_schedule: null, cron_enabled: false, undefined_queue_cap: 100,
+        max_run_logs: 50, node_count: 1, edge_count: 0,
+      });
+      const runBodies: string[] = [];
+      mockFetchOnce({
+        '/api/studio/integrations/status': () => ({
+          integrations: [{ name: 'jira', type: 'jira', status: 'ok', connected: true }],
+        }),
+        '/api/studio/preview-node': () => ({
+          result: [{ key: 'OPS-1' }],
+          updated_state: { jira_tickets: [{ key: 'OPS-1' }] },
+          status: 'success', error: null, matched_branch: null,
+        }),
+        '/api/studio/graphs/g-1/run': (body) => {
+          runBodies.push(body ?? '');
+          return { run_id: 'run-9', graph_id: 'g-1', status: 'running', started_at: '2026-07-22T00:00:00Z', dry_run: true };
+        },
+        '/api/studio/graphs': () => saveMock(),
+      });
+      render(<AutomationStudio />);
+      await commitQuery('jira', 'jira_tickets');
+      fireEvent.click(screen.getByRole('button', { name: /^Save$/i }));
+      await waitFor(() => expect(screen.getByRole('button', { name: /^Run$/i })).not.toBeDisabled(), { timeout: 3000 });
+
+      if (toggle === 'off') {
+        fireEvent.click(screen.getByRole('checkbox', { name: /Dry run/i }));
+      }
+      fireEvent.click(screen.getByRole('button', { name: /^Run$/i }));
+      await waitFor(() => expect(runBodies.length).toBeGreaterThan(0), { timeout: 3000 });
+      return JSON.parse(runBodies[0]) as { inputs: unknown; dry_run: boolean };
+    }
+
+    test('dry-run toggle is ON by default and the run request sends dry_run: true', async () => {
+      const body = await saveAndGetRunBody('keep');
+      expect(body.dry_run).toBe(true);
+      expect(body.inputs).toEqual({});
+    });
+
+    test('toggling Dry run off sends dry_run: false', async () => {
+      const body = await saveAndGetRunBody('off');
+      expect(body.dry_run).toBe(false);
+    });
+
+    test('the Dry run control is visible next to Run and checked by default', async () => {
+      mockFetchOnce({
+        '/api/studio/integrations/status': () => ({ integrations: [] }),
+      });
+      render(<AutomationStudio />);
+      const toggle = screen.getByRole('checkbox', { name: /Dry run/i });
+      expect(toggle).toBeChecked();
+      expect(screen.getByRole('button', { name: /^Run$/i })).toBeInTheDocument();
+    });
   });
 });

@@ -210,9 +210,12 @@ describe('AutomationStudio Integration - Component Interactions and API Flows', 
       fireEvent.click(runBtn);
 
       await waitFor(() => {
-        expect(screen.getByText(/Run run-123 → running/)).toBeInTheDocument();
+        expect(screen.getByText(/Run run-123 \(dry run\) → running/)).toBeInTheDocument();
         expect(apiCalls.some(c => c.method === 'POST' && c.path.endsWith('/run'))).toBe(true);
       });
+      // S2: the Run request carries dry_run (default ON) so a click never writes live.
+      const runCall = apiCalls.find(c => c.method === 'POST' && c.path.endsWith('/run'));
+      expect(runCall?.body?.dry_run).toBe(true);
     });
   });
 

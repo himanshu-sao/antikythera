@@ -225,6 +225,8 @@ export function AutomationStudio() {
   const [graphId, setGraphId] = useState<string | null>(null);
   const [graphName, setGraphName] = useState<string>('');
   const [runStatus, setRunStatus] = useState<string | null>(null);
+  // S2: dry run is ON by default so a click on Run never performs a live write.
+  const [dryRun, setDryRun] = useState<boolean>(true);
 
   // ==== UI state ==== //
   const [isLoading, setIsLoading] = useState(false);
@@ -469,8 +471,9 @@ export function AutomationStudio() {
     setIsLoading(true);
     setRunStatus('Starting run…');
     try {
-      const summary: RunSummary = await runGraph(graphId);
-      setRunStatus(`Run ${summary.run_id} → ${summary.status} (started ${summary.started_at}).`);
+      const summary: RunSummary = await runGraph(graphId, undefined, dryRun);
+      const mode = dryRun ? 'dry run' : 'live';
+      setRunStatus(`Run ${summary.run_id} (${mode}) → ${summary.status} (started ${summary.started_at}).`);
       toast.success(`Run started: ${summary.run_id}.`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -520,6 +523,15 @@ export function AutomationStudio() {
             >
               Save
             </button>
+            <label className="flex items-center gap-1 text-xs text-gray-600 select-none">
+              <input
+                type="checkbox"
+                checked={dryRun}
+                onChange={(e) => setDryRun(e.target.checked)}
+                className="accent-[#0b6b72]"
+              />
+              Dry run
+            </label>
             <button
               onClick={handleRun}
               disabled={!graphId || isLoading}
