@@ -1057,3 +1057,128 @@ class TestSaveTemplateConfigValidation:
             assert any("new_stage" in v and "NOT_A_STAGE" in v for v in violations)
         finally:
             _cleanup_template(client, template_id)
+
+# --------------------------------------------------------------------------
+# SEC-13 / T23: the template gate must also look at step "type" and
+# config.adapter (the engines dispatch on those), reject null/non-string adapter
+# with 422 (not a 500), and never admit an execution-capable adapter by any of
+# the three fields. Schema (D2) is not redesigned here.
+#
+# Steps used for the "only the new check can fail" cases omit the adapter key:
+# that skips the per-adapter JSON schema, so a 422 can only come from SEC-13.
+# --------------------------------------------------------------------------
+def _sec13_payload(template_id, step):
+    return {
+        "template_id": template_id,
+        "name": "sec13",
+        "description": "sec13 test",
+        "trigger": {"type": "MANUAL"},
+        "steps": [step],
+    }
+
+
+class TestSec13ExecutionCapableAdapters:
+    @pytest.mark.parametrize("bad", ["shell", "bob_shell", "bob_shell_adapter", "SHELL", " Bob_Shell "])
+    def test_config_adapter_execution_capable_rejected(self, client, bad):
+        tid = "sec13_cfg_adapter"
+        step = {"id": 1, "type": "action", "action": "x", "config": {"adapter": bad}, "board_stage": "INTAKE"}
+        try:
+            r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
+            assert r.status_code == 422, r.status_code
+        finally:
+            _cleanup_template(client, tid)
+
+    @pytest.mark.parametrize("bad", ["shell", "bob_shell", "bob_shell_adapter", "BOB_SHELL"])
+    def test_step_type_execution_capable_rejected(self, client, bad):
+        tid = "sec13_type"
+        step = {"id": 1, "type": bad, "action": "x", "config": {}, "board_stage": "INTAKE"}
+        try:
+            r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
+            assert r.status_code == 422, r.status_code
+        finally:
+            _cleanup_template(client, tid)
+
+    def test_config_adapter_checked_even_when_adapter_field_is_safe(self, client):
+        tid = "sec13_mixed"
+        step = {"id": 1, "type": "action", "adapter": "internal", "action": "list_items",
+                "config": {"action": "list_items", "adapter": "shell"}, "board_stage": "INTAKE"}
+        try:
+            r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
+            assert r.status_code == 422
+        finally:
+            _cleanup_template(client, tid)
+
+    def test_safe_type_and_config_adapter_still_accepted(self, client):
+        tid = "sec13_safe"
+        step = {"id": 1, "type": "action", "action": "x", "config": {"adapter": "internal"},
+                "board_stage": "INTAKE"}
+        try:
+            r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
+            assert r.status_code == 200, r.json()
+        finally:
+            _cleanup_template(client, tid)
+
+    def test_violation_names_the_offending_field(self):
+        from api.workflow_router import _validate_template_adapters
+        violations = _validate_template_adapters({"steps": [
+            {"id": 7, "type": "bob_shell", "config": {}},
+        ]})
+        assert any("step 7" in v and "bob_shell" in v for v in violations), violations
+
+    def test_config_adapter_violation_names_the_offending_field(self):
+        from api.workflow_router import _validate_template_adapters
+        violations = _validate_template_adapters({"steps": [
+            {"id": 8, "config": {"adapter": "shell"}},
+        ]})
+        assert any("step 8" in v and "shell" in v for v in violations), violations
+
+
+class TestSec13NullAndNonStringAdapter:
+    @pytest.mark.parametrize("adapter", [None, 123, ["internal"], {"name": "internal"}, True])
+    def test_non_string_adapter_is_422_not_500(self, client, adapter):
+        tid = "sec13_nonstr"
+        step = {"id": 1, "type": "action", "adapter": adapter, "action": "x",
+                "config": {}, "board_stage": "INTAKE"}
+        try:
+            r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
+            assert r.status_code == 422, r.status_code
+        finally:
+            _cleanup_template(client, tid)
+
+    def test_null_adapter_is_violation_listed(self):
+        from api.workflow_router import _validate_template_adapters
+        violations = _validate_template_adapters({"steps": [{"id": 3, "adapter": None}]})
+        assert violations and "step 3" in violations[0]
+
+    def test_non_string_config_adapter_is_422(self, client):
+        tid = "sec13_cfg_nonstr"
+        step = {"id": 1, "type": "action", "action": "x", "config": {"adapter": None},
+                "board_stage": "INTAKE"}
+        try:
+            r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
+            assert r.status_code == 422, r.status_code
+        finally:
+            _cleanup_template(client, tid)
+
+    def test_missing_adapter_is_still_allowed(self, client):
+        # Existing behaviour preserved: no adapter key -> not rejected by the allowlist.
+        tid = "sec13_missing"
+        step = {"id": 1, "type": "action", "action": "x", "config": {}, "board_stage": "INTAKE"}
+        try:
+            r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))
+            assert r.status_code == 200, r.json()
+        finally:
+            _cleanup_template(client, tid)
+
+    def test_steps_not_a_list_does_not_raise(self):
+        from api.workflow_router import _validate_template_adapters
+        assert _validate_template_adapters({"steps": None}) == []
+        assert _validate_template_adapters({}) == []
+
+
+class TestSec13HelpersAreTotal:
+    @pytest.mark.parametrize("adapter", [None, 5, ["x"], {"a": 1}])
+    def test_config_schema_helper_does_not_raise_on_non_string_adapter(self, adapter):
+        from api.workflow_router import _validate_step_configs
+        # Must not raise AttributeError; the allowlist check reports the violation.
+        _validate_step_configs({"steps": [{"id": 1, "adapter": adapter, "config": {}}]})

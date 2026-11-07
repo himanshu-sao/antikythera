@@ -87,13 +87,63 @@ ADAPTER_CONFIG_SCHEMAS = {
 }
 
 
+# SEC-13: adapters that can execute commands. Never admitted through a template,
+# whichever of the three fields names them (step.adapter, step.type, config.adapter).
+EXECUTION_CAPABLE_ADAPTERS = frozenset({"shell", "bob_shell", "bob_shell_adapter"})
+
+
+def _normalise_adapter_token(value: Any) -> Optional[str]:
+    """Lower-case and strip a string token; return None for non-strings (SEC-13)."""
+    if not isinstance(value, str):
+        return None
+    return value.lower().strip()
+
+
 def _validate_template_adapters(template: Dict[str, Any]) -> list[str]:
-    """Validate all step adapters against the allowlist. Returns list of violations."""
+    """Validate step adapters against the allowlist. Returns list of violations.
+
+    SEC-13: checks ``step.adapter``, ``step.type`` and ``step.config.adapter``
+    (the engines dispatch on the latter two). A null or non-string adapter is a
+    violation, not a server error. Execution-capable adapters are rejected by name
+    in any of those fields even though they are not in the allowlist anyway.
+    """
     violations = []
-    for step in template.get("steps", []):
-        adapter = step.get("adapter", "").lower().strip()
-        if adapter and adapter not in ALLOWED_TEMPLATE_ADAPTERS:
-            violations.append(f"step {step.get('id', '?')}: adapter '{adapter}' not in allowlist {sorted(ALLOWED_TEMPLATE_ADAPTERS)}")
+    steps = template.get("steps") or []
+    if not isinstance(steps, list):
+        return violations
+    for step in steps:
+        if not isinstance(step, dict):
+            violations.append("step ?: must be an object")
+            continue
+        step_id = step.get("id", "?")
+        config = step.get("config")
+        config_adapter = config.get("adapter") if isinstance(config, dict) else None
+
+        # (field name, present?, raw value). A key that is absent is not checked;
+        # a key that is present with a null/non-string value is a violation.
+        checks = []
+        if "adapter" in step:
+            checks.append(("adapter", step["adapter"]))
+        if "type" in step and step["type"] is not None:
+            checks.append(("type", step["type"]))
+        if isinstance(config, dict) and "adapter" in config:
+            checks.append(("config.adapter", config["adapter"]))
+
+        for field_name, raw in checks:
+            token = _normalise_adapter_token(raw)
+            if token is None:
+                violations.append(f"step {step_id}: {field_name} must be a string, got {type(raw).__name__ if raw is not None else 'null'}")
+                continue
+            if not token:
+                continue  # empty string: preserved legacy behaviour (no allowlist check)
+            if token in EXECUTION_CAPABLE_ADAPTERS:
+                violations.append(
+                    f"step {step_id}: {field_name} '{token}' is an execution-capable adapter and is not allowed in templates"
+                )
+            elif field_name == "type":
+                continue  # step.type is metadata; only execution-capable names are blocked for it
+            elif token not in ALLOWED_TEMPLATE_ADAPTERS:
+                violations.append(f"step {step_id}: {field_name} '{token}' not in allowlist {sorted(ALLOWED_TEMPLATE_ADAPTERS)}")
     return violations
 
 
@@ -104,9 +154,11 @@ def _validate_step_configs(template: Dict[str, Any]) -> list[str]:
     """
     violations = []
     for step in template.get("steps", []):
-        adapter = step.get("adapter", "").lower().strip()
+        if not isinstance(step, dict):
+            continue  # reported by _validate_template_adapters
+        adapter = _normalise_adapter_token(step.get("adapter")) or ""
         if not adapter:
-            continue  # Empty adapter is allowed (B1 validation handles it separately)
+            continue  # Empty/absent adapter is allowed (B1 validation handles null/non-string)
 
         schema = ADAPTER_CONFIG_SCHEMAS.get(adapter)
         if not schema:
