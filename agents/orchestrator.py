@@ -2,7 +2,8 @@ import copy
 import datetime
 import logging
 import asyncio
-from typing import Optional, Dict, Any, List, Tuple
+import os
+from filelock import FileLock, Timeout
 from agents import state as state_module
 from agents.constants import REVIEW_STAGES, STAGE_AGENTS, STAGE_HANDLERS
 from agents.notifications import notify_stage_transition
@@ -26,6 +27,9 @@ _UNKNOWN_PRIORITY_RANK = 4
 
 _MISSING = object()
 
+# P2-12: consecutive handler failures after which an item is blocked and skipped.
+MAX_CONSECUTIVE_FAILURES = 3
+
 
 def _changed_keys(before, after):
     """Top-level keys that were added, changed or removed between two item dicts."""
@@ -46,6 +50,15 @@ class Orchestrator:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.handlers = StageHandler(self)
+        # P2-12: in-memory only, keyed by (state file, item id) so a different
+        # state file never inherits counters. failures: key -> (stage, count);
+        # blocked: key -> stage at which it was blocked (skipped until it changes).
+        self._failures = {}
+        self._blocked = {}
+
+    @staticmethod
+    def _fail_key(item_id):
+        return (state_module.STATE_FILE, item_id)
 
     def get_next_actionable_items(self, state):
         items = state.get("items", {})
@@ -118,21 +131,66 @@ class Orchestrator:
         commit is logged with the item id, the item is left as it is on disk,
         and the loop moves on. The heartbeat is committed last under the lock.
 
+        Mutual exclusion (P0-7): the whole run holds a non-blocking cross-process
+        lock on ``<state file>.pipeline.lock``. If another run holds it, this call
+        logs "pipeline already running" and returns 0. That lock is separate from
+        the per-item ``state_lock()`` taken by ``_commit_item``.
+
+        Corrupt state (P0-2): if the state cannot be loaded, one error is logged
+        (with the backup path when the loader made one) and 0 is returned; the next
+        cycle retries.
+
         Returns the number of items whose handler completed without raising.
         """
+        lock_path = state_module.STATE_FILE + ".pipeline.lock"
+        try:
+            os.makedirs(os.path.dirname(lock_path) or ".", exist_ok=True)
+        except OSError:
+            pass
+        lock = FileLock(lock_path)
+        try:
+            lock.acquire(timeout=0)
+        except Timeout:
+            self.logger.info("pipeline already running; skipping this run")
+            return 0
+        try:
+            return self._run_pipeline_locked()
+        finally:
+            lock.release()
+
+    def _run_pipeline_locked(self):
         self.logger.info("Pipeline run starting")
-        state = state_module.load_state()
+        try:
+            state = state_module.load_state()
+        except Exception as exc:
+            backup = getattr(exc, "backup_path", None)
+            if backup:
+                self.logger.error(
+                    "Pipeline state could not be loaded; skipping this cycle. "
+                    "Backup of the unreadable file: %s (%s)", backup, exc,
+                )
+            else:
+                self.logger.error("Pipeline state could not be loaded; skipping this cycle: %s", exc)
+            return 0
         actionable = self.get_next_actionable_items(state)
 
         processed = 0
         for item_id, item in actionable:
-            self.logger.info("Processing item %s at stage %s", item_id, item.get("stage"))
+            stage = item.get("stage")
+            key = self._fail_key(item_id)
+            if self._blocked.get(key) == stage:
+                self.logger.info("Skipping %s: blocked after repeated failures at stage %s", item_id, stage)
+                continue
+            self._blocked.pop(key, None)
+            self.logger.info("Processing item %s at stage %s", item_id, stage)
             before = copy.deepcopy(item)
             try:
                 self.process_item(item, state, item_id)
-            except Exception:
+            except Exception as exc:
                 self.logger.exception("Processing item %s failed; leaving it as on disk", item_id)
+                self._record_failure(item_id, stage, before, exc)
                 continue
+            self._failures.pop(key, None)
             processed += 1
             try:
                 self._commit_item(item_id, before, item)
@@ -142,6 +200,31 @@ class Orchestrator:
         self._commit_heartbeat()
         self.logger.info("Pipeline run complete. Processed %d items.", processed)
         return processed
+
+    def _record_failure(self, item_id, stage, before, exc):
+        """Count a handler failure; after MAX_CONSECUTIVE_FAILURES block the item (P2-12).
+
+        Counters live in memory only. Blocking sets ``blocked_reason`` through
+        ``_commit_item`` (a merge of just that key) and skips the item until its
+        stage changes. The half-mutated in-flight item is not committed.
+        """
+        key = self._fail_key(item_id)
+        prev_stage, count = self._failures.get(key, (stage, 0))
+        count = count + 1 if prev_stage == stage else 1
+        self._failures[key] = (stage, count)
+        if count < MAX_CONSECUTIVE_FAILURES:
+            return
+        self._blocked[key] = stage
+        self._failures.pop(key, None)
+        after = copy.deepcopy(before)
+        after["blocked_reason"] = (
+            f"Blocked after {count} consecutive failures at {stage}: {type(exc).__name__}: {exc}"
+        )
+        self.logger.error("Item %s blocked after %d consecutive failures at %s", item_id, count, stage)
+        try:
+            self._commit_item(item_id, before, after)
+        except Exception:
+            self.logger.exception("Committing blocked_reason for %s failed", item_id)
 
     def _commit_item(self, item_id, before, after):
         """Merge one item's pipeline-owned changes into the latest on-disk state.
