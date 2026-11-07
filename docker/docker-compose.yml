@@ -31,9 +31,13 @@ services:
     environment:
       # These are loaded from ~/.antikythera/.env by the entrypoint
       - HOME=/root
+      - ANTIKYTHERA_HOME=/root/.antikythera
     volumes:
-      # Mount user config directory (read-only for security)
-      - ~/.antikythera:/root/.antikythera:ro
+      # Read-write on purpose (P0-9): the AI Engine settings (set default model, set API
+      # key) persist ai_config.json and .ai_env into this directory. A :ro mount made
+      # set-default fail with a 500 and set-key silently not persist. Keep the host
+      # directory private (chmod 700).
+      - ~/.antikythera:/root/.antikythera
       # Mount data directory for persistent state
       - ~/antikythera-data:/app/automation-ideas
       # Optional: mount logs directory
@@ -66,7 +70,8 @@ services:
       - API_PROXY_TARGET=http://backend:8006
       - HOME=/root
     volumes:
-      # Mount config for any UI-level config needs
+      # Stays read-only: the Vite dev server never writes settings. Only backend and
+      # orchestrator need a read-write config mount (P0-9).
       - ~/.antikythera:/root/.antikythera:ro
     networks:
       - antikythera-network
@@ -87,9 +92,13 @@ services:
     command: --start-orchestrator
     environment:
       - HOME=/root
+      - ANTIKYTHERA_HOME=/root/.antikythera
     volumes:
-      # Mount user config directory (read-only for security)
-      - ~/.antikythera:/root/.antikythera:ro
+      # Read-write on purpose (P0-9): the AI Engine settings (set default model, set API
+      # key) persist ai_config.json and .ai_env into this directory. A :ro mount made
+      # set-default fail with a 500 and set-key silently not persist. Keep the host
+      # directory private (chmod 700).
+      - ~/.antikythera:/root/.antikythera
       # Mount data directory for persistent state
       - ~/antikythera-data:/app/automation-ideas
       # Mount logs directory

@@ -142,7 +142,7 @@ services:
     image: antikythera-backend:test
     container_name: antikythera-test-backend
     volumes:
-      - $TEST_CONFIG_DIR:/root/.antikythera:ro
+      - $TEST_CONFIG_DIR:/root/.antikythera
       - $TEST_DATA_DIR:/app/automation-ideas
     networks:
       - test-network
@@ -182,7 +182,7 @@ services:
     image: antikythera-backend:test
     container_name: antikythera-test-backend
     volumes:
-      - $TEST_CONFIG_DIR:/root/.antikythera:ro
+      - $TEST_CONFIG_DIR:/root/.antikythera
       - $TEST_DATA_DIR:/app/automation-ideas
     networks:
       - test-network
@@ -234,7 +234,7 @@ services:
     image: antikythera-backend:test
     container_name: antikythera-test-backend
     volumes:
-      - $TEST_CONFIG_DIR:/root/.antikythera:ro
+      - $TEST_CONFIG_DIR:/root/.antikythera
       - $TEST_DATA_DIR:/app/automation-ideas
     ports:
       - "8007:8006"
@@ -280,7 +280,7 @@ services:
     image: antikythera-backend:test
     container_name: antikythera-test-backend
     volumes:
-      - $TEST_CONFIG_DIR:/root/.antikythera:ro
+      - $TEST_CONFIG_DIR:/root/.antikythera
       - $TEST_DATA_DIR:/app/automation-ideas
     ports:
       - "8007:8006"
@@ -323,7 +323,7 @@ services:
     image: antikythera-backend:test
     container_name: antikythera-test-backend
     volumes:
-      - $TEST_CONFIG_DIR:/root/.antikythera:ro
+      - $TEST_CONFIG_DIR:/root/.antikythera
       - $TEST_DATA_DIR:/app/automation-ideas
     networks:
       - test-network
@@ -335,11 +335,11 @@ EOF
     docker-compose -f "$SCRIPT_DIR/docker-compose.test.yml" up -d
     sleep 5
 
-    log_info "Testing read-only config mount..."
-    if docker exec antikythera-test-backend sh -c "echo test >> /root/.antikythera/.env" 2>&1 | grep -q "Read-only"; then
-        log_pass "Config mount is read-only"
+    log_info "Testing read-write config mount (AI Engine settings persist here, P0-9)..."
+    if docker exec antikythera-test-backend sh -c "echo test >> /root/.antikythera/.env.rwcheck && rm -f /root/.antikythera/.env.rwcheck" 2>&1; then
+        log_pass "Config mount is writable (required for set-default / set-key)"
     else
-        log_fail "Config mount is writable (security issue!)"
+        log_fail "Config mount is not writable (AI Engine settings cannot be saved)"
     fi
 
     docker-compose -f "$SCRIPT_DIR/docker-compose.test.yml" down -v
