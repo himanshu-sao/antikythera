@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
+import re
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 
@@ -354,3 +355,13 @@ class Skill(BaseModel):
 STUDIO_GRAPHS_DIR = "studio_graphs"
 SKILLS_DIR = "skills"
 STUDIO_RUNS_DIR = "studio_runs"
+
+# SEC-11: graph and skill ids become file names under the studio dirs, so they
+# must never contain path separators, dots or other unsafe characters.
+SAFE_STUDIO_ID_PATTERN = r"^[A-Za-z0-9_-]{1,100}$"
+_SAFE_STUDIO_ID_RE = re.compile(SAFE_STUDIO_ID_PATTERN)
+
+
+def is_safe_studio_id(value: Any) -> bool:
+    """True when ``value`` is a string id safe to use as a file name stem."""
+    return isinstance(value, str) and _SAFE_STUDIO_ID_RE.fullmatch(value) is not None

@@ -19,11 +19,12 @@ Endpoints:
 """
 
 import os
+import re
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from api.managers.studio_graph_manager import StudioGraphManager
@@ -38,9 +39,25 @@ from api.models.studio import (
     CapabilityTier,
     NodeArchetype,
     Skill,
+    SAFE_STUDIO_ID_PATTERN,
 )
 
 router = APIRouter(prefix="/api/studio", tags=["Automation Studio"])
+
+# SEC-11: ids are used as file-name stems; path params are validated against the
+# same pattern as the managers (422 on mismatch, before any file is touched).
+GraphIdParam = Annotated[str, Path(pattern=SAFE_STUDIO_ID_PATTERN, description="Studio graph id")]
+SkillIdParam = Annotated[str, Path(pattern=SAFE_STUDIO_ID_PATTERN, description="Skill id")]
+
+# Graph ids derived from a name: "graph_" + slug. Every character outside
+# [a-z0-9_] (spaces, hyphens, "/", ".", etc.) becomes one underscore.
+_GRAPH_SLUG_UNSAFE = re.compile(r"[^a-z0-9_]")
+_GRAPH_SLUG_MAX_LEN = 60  # keeps graph_<slug>_<14-digit collision suffix> <= 100
+
+
+def _graph_id_from_name(name: str) -> str:
+    slug = _GRAPH_SLUG_UNSAFE.sub("_", name.lower())[:_GRAPH_SLUG_MAX_LEN]
+    return f"graph_{slug}"
 
 
 # -----------------------------------------------------------------------------
@@ -194,7 +211,7 @@ class PreviewNodeResponse(BaseModel):
 
 
 class SkillCreateRequest(BaseModel):
-    skill_id: str
+    skill_id: str = Field(..., pattern=SAFE_STUDIO_ID_PATTERN)
     name: str
     description: str
     script: str
@@ -232,7 +249,7 @@ async def create_graph(
     manager: StudioGraphManager = Depends(get_studio_graph_manager),
 ):
     """Create a new Studio Graph."""
-    graph_id = f"graph_{request.name.lower().replace(' ', '_').replace('-', '_')}"
+    graph_id = _graph_id_from_name(request.name)
 
     # Check for collision
     existing = manager.get_graph(graph_id)
@@ -286,7 +303,7 @@ async def list_graphs(manager: StudioGraphManager = Depends(get_studio_graph_man
 
 @router.get("/graphs/{graph_id}", response_model=GraphDetailResponse)
 async def get_graph(
-    graph_id: str,
+    graph_id: GraphIdParam,
     manager: StudioGraphManager = Depends(get_studio_graph_manager),
 ):
     """Get a Studio Graph by ID (full detail)."""
@@ -298,7 +315,7 @@ async def get_graph(
 
 @router.put("/graphs/{graph_id}", response_model=GraphResponse)
 async def update_graph(
-    graph_id: str,
+    graph_id: GraphIdParam,
     request: GraphUpdateRequest,
     manager: StudioGraphManager = Depends(get_studio_graph_manager),
 ):
@@ -345,7 +362,7 @@ async def update_graph(
 
 @router.delete("/graphs/{graph_id}", status_code=204)
 async def delete_graph(
-    graph_id: str,
+    graph_id: GraphIdParam,
     manager: StudioGraphManager = Depends(get_studio_graph_manager),
 ):
     """Delete a Studio Graph."""
@@ -355,7 +372,7 @@ async def delete_graph(
 
 @router.post("/graphs/{graph_id}/run", response_model=RunResponse)
 async def run_graph(
-    graph_id: str,
+    graph_id: GraphIdParam,
     request: RunRequest,
     engine: PathStepGraphEngine = Depends(get_graph_engine),
 ):
@@ -413,7 +430,7 @@ async def preview_node(
 
 @router.get("/graphs/{graph_id}/runs", response_model=List[RunLogResponse])
 async def list_run_logs(
-    graph_id: str,
+    graph_id: GraphIdParam,
     limit: int = 50,
     engine: PathStepGraphEngine = Depends(get_graph_engine),
 ):
@@ -439,7 +456,7 @@ async def list_run_logs(
 
 @router.get("/graphs/{graph_id}/undefined-queue", response_model=UndefinedQueueResponse)
 async def get_undefined_queue(
-    graph_id: str,
+    graph_id: GraphIdParam,
     engine: PathStepGraphEngine = Depends(get_graph_engine),
 ):
     """Get undefined queue items for a graph (cap 100, no auto-expiry, dec #20)."""
@@ -502,7 +519,7 @@ async def list_skills(manager: SkillManager = Depends(get_skill_manager)):
 
 @router.get("/skills/{skill_id}", response_model=SkillDetailResponse)
 async def get_skill(
-    skill_id: str,
+    skill_id: SkillIdParam,
     manager: SkillManager = Depends(get_skill_manager),
 ):
     """Get a Skill by ID (full detail)."""
@@ -514,7 +531,7 @@ async def get_skill(
 
 @router.delete("/skills/{skill_id}", status_code=204)
 async def delete_skill(
-    skill_id: str,
+    skill_id: SkillIdParam,
     manager: SkillManager = Depends(get_skill_manager),
 ):
     """Delete a Skill."""

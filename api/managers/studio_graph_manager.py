@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 from api.managers.base import BaseJSONManager
-from api.models.studio import StudioGraph, STUDIO_GRAPHS_DIR
+from api.models.studio import StudioGraph, STUDIO_GRAPHS_DIR, is_safe_studio_id
 
 
 class StudioGraphManager:
@@ -26,9 +26,18 @@ class StudioGraphManager:
         os.makedirs(self.graphs_dir, exist_ok=True)
 
     def _graph_path(self, graph_id: str) -> str:
-        return os.path.join(self.graphs_dir, f"{graph_id}.json")
+        # SEC-11: graph_id is used as a file-name stem; refuse anything that could
+        # leave graphs_dir (separators, "..", absolute paths, NUL, etc.).
+        if not is_safe_studio_id(graph_id):
+            raise ValueError(f"Unsafe graph_id: {graph_id!r}")
+        path = os.path.join(self.graphs_dir, f"{graph_id}.json")
+        if os.path.dirname(os.path.abspath(path)) != os.path.abspath(self.graphs_dir):
+            raise ValueError(f"Unsafe graph_id: {graph_id!r}")
+        return path
 
     def _load_graph(self, graph_id: str) -> Optional[Dict[str, Any]]:
+        if not is_safe_studio_id(graph_id):
+            return None
         path = self._graph_path(graph_id)
         if not os.path.exists(path):
             return None
@@ -39,6 +48,8 @@ class StudioGraphManager:
             return None
 
     def _save_graph(self, graph_id: str, data: Dict[str, Any]) -> bool:
+        if not is_safe_studio_id(graph_id):
+            return False
         path = self._graph_path(graph_id)
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -69,6 +80,8 @@ class StudioGraphManager:
 
     def delete_graph(self, graph_id: str) -> bool:
         """Delete a graph file."""
+        if not is_safe_studio_id(graph_id):
+            return False
         path = self._graph_path(graph_id)
         if os.path.exists(path):
             try:

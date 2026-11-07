@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 from api.managers.base import BaseJSONManager
-from api.models.studio import Skill, SKILLS_DIR
+from api.models.studio import Skill, SKILLS_DIR, is_safe_studio_id
 
 
 class SkillManager:
@@ -26,9 +26,18 @@ class SkillManager:
         os.makedirs(self.skills_dir, exist_ok=True)
 
     def _skill_path(self, skill_id: str) -> str:
-        return os.path.join(self.skills_dir, f"{skill_id}.json")
+        # SEC-11: skill_id is used as a file-name stem; refuse anything that could
+        # leave skills_dir (separators, "..", absolute paths, NUL, etc.).
+        if not is_safe_studio_id(skill_id):
+            raise ValueError(f"Unsafe skill_id: {skill_id!r}")
+        path = os.path.join(self.skills_dir, f"{skill_id}.json")
+        if os.path.dirname(os.path.abspath(path)) != os.path.abspath(self.skills_dir):
+            raise ValueError(f"Unsafe skill_id: {skill_id!r}")
+        return path
 
     def _load_skill(self, skill_id: str) -> Optional[Dict[str, Any]]:
+        if not is_safe_studio_id(skill_id):
+            return None
         path = self._skill_path(skill_id)
         if not os.path.exists(path):
             return None
@@ -39,6 +48,8 @@ class SkillManager:
             return None
 
     def _save_skill(self, skill_id: str, data: Dict[str, Any]) -> bool:
+        if not is_safe_studio_id(skill_id):
+            return False
         path = self._skill_path(skill_id)
         try:
             os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -69,6 +80,8 @@ class SkillManager:
 
     def delete_skill(self, skill_id: str) -> bool:
         """Delete a skill file."""
+        if not is_safe_studio_id(skill_id):
+            return False
         path = self._skill_path(skill_id)
         if os.path.exists(path):
             try:
