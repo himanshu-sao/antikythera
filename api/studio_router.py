@@ -21,6 +21,8 @@ Endpoints:
 import os
 import re
 import json
+import uuid
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Annotated, Any, Dict, List, Optional
 
@@ -40,6 +42,9 @@ from api.models.studio import (
     NodeArchetype,
     Skill,
     SAFE_STUDIO_ID_PATTERN,
+    CorruptStudioFileError,
+    GraphEdge,
+    validate_graph_shape,
 )
 
 router = APIRouter(prefix="/api/studio", tags=["Automation Studio"])
@@ -58,6 +63,34 @@ _GRAPH_SLUG_MAX_LEN = 60  # keeps graph_<slug>_<14-digit collision suffix> <= 10
 def _graph_id_from_name(name: str) -> str:
     slug = _GRAPH_SLUG_UNSAFE.sub("_", name.lower())[:_GRAPH_SLUG_MAX_LEN]
     return f"graph_{slug}"
+
+
+@contextmanager
+def _corrupt_guard():
+    """Turn a corrupt stored graph/skill into a 409 with a path-free message (R8/P0-5)."""
+    try:
+        yield
+    except CorruptStudioFileError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+def _parse_graph_parts(nodes_raw, edges_raw):
+    """Validate nodes/edges into models, then the graph shape; 422 on any problem (S6)."""
+    # StudioNode is a discriminated Union: use TypeAdapter so the archetype
+    # discriminator routes each node to its concrete model (see a2e2529).
+    adapter = TypeAdapter(StudioNode)
+    try:
+        nodes = [adapter.validate_python(n) for n in nodes_raw]
+        edges = [GraphEdge.model_validate(e) for e in edges_raw]
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors())
+    problems = validate_graph_shape(nodes, edges)
+    if problems:
+        raise HTTPException(
+            status_code=422,
+            detail={"message": "Invalid graph: " + "; ".join(problems), "violations": problems},
+        )
+    return nodes, edges
 
 
 # -----------------------------------------------------------------------------
@@ -251,28 +284,15 @@ async def create_graph(
     """Create a new Studio Graph."""
     graph_id = _graph_id_from_name(request.name)
 
-    # Check for collision
-    existing = manager.get_graph(graph_id)
-    if existing:
-        graph_id = f"{graph_id}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+    # Check for collision. A short random suffix (not a timestamp) so rapid
+    # creates of the same name never overwrite each other (R26).
+    with _corrupt_guard():
+        for _ in range(5):
+            if not manager.get_graph(graph_id):
+                break
+            graph_id = f"{_graph_id_from_name(request.name)}_{uuid.uuid4().hex[:8]}"
 
-    # Convert nodes/edges to models. StudioNode is a discriminated Union —
-    # Union has no model_validate (AttributeError); use TypeAdapter so the
-    # archetype discriminator routes each node to its concrete model (same fix
-    # as the preview-node path, commit a2e2529). Lets save_graph accept a graph
-    # built interactively end-to-end.
-    #
-    # validate_python raises pydantic.ValidationError inline (e.g. an unknown
-    # archetype) — left to bubble that becomes a 500 / unhandled exception.
-    # Wrap it so a malformed node returns a clean 422 (FastAPI does the same
-    # automatically for errors raised inside request-model parsing, but this
-    # validation runs in the handler body so we surface it ourselves).
-    studio_node_adapter = TypeAdapter(StudioNode)
-    try:
-        nodes = [studio_node_adapter.validate_python(n) for n in request.nodes]
-        edges = [GraphEdge.model_validate(e) for e in request.edges]
-    except ValidationError as e:
-        raise HTTPException(status_code=422, detail=e.errors())
+    nodes, edges = _parse_graph_parts(request.nodes, request.edges)
 
     graph = StudioGraph(
         graph_id=graph_id,
@@ -307,7 +327,8 @@ async def get_graph(
     manager: StudioGraphManager = Depends(get_studio_graph_manager),
 ):
     """Get a Studio Graph by ID (full detail)."""
-    graph = manager.get_graph(graph_id)
+    with _corrupt_guard():
+        graph = manager.get_graph(graph_id)
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not found")
     return _graph_to_detail_response(graph)
@@ -320,7 +341,8 @@ async def update_graph(
     manager: StudioGraphManager = Depends(get_studio_graph_manager),
 ):
     """Update a Studio Graph."""
-    graph = manager.get_graph(graph_id)
+    with _corrupt_guard():
+        graph = manager.get_graph(graph_id)
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not found")
 
@@ -331,16 +353,12 @@ async def update_graph(
         graph.description = request.description
     if request.version is not None:
         graph.version = request.version
-    if request.nodes is not None:
-        # StudioNode is a Union → use TypeAdapter, not model_validate (see create_graph).
-        # Wrap in try/except for the same 422-vs-500 reason as create_graph.
-        studio_node_adapter = TypeAdapter(StudioNode)
-        try:
-            graph.nodes = [studio_node_adapter.validate_python(n) for n in request.nodes]
-        except ValidationError as e:
-            raise HTTPException(status_code=422, detail=e.errors())
-    if request.edges is not None:
-        graph.edges = [GraphEdge.model_validate(e) for e in request.edges]
+    if request.nodes is not None or request.edges is not None:
+        # Validate the resulting graph, not just the changed half: renaming a
+        # node must not leave dangling edges (S6).
+        nodes_raw = request.nodes if request.nodes is not None else [n.model_dump(mode="json") for n in graph.nodes]
+        edges_raw = request.edges if request.edges is not None else [e.model_dump(mode="json") for e in graph.edges]
+        graph.nodes, graph.edges = _parse_graph_parts(nodes_raw, edges_raw)
     if request.required_capability is not None:
         graph.required_capability = request.required_capability
     if request.cron_schedule is not None:
@@ -378,7 +396,8 @@ async def run_graph(
 ):
     """Execute a Studio Graph (starts async, returns run_id)."""
     manager = get_studio_graph_manager()
-    graph = manager.get_graph(graph_id)
+    with _corrupt_guard():
+        graph = manager.get_graph(graph_id)
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not found")
 
@@ -461,7 +480,8 @@ async def get_undefined_queue(
 ):
     """Get undefined queue items for a graph (cap 100, no auto-expiry, dec #20)."""
     manager = get_studio_graph_manager()
-    graph = manager.get_graph(graph_id)
+    with _corrupt_guard():
+        graph = manager.get_graph(graph_id)
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not found")
 
@@ -504,6 +524,10 @@ async def create_skill(
         required_capability=request.required_capability,
     )
 
+    # A corrupt file under this id must not be silently replaced (R8/P0-5).
+    with _corrupt_guard():
+        manager._load_skill(skill.skill_id)
+
     if not manager.save_skill(skill):
         raise HTTPException(status_code=500, detail="Failed to save skill")
 
@@ -523,7 +547,8 @@ async def get_skill(
     manager: SkillManager = Depends(get_skill_manager),
 ):
     """Get a Skill by ID (full detail)."""
-    skill = manager.get_skill(skill_id)
+    with _corrupt_guard():
+        skill = manager.get_skill(skill_id)
     if not skill:
         raise HTTPException(status_code=404, detail="Skill not found")
     return _skill_to_detail_response(skill)
@@ -551,18 +576,33 @@ async def get_integration_status():
     if not os.path.exists(config_path):
         return {"integrations": []}
 
+    # R8/P0-5: a corrupt file is reported, not shown as "no integrations".
+    corrupt = {
+        "integrations": [],
+        "error": "integrations.json is corrupt (not a valid JSON object). "
+                 "Restore or recreate it from the Integrations page.",
+    }
     try:
-        with open(config_path, "r") as f:
+        with open(config_path, "r", encoding="utf-8") as f:
             config = json.load(f)
-    except Exception:
-        config = {}
+    except (ValueError, OSError):  # includes JSONDecodeError and bad UTF-8
+        return corrupt
+    if not isinstance(config, dict):
+        return corrupt
 
     integrations = []
     for name, data in config.items():
+        if not isinstance(data, dict):
+            integrations.append({
+                "name": name, "type": "unknown", "adapter_module": None,
+                "status": "invalid", "connected": False,
+            })
+            continue
+        cfg = data.get("config")
         integrations.append({
             "name": name,
             "type": data.get("type", "native"),
-            "adapter_module": data.get("config", {}).get("adapter_module"),
+            "adapter_module": cfg.get("adapter_module") if isinstance(cfg, dict) else None,
             "status": data.get("status", "disconnected"),
             "connected": data.get("status") == "connected",
         })
@@ -653,7 +693,3 @@ def _skill_meta_to_response(meta: Dict[str, Any]) -> SkillResponse:
         tags=meta.get("tags", []),
         required_capability=meta.get("required_capability", "generate"),
     )
-
-
-# Import GraphEdge here for validation
-from api.models.studio import GraphEdge

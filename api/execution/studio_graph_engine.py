@@ -25,7 +25,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from api.managers.studio_graph_manager import StudioGraphManager
@@ -51,6 +51,7 @@ from api.models.studio import (
     ConditionLogic,
     ConditionType,
     STUDIO_RUNS_DIR,
+    validate_graph_shape,
 )
 from api.operator_registry import OperatorRegistry
 from api.executors.safe_executor import SafeExecutor, SafeExecutorError, SecurityError, DependencyRequiredError
@@ -357,6 +358,21 @@ class PathStepGraphEngine:
     async def _execute_graph(self, exec_state: ExecutionState, graph: StudioGraph):
         """Main execution loop for a graph."""
         run_id = exec_state.run_id
+
+        # S6 run-time guard: a graph with a cycle, a duplicate node id or a dangling
+        # edge would recurse forever or run the wrong node. Fail the run instead.
+        problems = validate_graph_shape(graph.nodes, graph.edges)
+        if problems:
+            message = "Invalid graph: " + "; ".join(problems)
+            logger.error(f"Run {run_id} not started: {message}")
+            exec_state.run_log.append({
+                "node_id": "graph",
+                "status": "failed",
+                "error": message,
+                "execution_time_ms": 0,
+            })
+            await self._finalize_run(exec_state, graph, "failed", message)
+            return
 
         try:
             # Build adjacency list for traversal
@@ -1062,9 +1078,15 @@ class PathStepGraphEngine:
     def _prune_run_logs(self, graph_id: str, keep_run_id: Optional[str] = None) -> None:
         """Delete the oldest run logs of ``graph_id`` beyond its ``max_run_logs`` (S9).
 
-        Ordering is by ``started_at`` (oldest first), then by filename. The log
-        identified by ``keep_run_id`` is never pruned. Other graphs' logs are not
-        touched. If the graph has no stored definition, nothing is pruned.
+        Ordering is oldest first by ``started_at``, normalised to UTC (naive values
+        are taken as UTC, aware values are converted). A log whose ``started_at``
+        is unusable falls back to the file's mtime; ties break on filename. The
+        log identified by ``keep_run_id`` is never pruned. Other graphs' logs are
+        not touched. If the graph has no stored definition, nothing is pruned.
+
+        R25: the directory file count is checked first. Each log is parsed only
+        when the directory holds more logs than the limit, since a graph cannot
+        have more logs than there are files.
         """
         try:
             graph = self.studio_graph_manager.get_graph(graph_id) if self.studio_graph_manager else None
@@ -1075,22 +1097,28 @@ class PathStepGraphEngine:
             return
         limit = max(0, int(graph.max_run_logs))
 
+        try:
+            names = [n for n in os.listdir(self.runs_dir) if n.endswith(".json")]
+        except OSError as e:
+            logger.warning(f"Run-log pruning skipped for {graph_id}: {e}")
+            return
+        if len(names) <= limit:
+            return  # cannot exceed the limit; avoid parsing any log
+
         entries = []
-        for filename in os.listdir(self.runs_dir):
-            if not filename.endswith(".json"):
-                continue
+        for filename in names:
             run_id = filename[:-5]
             log = self.get_run_log(run_id)
             if log is None or log.graph_id != graph_id:
                 continue
-            entries.append((log.started_at, filename, run_id))
+            entries.append((self._run_log_sort_key(log, filename), filename, run_id))
 
         entries.sort(key=lambda e: (e[0], e[1]))
         excess = len(entries) - limit
         if excess <= 0:
             return
         removed = 0
-        for _started, filename, run_id in entries:
+        for _key, filename, run_id in entries:
             if removed >= excess:
                 break
             if run_id == keep_run_id:
@@ -1101,6 +1129,25 @@ class PathStepGraphEngine:
             except OSError as e:
                 logger.warning(f"Failed to prune run log {run_id}: {e}")
         logger.info(f"Pruned {removed} run log(s) for graph {graph_id} (max_run_logs={limit})")
+
+    def _run_log_sort_key(self, log: GraphRunLog, filename: str) -> float:
+        """Epoch seconds (UTC) used to order run logs; never raises.
+
+        Naive datetimes are treated as UTC (the engine writes ``utcnow()``).
+        Aware datetimes are converted to UTC. If ``started_at`` cannot be turned
+        into a timestamp, the file's mtime is used instead.
+        """
+        try:
+            started = log.started_at
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            return started.astimezone(timezone.utc).timestamp()
+        except Exception:
+            pass
+        try:
+            return os.path.getmtime(os.path.join(self.runs_dir, filename))
+        except OSError:
+            return 0.0
 
     # -------------------------------------------------------------------------
     # Cron Scheduling Support (dec #7)

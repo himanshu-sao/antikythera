@@ -22,9 +22,11 @@ Decisions implemented (see docs/plans/mighty-greeting-cookie.md Appendix):
 
 from __future__ import annotations
 
+import json
+import os
+import re
 from datetime import datetime
 from enum import Enum
-import re
 from typing import Any, Dict, List, Literal, Optional, Union
 from uuid import uuid4
 
@@ -365,3 +367,131 @@ _SAFE_STUDIO_ID_RE = re.compile(SAFE_STUDIO_ID_PATTERN)
 def is_safe_studio_id(value: Any) -> bool:
     """True when ``value`` is a string id safe to use as a file name stem."""
     return isinstance(value, str) and _SAFE_STUDIO_ID_RE.fullmatch(value) is not None
+
+
+# -----------------------------------------------------------------------------
+# Graph shape validation (S6 / P2-10)
+# -----------------------------------------------------------------------------
+
+def validate_graph_shape(nodes: List[Any], edges: List[Any]) -> List[str]:
+    """Return human-readable problems with a graph's shape (empty list = valid).
+
+    Checks, in order:
+    - duplicate node ids;
+    - edges whose source or target is not a node of the graph;
+    - cycles. Loop edges (``source_handle == "loop"``) count as ordinary edges
+      here, so a loop edge pointing back at its own FanOut ancestor chain is a
+      cycle too. Uses Kahn's algorithm; the nodes left over are on a cycle.
+
+    ``nodes`` / ``edges`` may be models or plain dicts.
+    """
+
+    def _get(obj: Any, key: str) -> Any:
+        return obj.get(key) if isinstance(obj, dict) else getattr(obj, key, None)
+
+    problems: List[str] = []
+
+    seen: Dict[str, int] = {}
+    for node in nodes:
+        nid = _get(node, "node_id")
+        seen[nid] = seen.get(nid, 0) + 1
+    for nid, count in seen.items():
+        if count > 1:
+            problems.append(f"Duplicate node id '{nid}' ({count} nodes share it)")
+
+    node_ids = set(seen)
+    valid_edges = []
+    for edge in edges:
+        src, dst = _get(edge, "source"), _get(edge, "target")
+        missing = [
+            f"{label} '{value}'"
+            for label, value in (("source", src), ("target", dst))
+            if value not in node_ids
+        ]
+        if missing:
+            problems.append(
+                f"Edge {src!r} -> {dst!r} references a node that does not exist: " + ", ".join(missing)
+            )
+        else:
+            valid_edges.append((src, dst))
+
+    indegree: Dict[str, int] = {nid: 0 for nid in node_ids}
+    successors: Dict[str, List[str]] = {nid: [] for nid in node_ids}
+    for src, dst in valid_edges:
+        successors[src].append(dst)
+        indegree[dst] += 1
+    queue = [nid for nid, deg in indegree.items() if deg == 0]
+    visited = 0
+    while queue:
+        current = queue.pop()
+        visited += 1
+        for nxt in successors[current]:
+            indegree[nxt] -= 1
+            if indegree[nxt] == 0:
+                queue.append(nxt)
+    if visited < len(node_ids):
+        cyclic = sorted(nid for nid, deg in indegree.items() if deg > 0)
+        problems.append("Graph contains a cycle involving: " + ", ".join(str(n) for n in cyclic))
+
+    return problems
+
+
+# -----------------------------------------------------------------------------
+# Corrupt on-disk file handling (R8 / P0-5)
+# -----------------------------------------------------------------------------
+
+class CorruptStudioFileError(RuntimeError):
+    """A graph or skill file exists but is not a readable JSON object.
+
+    The message carries no filesystem path (only the id and the backup file's
+    name). The unreadable file is copied to ``<file>.corrupt-<UTC>`` by the
+    manager and the original is left in place, so a later create with the same
+    id cannot silently overwrite it.
+    """
+
+    def __init__(self, kind: str, item_id: str, backup_name: Optional[str] = None):
+        self.kind = kind
+        self.item_id = item_id
+        self.backup_name = backup_name
+        detail = f" A copy was saved as '{backup_name}'." if backup_name else ""
+        super().__init__(
+            f"The stored {kind} '{item_id}' is corrupt and cannot be read.{detail} "
+            f"The original file was left untouched; restore or remove it before retrying."
+        )
+
+
+def load_studio_json_object(path: str, kind: str, item_id: str) -> Optional[Dict[str, Any]]:
+    """Read ``path`` as a JSON object. Missing file -> None.
+
+    Invalid JSON, bad UTF-8, a non-object root or an unreadable file raise
+    :class:`CorruptStudioFileError`. Unparseable content is quarantined the same
+    way ``api/managers/base.py`` does it (copy to ``<file>.corrupt-<UTC>``,
+    identical backups reused, original left in place).
+    """
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError
+        raise CorruptStudioFileError(kind, item_id, _quarantine_studio_file(path, exc)) from exc
+    except OSError as exc:
+        raise CorruptStudioFileError(kind, item_id) from exc
+    if not isinstance(data, dict):
+        exc = ValueError(f"root is {type(data).__name__}, expected a JSON object")
+        raise CorruptStudioFileError(kind, item_id, _quarantine_studio_file(path, exc))
+    return data
+
+
+def _quarantine_studio_file(path: str, exc: Exception) -> Optional[str]:
+    """Back up an unreadable file via BaseJSONManager._quarantine; return the backup's file name.
+
+    Imported lazily to avoid a models -> managers import cycle.
+    """
+    from api.managers.base import BaseJSONManager
+
+    try:
+        helper = BaseJSONManager(os.path.dirname(path), os.path.basename(path))
+        return os.path.basename(helper._quarantine(exc).backup_path)
+    except Exception:  # backup is best effort; the original is never touched
+        return None

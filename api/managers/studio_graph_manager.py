@@ -7,11 +7,13 @@ One file per graph for isolation and concurrent access safety.
 
 import os
 import json
+import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
-from api.managers.base import BaseJSONManager
-from api.models.studio import StudioGraph, STUDIO_GRAPHS_DIR, is_safe_studio_id
+from api.models.studio import CorruptStudioFileError, load_studio_json_object, StudioGraph, STUDIO_GRAPHS_DIR, is_safe_studio_id
+
+logger = logging.getLogger(__name__)
 
 
 class StudioGraphManager:
@@ -39,13 +41,10 @@ class StudioGraphManager:
         if not is_safe_studio_id(graph_id):
             return None
         path = self._graph_path(graph_id)
-        if not os.path.exists(path):
-            return None
-        try:
-            with open(path, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return None
+        # Missing file -> None ("not found"). A corrupt file raises
+        # CorruptStudioFileError after being quarantined (R8/P0-5), so callers
+        # never mistake it for a free id and overwrite it.
+        return load_studio_json_object(path, "graph", graph_id)
 
     def _save_graph(self, graph_id: str, data: Dict[str, Any]) -> bool:
         if not is_safe_studio_id(graph_id):
@@ -97,7 +96,12 @@ class StudioGraphManager:
         for filename in os.listdir(self.graphs_dir):
             if filename.endswith(".json"):
                 graph_id = filename[:-5]
-                data = self._load_graph(graph_id)
+                try:
+                    data = self._load_graph(graph_id)
+                except CorruptStudioFileError as e:
+                    # Already quarantined; one bad file must not hide the others.
+                    logger.warning("Skipping corrupt graph in listing: %s", e)
+                    continue
                 if data:
                     # Return only metadata for listing
                     graphs.append({
@@ -124,7 +128,11 @@ class StudioGraphManager:
         for filename in os.listdir(self.graphs_dir):
             if filename.endswith(".json"):
                 graph_id = filename[:-5]
-                graph = self.get_graph(graph_id)
+                try:
+                    graph = self.get_graph(graph_id)
+                except CorruptStudioFileError as e:
+                    logger.warning("Skipping corrupt graph: %s", e)
+                    continue
                 if graph:
                     graphs.append(graph)
         return graphs
