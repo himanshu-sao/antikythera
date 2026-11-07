@@ -54,6 +54,27 @@ def _format_env_line(key: str, value: str) -> str:
     return f"{key}={quoted}"
 
 
+def _antikythera_dir(use_pwd: bool = False) -> Path:
+    """The ``.antikythera`` directory: ``$ANTIKYTHERA_HOME`` when set, else ``<home>/.antikythera``.
+
+    ``ANTIKYTHERA_HOME`` names the directory itself (as docker/entrypoint.sh uses it) and
+    redirects both the config file and the persisted env file. Without it the existing
+    defaults apply, unchanged: the config file uses ``Path.home()``, and the env file
+    (``use_pwd=True``) uses the home from the password database, so an overridden ``HOME``
+    cannot move it.
+    """
+    override = os.environ.get("ANTIKYTHERA_HOME", "").strip()
+    if override:
+        return Path(os.path.expanduser(override))
+    if use_pwd:
+        try:
+            import pwd
+            return Path(pwd.getpwuid(os.getuid()).pw_dir) / ".antikythera"
+        except Exception:
+            pass  # not available on non-POSIX: fall through to Path.home()
+    return Path.home() / ".antikythera"
+
+
 class AIEngineConfigError(Exception):
     """Custom exception for AI engine configuration errors"""
     pass
@@ -77,10 +98,9 @@ class AIEngineConfigService:
         self._load_persistent_env()
     
     def _get_default_config_path(self) -> str:
-        """Get default config file path"""
-        home = Path.home()
-        antikythera_dir = home / ".antikythera"
-        antikythera_dir.mkdir(exist_ok=True)
+        """Get default config file path (``<antikythera dir>/ai_config.json``)."""
+        antikythera_dir = _antikythera_dir()
+        antikythera_dir.mkdir(parents=True, exist_ok=True)
         return str(antikythera_dir / "ai_config.json")
     
     def load_config(self) -> AIEngineConfig:
@@ -682,20 +702,13 @@ class AIEngineConfigService:
     def _persistent_env_path(self) -> str:
         """Return the path to the persisted env file used by Antikythera.
 
-        The file is deliberately placed under the **real** user's home directory so it
-        survives a container or VM restart but remains outside the project
-        source tree. We resolve the true home directory via the password database
-        rather than the potentially overridden ``HOME`` environment variable (which
-        may point to an Antikythera profile directory).
+        Lives in the Antikythera directory (see ``_antikythera_dir``). By default that is
+        under the **real** user's home directory, so it survives a container or VM restart
+        and stays outside the project tree; the password database is used rather than the
+        overridable ``HOME``. ``ANTIKYTHERA_HOME`` redirects it (tests and containers).
         """
-        try:
-            import pwd
-            real_home = pwd.getpwuid(os.getuid()).pw_dir
-        except Exception:
-            # Fallback to Path.home() if pwd lookup fails (e.g., on non‑POSIX).
-            real_home = str(Path.home())
-        antikythera_dir = Path(real_home) / ".antikythera"
-        antikythera_dir.mkdir(exist_ok=True)
+        antikythera_dir = _antikythera_dir(use_pwd=True)
+        antikythera_dir.mkdir(parents=True, exist_ok=True)
         return str(antikythera_dir / ".ai_env")
 
     def _load_persistent_env(self) -> None:
