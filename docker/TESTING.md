@@ -123,10 +123,11 @@ docker-compose up -d
 ### 7. Test Config Isolation
 
 ```bash
-# Verify config is read-only inside container
-docker exec antikythera-backend sh -c "echo test >> /root/.antikythera/.env"
+# Verify config is writable inside the backend container (AI Engine settings need it)
+docker exec antikythera-backend sh -c "touch /root/.antikythera/.rwcheck && rm /root/.antikythera/.rwcheck"
 
-# Expected: "Read-only file system" error
+# Expected: no error. A "Read-only file system" error means the compose file still
+# mounts ~/.antikythera with :ro, and set-default / set-key will fail.
 ```
 
 ### 8. Full Integration Test
@@ -175,7 +176,7 @@ rm ~/.antikythera/.env.test ~/.antikythera/.env.real
 | **API responds** | `curl http://localhost:8006/` | `{"message":"Antikythera API is running"}` |
 | **UI loads** | Browser: http://localhost:5173 | Kanban board renders |
 | **Data persists** | `docker-compose down` + `up`, check `~/antikythera-data/` | Files unchanged |
-| **Config is read-only** | `docker exec ... echo test >> .env` | "Read-only file system" |
+| **Config is writable** | `docker exec antikythera-backend touch /root/.antikythera/.rwcheck` | No error (backend and orchestrator only) |
 
 ---
 

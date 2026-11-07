@@ -221,12 +221,32 @@ On startup, Antikythera validates your configuration:
 
 All data persists even if you delete containers. The `~/.antikythera/` directory on your host contains credentials, and `~/antikythera-data/` contains application state.
 
+**The image contains no user data.** `automation-ideas/` is never copied into the image (it is excluded by the root `.dockerignore`); the container only gets an empty `/app/automation-ideas` mount point, and your data comes from the `~/antikythera-data` mount. The image does contain `config.yaml` (provider and model names and the names of the environment variables that hold keys, never key values), because the agents load it when the orchestrator starts.
+
 ### Backup Your Data
 
+Use the backup script from a checkout of the repository. It writes a timestamped, `0600` `tar.gz` that includes dotfiles (such as `.vault.key`), skips `*.lock` files, and keeps the newest 14 archives:
+
 ```bash
-# Backup all Antikythera data
-tar -czf antikythera-backup-$(date +%Y%m%d).tar.gz \
-    ~/.antikythera ~/antikythera-data
+# Back up the Docker data directory
+scripts/backup_data.sh ~/antikythera-data
+
+# Back up the local (non-Docker) data directory, <repo>/automation-ideas
+scripts/backup_data.sh
+```
+
+| Setting | Default | Meaning |
+|---------|---------|---------|
+| `ANTIKYTHERA_BACKUP_DIR` | `~/antikythera-backups` | Where archives are written (created with mode `0700`) |
+| `ANTIKYTHERA_BACKUP_KEEP` | `14` | Number of newest archives to keep; older ones are removed |
+
+The archives contain secrets, so keep them as private as the data directory. Example cron entry (daily at 02:30): `30 2 * * * /path/to/antikythera/scripts/backup_data.sh ~/antikythera-data`. To restore: `tar -C <empty dir> -xzf <archive>`.
+
+`~/.antikythera` (credentials and AI Engine settings) is not part of this archive; copy it separately if you want it backed up:
+
+```bash
+tar -czf antikythera-config-$(date +%Y%m%d).tar.gz ~/.antikythera
+chmod 600 antikythera-config-*.tar.gz
 ```
 
 ---
@@ -298,7 +318,7 @@ services:
 ### Production Deployment
 
 For production, use the production compose file which includes:
-- Nginx for serving static frontend
+- Nginx serving the built UI (the `prod` stage of `Dockerfile.ui`, built locally with `--build`; `/api/` is proxied to the backend)
 - Named volumes instead of bind mounts
 - Restart policies
 
@@ -341,7 +361,9 @@ services:
 
 1. **Never commit credentials**: The `~/.antikythera/.env` file contains secrets. Never add it to version control.
 
-2. **Read-only config mount**: Config is mounted as `:ro` (read-only) in containers to prevent accidental modification.
+2. **Config mount is read-write for backend and orchestrator**: the AI Engine settings page saves the default model to `~/.antikythera/ai_config.json` and API keys to `~/.antikythera/.ai_env`, so those two services mount `~/.antikythera` without `:ro`. With `:ro`, setting a default model failed with a 500 and setting a key silently did not persist. Keep the host directory private (`chmod 700 ~/.antikythera`). The frontend container does not need it. The containers set `ANTIKYTHERA_HOME=/root/.antikythera` so the service uses the mounted directory explicitly.
+
+   The entrypoint reads `.env` and `.ai_env` as plain `KEY=VALUE` lines (it never runs them as shell), so a `$(...)` or backtick in a value is kept as text and is not executed.
 
 3. **Network isolation**: All services communicate over an internal Docker network. Only backend (8006) and frontend (5173) are exposed.
 
@@ -350,6 +372,10 @@ services:
 ---
 
 ## Updating Antikythera
+
+> **Rebuild and recreate after pulling these changes.** The image now includes `config.yaml` (the orchestrator could not start without it), and the compose files changed (read-write config mount). Run `docker-compose build --no-cache` (or `docker-compose pull`) and then `docker-compose up -d --force-recreate`. For production: `docker-compose -f docker-compose.prod.yml up -d --build`.
+>
+> **Rotate secrets if you used an image published before commit `eac8428`.** Those images were built with `automation-ideas/` copied in, so the pipeline state, integration records and vault files that were on the build machine are inside the image layers. Anyone who pulled the image can read them. Treat every credential that could have been in that data (Jira tokens, API keys, the vault key and anything the vault held) as exposed: revoke and reissue it, delete the old image tags from Docker Hub, and pull a freshly built image.
 
 ```bash
 # Pull latest images
@@ -386,8 +412,8 @@ A: Yes, but you'll need different ports for each instance. Either:
 **Q: What happens if I lose my `~/.antikythera/.env` file?**  
 A: The containers won't start. The entrypoint script validates that required variables are present. Simply recreate the file with your credentials.
 
-**Q: Why is my config mounted as read-only?**  
-A: Security! Containers should never modify your credentials. The `:ro` flag prevents any container from accidentally (or maliciously) changing your secrets.
+**Q: Is my config mounted read-only?**  
+A: Not for the backend and orchestrator. The AI Engine settings page needs to write `ai_config.json` and `.ai_env` into `~/.antikythera`, so that mount is read-write (the frontend container has no need for it). Keep the directory private with `chmod 700 ~/.antikythera`.
 
 **Q: I added a new API key but it's not being picked up. Why?**  
 A: Restart the container: `docker-compose restart backend`. Environment variables are loaded at container start.
@@ -464,9 +490,9 @@ ports:
   - "8007:8006"  # Use 8007 externally, 8006 internally
 ```
 
-**Q: "Read-only file system" when trying to save config**
+**Q: "Read-only file system" or a 500 when saving AI Engine settings**
 
-**A:** This is expected! Config is mounted read-only. Modify `~/.antikythera/.env` on your host, not inside the container.
+**A:** Your compose file still mounts `~/.antikythera` with `:ro`. Update to the current compose files (the backend and orchestrator mount it read-write) and recreate the containers: `docker-compose up -d --force-recreate`. `.env` itself is still best edited on the host.
 
 **Q: Data directory permission denied**
 
@@ -515,7 +541,7 @@ docker-compose build --no-cache
 
 **Q: Can I use this in production?**  
 A: Yes! Use `docker-compose.prod.yml` which includes:
-- Nginx for serving static frontend
+- Nginx serving the built UI (`Dockerfile.ui`, `target: prod`)
 - Named volumes for data
 - Resource limits
 - Restart policies
@@ -527,8 +553,7 @@ docker-compose -f docker-compose.prod.yml up -d
 **Q: How do I backup my data?**
 
 ```bash
-tar -czf antikythera-backup-$(date +%Y%m%d).tar.gz \
-    ~/.antikythera ~/antikythera-data
+scripts/backup_data.sh ~/antikythera-data     # rotating, 0600 archives (see "Backup Your Data")
 ```
 
 ---
@@ -621,7 +646,7 @@ docker-compose up orchestrator
     ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
     │   Config    │  │    Data     │  │   Logs      │
     │ ~/.ant...   │  │ ~/ant...    │  │ ./logs/     │
-    │ (read-only) │  │ (read/write)│  │ (optional)  │
+    │ (read/write)│  │ (read/write)│  │ (optional)  │
     └─────────────┘  └─────────────┘  └─────────────┘
 ```
 

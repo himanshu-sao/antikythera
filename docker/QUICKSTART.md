@@ -45,14 +45,14 @@ cd docker
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | Backend + orchestrator image |
-| `Dockerfile.ui` | Frontend (Vite) image |
+| `Dockerfile.ui` | Frontend image: Vite dev server (default), or `--target prod` for nginx with the built UI |
 | `docker-compose.yml` | Dev compose (bind mounts, hot reload) |
-| `docker-compose.prod.yml` | Production (nginx, named volumes) |
+| `docker-compose.prod.yml` | Production (nginx serving the built UI, named volumes) |
 | `docker-compose.user.yml` | Minimal compose for users |
 | `entrypoint.sh` | Config validation + backend start |
 | `ui-entrypoint.sh` | Frontend start |
 | `build-docker.sh` | Build/push script |
-| `nginx.conf` | Production nginx config |
+| `nginx.conf` | Production nginx config (baked into the `prod` image) |
 | `README.md` | Full documentation |
 
 ---
@@ -92,4 +92,14 @@ docker-compose down && docker-compose up
 
 # Rebuild images
 docker-compose build --no-cache
+
+# Back up your data (rotating 0600 archives in ~/antikythera-backups)
+scripts/backup_data.sh ~/antikythera-data
 ```
+
+## Notes
+
+- **No data in the image.** `automation-ideas/` is never copied into the image; your data lives in `~/antikythera-data`. `config.yaml` (provider and model names only) is copied in.
+- **`~/.antikythera` is mounted read-write** for the backend and orchestrator: the AI Engine settings page saves `ai_config.json` and `.ai_env` there. Keep it private: `chmod 700 ~/.antikythera`.
+- **Rebuild after updating**, then `docker-compose up -d --force-recreate`. Old images lack `config.yaml`, so the orchestrator cannot start.
+- **Rotate secrets** if you pulled an image published before commit `eac8428`: those images contained a copy of the build machine's `automation-ideas/` data. Revoke and reissue the credentials that could have been in it, and remove the old tags.
