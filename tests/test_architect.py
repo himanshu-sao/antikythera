@@ -10,6 +10,47 @@ from unittest.mock import patch
 from agents import architect
 
 
+_FULL_DOC = """# Architecture for ID-001: Test Idea
+
+## Architecture Diagram
+```mermaid
+graph TD; A-->B;
+```
+
+## Tech Stack Decisions
+- Python
+
+## Risk Flags
+- Low
+
+## Dry-Run Notes
+- None
+
+## Constraints and Assumptions
+- None
+"""
+
+
+class _FakeArchitectLLM:
+    """Deterministic stand-in for the module-level LLMClient in agents.architect."""
+
+    def __init__(self, reply=_FULL_DOC):
+        self.reply = reply
+        self.calls = []
+
+    def generate_structured_content(self, system_prompt, user_prompt):
+        self.calls.append((system_prompt, user_prompt))
+        return self.reply
+
+
+@pytest.fixture(autouse=True)
+def fake_architect_llm(monkeypatch):
+    """Never reach a real provider: these tests assert on our code, not a model."""
+    fake = _FakeArchitectLLM()
+    monkeypatch.setattr(architect, "llm", fake)
+    return fake
+
+
 class TestArchitectIdea:
     def test_architect_idea_creates_architecture_file(self):
         """architect_idea should create an architecture.md file."""
@@ -216,6 +257,26 @@ class TestGenerateArchitecture:
         """Generated architecture should skip patterns section when not provided."""
         content = architect._generate_architecture_content("ID-001", "# Test Idea\n\nContent")
         assert "Patterns Referenced" not in content
+
+    def test_generate_architecture_passes_spec_to_llm(self, fake_architect_llm):
+        architect._generate_architecture_content("ID-001", "# Test Idea\n\nSpecific spec body")
+        assert len(fake_architect_llm.calls) == 1
+        assert "Specific spec body" in fake_architect_llm.calls[0][1]
+
+    def test_generate_architecture_falls_back_to_template_on_stub_reply(self, fake_architect_llm):
+        """A stub/garbage LLM reply with no required section gets the full template."""
+        fake_architect_llm.reply = "[stub response - google LLM call failed: offline]"
+        content = architect._generate_architecture_content("ID-001", "# Test Idea\n\nContent")
+        for section in ("Architecture Diagram", "Tech Stack", "Risk Flags", "Dry-Run", "Constraints"):
+            assert section in content
+        assert "Architecture for ID-001: Test Idea" in content
+
+    def test_generate_architecture_keeps_partial_llm_reply(self, fake_architect_llm):
+        """If the reply has at least one required section, it is used as-is (no template)."""
+        fake_architect_llm.reply = "# Architecture\n\n## Tech Stack Decisions\n- Go\n"
+        content = architect._generate_architecture_content("ID-001", "# Test Idea\n\nContent")
+        assert "Go" in content
+        assert "Dry-Run" not in content
 
     def test_extract_title_from_spec(self):
         """_extract_title should extract the title from spec content."""

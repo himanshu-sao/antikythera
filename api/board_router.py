@@ -11,6 +11,9 @@ from api.workflow_state_manager import WorkflowStateManager
 
 router = APIRouter(prefix="/api", tags=["Board Items"])
 
+# Per-item artifact directory. Module-level so tests can redirect it.
+REQUIREMENTS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements"))
+
 # Initialize manager
 # State manager is obtained via the getter to allow test overrides
 from api.main import get_state_manager
@@ -122,7 +125,7 @@ async def get_artifact(item_id: str, artifact_name: str):
     from api.main import get_state_manager
     if not get_state_manager().get_item_details(item_id):
         return Response(status_code=204)
-    artifact_path = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", item_id, artifact_name)
+    artifact_path = os.path.join(REQUIREMENTS_DIR, item_id, artifact_name)
     if not os.path.exists(artifact_path):
         return Response(status_code=204)
     return FileResponse(artifact_path)
@@ -141,7 +144,7 @@ async def update_artifact_content(item_id: str, artifact_name: str, request: dic
     from api.main import get_state_manager
     if not get_state_manager().get_item_details(item_id):
         raise HTTPException(status_code=500, detail="Item not found for update")
-    artifact_path = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", item_id, artifact_name)
+    artifact_path = os.path.join(REQUIREMENTS_DIR, item_id, artifact_name)
     temp_path = artifact_path + ".tmp"
     try:
         with open(temp_path, "w") as f:
@@ -172,7 +175,7 @@ async def promote_pattern(item_id: str, artifact_name: str):
     valid_artifacts = ["spec.md", "architecture.md", "tests.md"]
     if artifact_name not in valid_artifacts:
          raise HTTPException(status_code=400, detail="Only spec, architecture, or tests can be promoted to patterns.")
-    artifact_path = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", item_id, artifact_name)
+    artifact_path = os.path.join(REQUIREMENTS_DIR, item_id, artifact_name)
     if not os.path.exists(artifact_path):
         raise HTTPException(status_code=404, detail="Artifact not found")
     try:

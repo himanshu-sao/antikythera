@@ -5,6 +5,7 @@ import shutil
 from fastapi.testclient import TestClient
 from api.main import app
 from api.state_manager import StateManager
+from api import board_router  # REQUIREMENTS_DIR is redirected to tmp by conftest.isolate_data_dir
 
 class TestApi(unittest.TestCase):
     def setUp(self):
@@ -114,7 +115,7 @@ class TestApi(unittest.TestCase):
         self.assertIn(response.status_code, [400, 404, 422])
 
     def test_get_artifact_valid_item_id_success(self):
-        test_dir = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", "ID-001")
+        test_dir = os.path.join(board_router.REQUIREMENTS_DIR, "ID-001")
         os.makedirs(test_dir, exist_ok=True)
         test_file = os.path.join(test_dir, "spec.md")
         with open(test_file, "w") as f:
@@ -147,7 +148,7 @@ class TestApi(unittest.TestCase):
         self.assertEqual(response.json()["title"], "Test Item 1")
 
     def test_get_artifact_lowercase_item_id(self):
-        test_dir = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", "ID-001")
+        test_dir = os.path.join(board_router.REQUIREMENTS_DIR, "ID-001")
         os.makedirs(test_dir, exist_ok=True)
         test_file = os.path.join(test_dir, "spec.md")
         with open(test_file, "w") as f:
@@ -166,7 +167,7 @@ class TestApi(unittest.TestCase):
                 pass
 
     def test_update_artifact_content_success(self):
-        test_dir = os.path.join(os.path.dirname(__file__), "..", "automation-ideas", "requirements", "ID-001")
+        test_dir = os.path.join(board_router.REQUIREMENTS_DIR, "ID-001")
         os.makedirs(test_dir, exist_ok=True)
         artifact_path = os.path.join(test_dir, "review.md")
         content = "Updated review content"
