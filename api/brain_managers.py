@@ -213,17 +213,17 @@ class ObserverManager(ObserverManagerInterface):
             # Detect successful workflow patterns
             elif e_type == "TASK_COMPLETED":
                 workflow_desc = payload.get("summary", "")
-            if workflow_desc:
-                new_deltas.append(CognitiveDelta(
-                    target_artifact="skills.md",
-                    change_type="ADD",
-                    proposed_content=f"## {workflow_desc.split('.')[0]}\n- {workflow_desc}",
-                    reason="Extracted pattern from successful task completion in timeline.",
-                    status="PENDING",
-                    confidence_score=55,
-                    original_content=None,
-                    source_event_id=None,
-                    refined_by_comment=None
-                ))
+                if workflow_desc:
+                    new_deltas.append(CognitiveDelta(
+                        target_artifact="skills.md",
+                        change_type="ADD",
+                        proposed_content=f"## {workflow_desc.split('.')[0]}\n- {workflow_desc}",
+                        reason="Extracted pattern from successful task completion in timeline.",
+                        status="PENDING",
+                        confidence_score=55,
+                        original_content=None,
+                        source_event_id=None,
+                        refined_by_comment=None
+                    ))
 
         return new_deltas
