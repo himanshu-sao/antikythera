@@ -1,16 +1,24 @@
 from datetime import datetime
 from typing import Optional
+from api.settings_store import get_setting
 from api.workflow_state_manager import WorkflowStateManager
 
 class RetryManager:
     """
-    Implements the Antikythera failure handling standard:
-    3 retries at 5, 10, and 15-minute intervals before blocking.
+    Implements the Antikythera failure handling standard: retries at the
+    ``retry_delays_min`` setting (default 5, 10, 15 minutes), then BLOCKED.
+
+    The delays are read per call (``get_setting``), so a Settings change takes
+    effect on the next failure without a restart.
     """
-    RETRY_INTERVALS = [5, 10, 15] # in minutes
 
     def __init__(self, state_manager: WorkflowStateManager):
         self.state_manager = state_manager
+
+    @staticmethod
+    def retry_intervals() -> list:
+        """Current retry delays in minutes (the ``retry_delays_min`` setting)."""
+        return list(get_setting("retry_delays_min"))
 
     def should_retry(self, run_id: str) -> Optional[int]:
         """
@@ -22,9 +30,10 @@ class RetryManager:
             return None
 
         retry_count = run.get("retry_count", 0)
-        
-        if retry_count < len(self.RETRY_INTERVALS):
-            return self.RETRY_INTERVALS[retry_count]
+        intervals = self.retry_intervals()
+
+        if retry_count < len(intervals):
+            return intervals[retry_count]
         
         return None
 
@@ -47,7 +56,7 @@ class RetryManager:
         updates = {"retry_count": retry_count}
         
         # If we've exhausted retries, move to BLOCKED
-        if retry_count > len(self.RETRY_INTERVALS):
+        if retry_count > len(self.retry_intervals()):
             updates["status"] = "BLOCKED"
             self.state_manager.log_event(
                 run_id, 
