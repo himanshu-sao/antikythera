@@ -219,5 +219,144 @@ class TestApi(unittest.TestCase):
         response = self.client.patch("/api/item/ID-001", json={"due_date": "31-12-2026"})
         self.assertEqual(response.status_code, 422)
 
+
+class TestMoveGate(unittest.TestCase):
+    """D5: /api/move rejects a move out of an unapproved REVIEW_* stage and a
+    move into a stage the item's complexity tier skips, unless force=true."""
+
+    def setUp(self):
+        import api.main
+        self._tmp_dir = tempfile.mkdtemp(prefix="antikythera_movegate_")
+        self.state_path = os.path.join(self._tmp_dir, "pipeline-state.json")
+        self.client = TestClient(app)
+        self._prev_state_manager = api.main.state_manager
+        api.main.state_manager = StateManager(self._tmp_dir)
+        api.main.state_manager.state_path = self.state_path
+        self._write({
+            "ID-001": {"stage": "REVIEW_SPEC", "review_status": "PENDING"},
+            "ID-002": {"stage": "INTAKE", "complexity": "trivial"},
+            "ID-003": {"stage": "INTAKE", "complexity": "bogus"},
+            "ID-004": {"stage": "INTAKE"},
+            "ID-005": {"stage": "INTAKE", "complexity": "simple"},
+            "ID-006": {"stage": "REVIEW_SPEC", "review_status": "APPROVED"},
+            "ID-007": {"stage": "REVIEW_SPEC", "review_status": "NEEDS_REVISION"},
+        })
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp_dir, ignore_errors=True)
+        import api.main
+        api.main.state_manager = self._prev_state_manager
+
+    def _write(self, items):
+        data = {"stages": ["INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE", "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"], "items": {}}
+        for item_id, fields in items.items():
+            entry = {"title": item_id, "priority": "medium", "comments": [],
+                     "created_at": "2026-05-15T00:00:00Z", "updated_at": "2026-05-15T00:00:00Z"}
+            entry.update(fields)
+            data["items"][item_id] = entry
+        with open(self.state_path, "w") as f:
+            json.dump(data, f)
+
+    def _stage(self, item_id):
+        with open(self.state_path) as f:
+            return json.load(f)["items"][item_id]["stage"]
+
+    def _move(self, item_id, new_stage, **extra):
+        body = {"item_id": item_id, "new_stage": new_stage, **extra}
+        return self.client.post("/api/move", json=body)
+
+    # --- Review gate ---
+
+    def test_move_out_of_review_without_approval_is_422(self):
+        r = self._move("ID-001", "ARCHITECTURE")
+        self.assertEqual(r.status_code, 422)
+        detail = r.json()["detail"]
+        self.assertIn("Review gate", detail)
+        self.assertIn("force", detail)
+        self.assertEqual(self._stage("ID-001"), "REVIEW_SPEC")
+
+    def test_move_out_of_review_with_needs_revision_is_422(self):
+        r = self._move("ID-007", "ARCHITECTURE")
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("NEEDS_REVISION", r.json()["detail"])
+        self.assertEqual(self._stage("ID-007"), "REVIEW_SPEC")
+
+    def test_move_out_of_review_with_approval_succeeds(self):
+        r = self._move("ID-006", "ARCHITECTURE")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(r.json()["status"], "success")
+        self.assertEqual(self._stage("ID-006"), "ARCHITECTURE")
+
+    def test_approval_does_not_carry_into_next_review_gate(self):
+        self._move("ID-006", "ARCHITECTURE")
+        with open(self.state_path) as f:
+            self.assertEqual(json.load(f)["items"]["ID-006"]["review_status"], "PENDING")
+
+    def test_review_gate_force_overrides(self):
+        r = self._move("ID-001", "ARCHITECTURE", force=True)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._stage("ID-001"), "ARCHITECTURE")
+
+    def test_move_within_review_stage_is_not_gated(self):
+        r = self._move("ID-001", "REVIEW_SPEC")
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_move_into_review_stage_from_pending_item_is_allowed(self):
+        r = self._move("ID-004", "REVIEW_SPEC")
+        self.assertEqual(r.status_code, 200, r.text)
+
+    # --- Complexity tier path ---
+
+    def test_move_into_tier_skipped_stage_is_422(self):
+        r = self._move("ID-002", "ARCHITECTURE")  # trivial skips ARCHITECTURE
+        self.assertEqual(r.status_code, 422)
+        detail = r.json()["detail"]
+        self.assertIn("Tier path", detail)
+        self.assertIn("trivial", detail)
+        self.assertIn("force", detail)
+        self.assertEqual(self._stage("ID-002"), "INTAKE")
+
+    def test_move_into_tier_path_stage_succeeds(self):
+        r = self._move("ID-002", "REFINEMENT")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._stage("ID-002"), "REFINEMENT")
+
+    def test_tier_skip_force_succeeds(self):
+        r = self._move("ID-002", "ARCHITECTURE", force=True)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._stage("ID-002"), "ARCHITECTURE")
+
+    def test_simple_tier_allows_architecture_but_not_testing(self):
+        self.assertEqual(self._move("ID-005", "ARCHITECTURE").status_code, 200)
+        r = self._move("ID-005", "TESTING")
+        self.assertEqual(r.status_code, 422)
+        self.assertIn("simple", r.json()["detail"])
+
+    def test_unknown_complexity_falls_back_to_full_path(self):
+        r = self._move("ID-003", "ARCHITECTURE")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._stage("ID-003"), "ARCHITECTURE")
+
+    def test_missing_complexity_falls_back_to_full_path(self):
+        r = self._move("ID-004", "TESTING")
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(self._stage("ID-004"), "TESTING")
+
+    def test_moving_to_current_stage_is_not_gated(self):
+        r = self._move("ID-002", "INTAKE")
+        self.assertEqual(r.status_code, 200, r.text)
+
+    def test_unknown_item_is_still_404_not_422(self):
+        r = self._move("ID-999", "ARCHITECTURE")
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.json()["detail"], "Item not found")
+
+    def test_order_still_applied_on_allowed_move(self):
+        r = self.client.post("/api/move", json={"item_id": "ID-004", "new_stage": "REFINEMENT", "order": 3})
+        self.assertEqual(r.status_code, 200, r.text)
+        with open(self.state_path) as f:
+            self.assertEqual(json.load(f)["items"]["ID-004"]["order"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()

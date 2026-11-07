@@ -59,6 +59,9 @@ class MoveRequest(BaseModel):
     item_id: str = Field(..., min_length=1, max_length=50)
     new_stage: str = Field(...)
     order: Optional[int] = Field(default=None, ge=0)
+    # D5: bypass the review gate and the complexity-tier path check. Only an
+    # explicit "Force move" action should send this.
+    force: bool = False
 
     @field_validator('new_stage')
     @classmethod
@@ -124,3 +127,28 @@ class UpdateItemRequest(BaseModel):
 class CommentRequest(BaseModel):
     author: str = Field(..., min_length=1, max_length=100)
     body: str = Field(..., min_length=1, max_length=5000)
+
+
+REVIEW_STATUSES = ("APPROVED", "NEEDS_REVISION")
+
+
+class ReviewRequest(BaseModel):
+    """D5: an owner's decision at a REVIEW_* gate."""
+    status: str = Field(...)
+    comment: Optional[str] = Field(default=None, max_length=5000)
+
+    @field_validator('status')
+    @classmethod
+    def validate_status(cls, v: str) -> str:
+        normalized = v.strip().upper() if isinstance(v, str) else v
+        if normalized not in REVIEW_STATUSES:
+            raise ValueError(f'status must be one of: {list(REVIEW_STATUSES)}')
+        return normalized
+
+    @field_validator('comment')
+    @classmethod
+    def normalize_comment(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v = v.strip()
+        return v or None

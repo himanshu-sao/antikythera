@@ -4,7 +4,9 @@ from fastapi import APIRouter, HTTPException, Response, Request, Body
 from fastapi.responses import FileResponse
 import os
 import re
-from api.schemas import CreateItemRequest, MoveRequest, ReorderRequest, UpdateItemRequest, CommentRequest
+from datetime import datetime
+from api.schemas import CreateItemRequest, MoveRequest, ReorderRequest, UpdateItemRequest, CommentRequest, ReviewRequest
+from agents.constants import REVIEW_STAGES, TIER_STAGES, DEFAULT_COMPLEXITY
 from api.constants import VALID_ARTIFACTS
 from api.utils import get_timeline_path
 from api.managers.base import CorruptStateError, public_message
@@ -95,16 +97,124 @@ async def delete_comment(request: Request, item_id: str, comment_id: str):
         raise HTTPException(status_code=404, detail="Item or comment not found")
     return {"status": "success", "message": f"Comment {comment_id} deleted"}
 
+def _kanban_store(sm):
+    """Return (lock, load, save) for the board store behind ``sm``.
+
+    ``WorkflowStateManager`` delegates to ``sm.kanban`` (a ``BaseJSONManager``);
+    the legacy ``StateManager`` carries its own lock. Both locks are reentrant,
+    so a caller may hold the lock across load, check and ``sm.update_item``.
+    """
+    store = getattr(sm, "kanban", sm)
+    lock = store.lock if hasattr(store, "lock") else store._lock
+    save = store._save if hasattr(store, "_save") else store._save_json
+    return lock, store.load_state, save
+
+
+def _tier_path(complexity) -> list:
+    """Stage path for an item's complexity tier; none/unknown -> full path."""
+    key = str(complexity).strip().lower() if complexity else DEFAULT_COMPLEXITY
+    return TIER_STAGES.get(key, TIER_STAGES[DEFAULT_COMPLEXITY])
+
+
+def _move_gate_violation(item: dict, new_stage: str):
+    """Return a 422 detail string if moving ``item`` to ``new_stage`` breaks a
+    D5 rule, else None. A move to the stage the item is already in is a no-op
+    for both rules (it is a reorder, not a move out of or into a stage)."""
+    current = item.get("stage", "INTAKE")
+    if new_stage == current:
+        return None
+    if current in REVIEW_STAGES and item.get("review_status") != "APPROVED":
+        return (
+            f"Review gate: item is in {current} and its review_status is "
+            f"{item.get('review_status') or 'PENDING'}, not APPROVED. Approve it via "
+            f"POST /api/item/{{id}}/review first, or send force=true to override."
+        )
+    path = _tier_path(item.get("complexity"))
+    if new_stage not in path:
+        return (
+            f"Tier path: stage {new_stage} is not in the "
+            f"{item.get('complexity') or DEFAULT_COMPLEXITY} complexity path "
+            f"({' > '.join(path)}). Send force=true to override."
+        )
+    return None
+
+
 @router.post("/move", summary="Move item to stage")
 async def move_item(request: Request, move_request: MoveRequest):
     normalized_id = move_request.item_id.upper()
     updates: dict = {"stage": move_request.new_stage}
     if move_request.order is not None:
         updates["order"] = move_request.order
-    success = get_state_manager().update_item(normalized_id, updates)
+    sm = get_state_manager()
+    lock, load, _save = _kanban_store(sm)
+    # Hold the board lock across the gate check and the write so a concurrent
+    # review or orchestrator write cannot slip in between.
+    with lock:
+        item = load()["items"].get(normalized_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        if not move_request.force:
+            violation = _move_gate_violation(item, move_request.new_stage)
+            if violation:
+                raise HTTPException(status_code=422, detail=violation)
+        if move_request.new_stage != item.get("stage", "INTAKE"):
+            # A decision belongs to the gate it was given at (same rule as
+            # Orchestrator.transition_stage), so it must not carry over.
+            updates["review_status"] = "PENDING"
+        success = sm.update_item(normalized_id, updates)
     if not success:
         raise HTTPException(status_code=404, detail="Item not found")
     return {"status": "success", "message": f"Item {normalized_id} moved to {move_request.new_stage}"}
+
+@router.post("/item/{item_id}/review", summary="Record a review decision for an item")
+async def review_item(request: Request, item_id: str, review_request: ReviewRequest):
+    normalized_id = item_id.upper()
+    if not re.match(r'^[A-Z0-9_-]+$', normalized_id):
+        raise HTTPException(status_code=400, detail="Invalid item ID")
+    sm = get_state_manager()
+    lock, load, save = _kanban_store(sm)
+    now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    with lock:
+        state = load()
+        item = state["items"].get(normalized_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Item not found")
+        stage = item.get("stage", "INTAKE")
+        if review_request.comment:
+            # Append only; the artifact is created on first use.
+            body = review_request.comment.replace("\n", "\n  ")
+            line = f"- [{now}] {review_request.status} at {stage}: {body}\n"
+            artifact_dir = os.path.join(REQUIREMENTS_DIR, normalized_id)
+            artifact_path = os.path.join(artifact_dir, "review.md")
+            try:
+                os.makedirs(artifact_dir, exist_ok=True)
+                needs_lead_newline = False
+                if os.path.exists(artifact_path) and os.path.getsize(artifact_path) > 0:
+                    with open(artifact_path, "rb") as f:
+                        f.seek(-1, os.SEEK_END)
+                        needs_lead_newline = f.read(1) != b"\n"
+                with open(artifact_path, "a", encoding="utf-8") as f:
+                    f.write(("\n" if needs_lead_newline else "") + line)
+            except OSError as e:
+                logger.error("Failed to append review.md for %s: %s", normalized_id, e)
+                raise HTTPException(status_code=500, detail="Failed to write review.md")
+        entry = {"stage": stage, "at": now, "agent": "owner",
+                 "event": "review", "review_status": review_request.status}
+        if review_request.comment:
+            entry["comment"] = review_request.comment
+        item["review_status"] = review_request.status
+        item.setdefault("history", []).append(entry)
+        item["updated_at"] = datetime.utcnow().isoformat() + "Z"
+        save(state)
+        result = {
+            "status": "success",
+            "item_id": normalized_id,
+            "stage": stage,
+            "review_status": item["review_status"],
+            "updated_at": item["updated_at"],
+            "history": item["history"],
+        }
+    return result
 
 @router.post("/items/reorder", summary="Bulk reorder items")
 async def reorder_items(request: Request, reorder_request: ReorderRequest):
