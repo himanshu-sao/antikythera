@@ -11,7 +11,7 @@ import asyncio
 import shutil
 import tempfile
 import unittest
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 from api.execution.studio_graph_engine import PathStepGraphEngine
 from api.models.studio import (
@@ -116,15 +116,13 @@ class TestBranchEdges(_Base):
     def test_exception_path_still_follows_false_edge(self):
         edges = [GraphEdge(source="c", target="t_target", source_handle="true"),
                  GraphEdge(source="c", target="f_target", source_handle="false")]
-        self.engine._execute_conditional_action_node = AsyncMock(side_effect=RuntimeError("boom"))
-        # Only the failing node uses the patched handler; targets are replaced below.
+        # The source conditional raises; the targets succeed.
         calls = []
-        orig = AsyncMock(side_effect=RuntimeError("boom"))
 
         async def handler(es, node, lc=None):
             calls.append(node.node_id)
             if node.node_id == "c":
-                return await orig(es, node, lc)
+                raise RuntimeError("boom")
             return {"matched": True}
 
         self.engine._execute_conditional_action_node = handler
