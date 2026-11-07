@@ -16,11 +16,8 @@ import {
   Workflow, 
   Globe, 
   Cpu, 
-  Settings, 
   Plus, 
   RefreshCw, 
-  User, 
-  ChevronDown,
   X,
   Wand2
 } from 'lucide-react';
@@ -37,6 +34,7 @@ import { BlueprintArchitect } from './components/BlueprintArchitect';
 import type { Pipeline, PipelineState } from './types';
 import { apiUrl } from './config';
 import { computeDragAction } from './utils/dragAction';
+import { InitialsAvatar } from './components/ui/InitialsAvatar';
 import { usePipelineState } from './hooks/usePipelineState';
 import { CreateItemModal } from './components/modals/CreateItemModal';
 import { DeleteConfirmModal } from './components/modals/DeleteConfirmModal';
@@ -49,6 +47,9 @@ const STAGES = [
   "INTAKE", "REFINEMENT", "REVIEW_SPEC", "ARCHITECTURE",
   "REVIEW_ARCH", "TESTING", "REVIEW_TEST", "APPROVED", "EXECUTING", "DONE"
 ];
+
+// Neutral label for the local, single-user workspace (no accounts exist yet).
+const WORKSPACE_LABEL = 'Local workspace';
 
 type TabType = 'KANBAN' | 'PIPELINE' | 'STUDIO' | 'WORKFLOWS' | 'INTEGRATIONS' | 'AI_ENGINE' | 'BLUEPRINT' | 'HOME';
 
@@ -316,7 +317,6 @@ export default function App() {
     { id: 'INTEGRATIONS', label: 'Integrations', icon: Globe },
     { id: 'BLUEPRINT', label: 'Blueprint', icon: Wand2 },
     { id: 'AI_ENGINE', label: 'AI Engine', icon: Cpu },
-    { id: 'SETTINGS', label: 'Settings', icon: Settings },
   ];
 
   return (
@@ -349,18 +349,15 @@ export default function App() {
           </nav>
 
           <div className="p-3 border-t border-[var(--border)]">
-            <button className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-[var(--panel-2)] transition-all text-left">
-              <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
-                <User className="w-5 h-5 text-gray-500" />
-              </div>
+            <div className="w-full flex items-center gap-3 p-2" data-testid="workspace-label">
+              <InitialsAvatar name={WORKSPACE_LABEL} className="w-8 h-8 text-xs flex-shrink-0" />
               {!isSidebarCollapsed && (
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">Acme Corp</div>
-                  <div className="text-xs text-[var(--text-muted)] truncate">Enterprise</div>
+                  <div className="text-sm font-medium truncate">{WORKSPACE_LABEL}</div>
+                  <div className="text-xs text-[var(--text-muted)] truncate">This machine</div>
                 </div>
               )}
-              {!isSidebarCollapsed && <ChevronDown className="w-4 h-4 text-gray-400" />}
-            </button>
+            </div>
           </div>
         </aside>
 
@@ -369,7 +366,7 @@ export default function App() {
           {/* Top Navigation Bar */}
           <header className="h-[52px] bg-white border-b border-[var(--border)] flex items-center px-6 justify-between z-20">
             <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar">
-              {navItems.filter(n => n.id !== 'HOME' && n.id !== 'SETTINGS').map(item => (
+              {navItems.filter(n => n.id !== 'HOME').map(item => (
                 <button
                   key={item.id}
                   onClick={() => setActiveTab({ type: item.id as TabType })}
@@ -420,9 +417,7 @@ export default function App() {
               >
                 <Plus className="w-4 h-4" /> New Idea
               </button>
-              <div className="w-8 h-8 rounded-full bg-gray-200 border border-[var(--border)] overflow-hidden">
-                <img src="https://ui-avatars.com/api/?name=Acme+Corp&background=random" alt="Avatar" />
-              </div>
+              <InitialsAvatar name={WORKSPACE_LABEL} className="w-8 h-8 text-xs border border-[var(--border)]" />
             </div>
           </header>
 
