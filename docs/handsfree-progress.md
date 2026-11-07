@@ -144,3 +144,88 @@ O2 (UI API base and proxy) `256619e`, O4 (Jira optional, placeholder check) `2ed
 - Two sources still return non-None from tests, so the `PytestReturnNotNoneWarning` filter stays: `tests/integration/test_full_jira_flow.py` and `api/executors/test_operator_registry_parsing.py`.
 - `./venv/bin/pip` has a stale shebang; use `./venv/bin/python -m pip`.
 - `venv/` was committed to git history earlier (`695cc47`, `512b61c`). It is not tracked now.
+
+---
+
+# Autonomous run 2 (2026-11-07)
+
+Baseline: `252945a` (worker rules). Result: `d5ba75d`. **62 commits, none pushed.** Source plan: `docs/pending-items.md` (item IDs below). Rules: `docs/worker-rules.md`.
+
+## Verification at the end of the run
+
+- Backend: `1492 passed, 5 skipped, 10 deselected`, with provider keys unset. No "network blocked" attempts logged.
+- UI vitest: `196 passed` across 22 files.
+- Real data: `automation-ideas/` and `registry/` match the snapshot taken at the start of the run.
+- One regression surfaced in the full run: `test_trigger_workflow_engine_error_returns_500` asserted the raw exception text, which the new generic-error contract no longer returns. Updated to assert the error code and that the raw text is not leaked (`d5ba75d`).
+- One test was made vacuous by the worker that rewrote it: the executor data-dir regression (2.2). Rewritten to capture the real constant at import; confirmed it fails when the old two-`..` path is restored (`5f9c621`).
+
+Mutation check on the orchestrator run lock: with the lock wait changed from 0 to 30 s, the concurrency test fails. Worker W2 did not write its tests red-first, so this is the only evidence that they catch the bug.
+
+## Items done
+
+| Area | Items | Commits |
+|---|---|---|
+| Test infrastructure (W1) | P0-1, P4-1, P4-2, P4-3, P4-4, P1-9, P1-10 | `8384960` to `90c6adf` |
+| Pipeline state (W2) | P0-2 (state and loop), P0-7, P2-12, R23 | `c65fb60`, `d1f39ee` |
+| API engine and managers (W3) | P0-3, P0-4, P0-6, P1-6, P2-15, P2-16, P2-18, R5, R7a, R11, R17, R18, R20, R24, R28, R31 | `124a70a`, `61ea964`, `635afd3`, `7235b38`, `b098bae`, `36a5995` |
+| Studio and builder (W4) | P2-2, P2-9 (S3), P2-10 (S6), P2-11 (S12), P0-5 (R8), R25, R26, S4, S13, U6 | `d158919`, `9eaec84`, `ecfd818`, `7662f20`, `33c6eb4`, `bac5551`, `a0f15ba` |
+| Integrations and templates (W5) | P1-1 (R9), P1-3, P1-6, P1-10 prep, P2-5 (R12), P2-19 (R29), O8, R7b, R31 | `0fa6e83`, `535eed8`, `2e72e61`, `d64addf`, `1a30333`, `cc50463`, `eef1a99`, `8d4e3b2`, `e30592a`, `1dbd51a` |
+| Docker and scripts (W6) | P0-8, P0-9, P5-1 (O1), P5-3 (C3, C7, C8), P5-4, O5 and O7 (backup), docs | `bf50e1a`, `00a6b69`, `efd5077`, `0e6dc52`, `1f4ef6f`, `d1a8457`, `e777594`, `bcd651b`, `2e871f2`, `7ecb8c9` |
+| UI (W7) | P3-1, P3-2, P3-3, P3-4, P3-6 (U1 to U7), U4, U5, cleanup | `aa4398a`, `cfa8f01`, `e34c79e`, `cca77ee`, `d34be0a`, `bd058f9`, `99be706`, `2c143ba`, `19bfd66`, `135aabe`, `0c5a9ae` |
+| Telegram and docs (W8) | P2-20 (D6), D11 cron claim, status counts | `7a1d389`, `80b016c`, `ba6eaa9` |
+
+## Decisions still needed from you
+
+| ID | Question |
+|---|---|
+| D1 | Authentication. Still none, and the server binds all interfaces with CORS `*`. Also affects the AI engine key routes, MCP integration creation and `/api/automation/accept`. |
+| D2 | Workflow step schema. Ordinary workflow steps still fail: `api/execution_engine.py` calls `execute_action` with two of three arguments. Also the substitution value types (W5 and W3 kept typed values for whole-placeholder strings). |
+| D3 | When a stage agent fails or returns stub text: still advances (P2-6). |
+| D4 | Entering EXECUTING with no bound run (P2-7). |
+| D5 | Board move rules, and how approval reaches the pipeline. The UI never sets `review_status`, and Telegram (the only writer) is now removed. UI approval therefore bypasses the review gate. |
+| D7 | Executor `terminal` tool (`shell=True`), SafeExecutor sandboxing, and absolute executor paths (SEC-7 is only relative paths). |
+| - | Non-root container user (W6 proposed `app`, uid 1000, and reverted it because the host uid can only be checked on a live run). Keep root until tested? |
+| - | Sourcing in `start_antikythera.sh`: switching to the safe parser changes `$VAR` expansion and inline-comment handling. Acceptable? |
+| - | SEC-10 clamps an oversized `lines` value (now with `X-Log-Truncated`). Keep, or reject with 422? |
+| - | Undefined-queue retention across runs. Perpetual aggregate from the Studio plan? |
+| - | Swagger UI at `/docs` is public. Set `docs_url=None`? |
+
+## Actions only you can take
+
+1. **Push** the branch (62 commits).
+2. **Rotate the Google key** (may have been echoed into session output in run 1).
+3. **Rebuild Docker images** with `--no-cache`, then `up -d --force-recreate`.
+4. **Rotate secrets** for anything in images published before `eac8428`. Those images contained a copy of `automation-ideas/` including `.vault.key` and integration records. Revoke and reissue, then delete the old Docker Hub tags.
+5. `chmod 700 ~/.antikythera` (the directory is now mounted read-write into the containers).
+6. Copy this log and `docs/pending-items.md` into the vault.
+7. Decide whether to remove leftovers: `automation-ideas/requirements/ID-999/`, `test_data/`, `tmp_test_dir/`, `Users/` (nested git repo), empty root directories, `screen-capture.log`, and `ui/src/components/VirtualBoard.tsx` (now unreferenced).
+
+## Open items after this run
+
+- D1, D2, D3, D4, D5, D7 (above). P2-1 (the workflow step bug) cannot be fixed without D2.
+- P1-2: template validation can still be bypassed through `step.type` (needs D1 and D2). P1-4 (SEC-7 symlinks and absolute paths) needs D7.
+- P1-5: no authentication (D1).
+- P1-7: Swagger at `/docs` (decision above).
+- P1-8: SafeExecutor in-process with no timeout (D7).
+- P2-1, P2-3 (UI approval path, D5), P2-4 (value types, D2), P2-6 (D3), P2-7 (D4), P2-8 (D5).
+- P2-13 (startup reap is now boot-wide, but timers are in-memory: a restart still loses retry timers).
+- P2-14: `retry_count` now resets per step (W3); confirm this is the intended budget.
+- P2-17 (R25/R26 done; the O(N) concern is reduced by a count gate, not indexed).
+- P2-21 (Studio cron claim is corrected; scheduling itself is not built).
+- P2-22: undefined-queue retention (decision).
+- P3-5: backend `dry_run` default is still `False` for non-UI callers (held).
+- P3-6 leftovers: `VirtualBoard.tsx` unreferenced; `ui/AI.md` still names `BrainSettings.tsx`.
+- P4-5: stale `reset_state_manager` comments in `api/main.py` and `tests/test_managers.py` (check).
+- P4-6: several planned tests not yet written (T6, T7 SafeExecutor escape and timeout; T25 MCP timeout kill; T29 and T30 builder and MCP happy paths; T19 drag helper is now covered).
+- P5-1 (O1): prod UI image added. Needs a live `up -d --build` check.
+- P5-2: health endpoint (O5) is still missing as an endpoint; the backup script is done.
+- P6-1 to P6-7: docs. `api/AI.md` (`/docs` and `os.rename`), CLAUDE.md gotchas 2 and 10 and the test command, README (Python version, Secret Vault claim, Jira env names), `docs/api-spec.md` (nonexistent routes), `PROJECT_STATUS.md` (partly updated), `ui/AI.md` (proxy target).
+- P7: product completion (journey tests, recovery validation, Studio handover docs).
+
+## Known limitations introduced or left by this run
+
+- Retry timers and the orchestrator's poison-item counter are in memory: a restart clears them. Retries restart for a run, and a blocked item is retried 3 times again.
+- W2's tests were not run red-first. Only the lock and the W3 inline-lock/brain-409 paths have mutation evidence.
+- `WorkflowBuilder.tsx` still shows "Failed to save template" for the new 422 responses (it doesn't read the violations). Not a regression.
+- The orchestrator merge replaces a changed list wholesale, so an API append to a list the handler also changed in the same run can be lost (narrow, unchanged by this run).
+- Integration list responses now mask many more fields. The UI may show `*****` in `args`, nested objects and URL passwords.
