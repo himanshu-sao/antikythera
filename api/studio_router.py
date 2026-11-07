@@ -36,10 +36,7 @@ from api.workflow_state_manager import WorkflowStateManager
 from api.models.studio import (
     StudioGraph,
     StudioNode,
-    GraphRunLog,
-    NodeExecutionResult,
     CapabilityTier,
-    NodeArchetype,
     Skill,
     SAFE_STUDIO_ID_PATTERN,
     CorruptStudioFileError,

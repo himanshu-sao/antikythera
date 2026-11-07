@@ -26,7 +26,7 @@ import os
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from api.managers.studio_graph_manager import StudioGraphManager
 from api.managers.skill_manager import SkillManager
