@@ -75,6 +75,14 @@ const TURN_LABELS: Record<TurnType, { title: string; hint: string }> = {
 
 const TURN_ORDER: TurnType[] = ['query', 'fan_out', 'ai_transform', 'conditional_action'];
 
+// S5: append a CLOSED {{key}} placeholder to a param value. An empty/unset value
+// becomes just the placeholder (no stray "undefined" or leading space).
+function appendPlaceholder(current: string | undefined, key: string): string {
+  const placeholder = `{{${key}}}`;
+  const base = current ?? '';
+  return base.trim() === '' ? placeholder : `${base} ${placeholder}`;
+}
+
 // Adapter list/vector actions offered by the Query form (dec #28). Keyed by
 // adapter name (the `name` returned by getIntegrationStatus()). A Query must
 // select an action that returns a vector — fetch_resource returns one, never a list.
@@ -627,18 +635,21 @@ export function AutomationStudio() {
                         />
                       </label>
                     ))}
-                    {/* Action chips for param inputs */}
+                    {/* Action chips for param inputs (S5). Both insert CLOSED placeholders. */}
                     <div className="flex flex-wrap gap-2 mt-2">
                       <button
                         type="button"
                         onClick={() => {
                           const activeParam = chosen.params.find((p) => q.params[p] !== undefined && q.params[p] !== '') || chosen.params[0];
                           if (activeParam) {
-                            setQ({ params: { ...q.params, [activeParam]: `${q.params[activeParam]} {{`.replace(/\s+\{\{$/, ' {{') } });
+                            // Context = the most recent state key (latest output in the run).
+                            const key = sourceOptions.length > 0 ? sourceOptions[sourceOptions.length - 1] : 'state';
+                            setQ({ params: { ...q.params, [activeParam]: appendPlaceholder(q.params[activeParam], key) } });
                           }
                         }}
                         className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
                         aria-label="Add context variable"
+                        title="Append {{<latest state key>}} (the most recent output)"
                       >
                         ⊕ Add context
                       </button>
@@ -647,11 +658,14 @@ export function AutomationStudio() {
                         onClick={() => {
                           const activeParam = chosen.params.find((p) => q.params[p] !== undefined && q.params[p] !== '') || chosen.params[0];
                           if (activeParam) {
-                            setQ({ params: { ...q.params, [activeParam]: `${q.params[activeParam]} {{`.replace(/\s+\{\{$/, ' {{') } });
+                            // Variable = the first available state key (or a generic field).
+                            const key = sourceOptions.length > 0 ? sourceOptions[0] : 'field';
+                            setQ({ params: { ...q.params, [activeParam]: appendPlaceholder(q.params[activeParam], key) } });
                           }
                         }}
                         className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
                         aria-label="Use variable"
+                        title="Append {{<first state key>}} (the first available variable)"
                       >
                         { '{ }' } Use variable
                       </button>
@@ -779,21 +793,27 @@ export function AutomationStudio() {
                       rows={6}
                       className="mt-1 w-full px-2 py-1.5 text-xs font-mono border border-[#d8d3ca] rounded bg-white resize-y"
                     />
-                    {/* Action chips for script textarea */}
+                    {/* Action chips for script textarea (S5). Insert valid Python that reads the
+                        script context the backend provides: input / state / loop. */}
                     <div className="flex flex-wrap gap-2 mt-2">
                       <button
                         type="button"
-                        onClick={() => setT({ script: t.script + (t.script ? '\n' : '') + '# {{context_var}}' })}
+                        onClick={() => {
+                          const key = sourceOptions.length > 0 ? sourceOptions[sourceOptions.length - 1] : 'key';
+                          setT({ script: t.script + (t.script ? '\n' : '') + `value = state.get("${key}")` });
+                        }}
                         className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
                         aria-label="Add context variable"
+                        title="Insert: read the run state (state.get)"
                       >
                         ⊕ Add context
                       </button>
                       <button
                         type="button"
-                        onClick={() => setT({ script: t.script + (t.script ? '\n' : '') + 'item["{{field}}"]' })}
+                        onClick={() => setT({ script: t.script + (t.script ? '\n' : '') + 'value = input' })}
                         className="px-2 py-1 text-[10px] font-medium border border-[#d8d3ca] rounded bg-white hover:bg-[#f6f4ef] transition-colors"
                         aria-label="Use variable"
+                        title="Insert: read the item input (input)"
                       >
                         { '{ }' } Use variable
                       </button>

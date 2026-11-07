@@ -764,4 +764,108 @@ describe('AutomationStudio (turn-UI compiler — T2a shell + T2b forms/handlers)
       expect(screen.getByRole('button', { name: /^Run$/i })).toBeInTheDocument();
     });
   });
+  // S5 / T21: the context chips must insert closed placeholders (Query) or valid
+  // Python that reads the real script context (AI-transform).
+  describe('context and variable chips (S5)', () => {
+    function mockPreviewWithState() {
+      fetchMock().mockImplementation(async (url: string, init?: RequestInit) => {
+        const u = new URL(url, 'http://localhost');
+        const path = `${u.pathname}${u.search}`;
+        if (path.includes('/api/studio/preview-node')) {
+          const node = JSON.parse(init?.body as string).node;
+          const out = node.output_ref as string;
+          return { ok: true, status: 200, json: async () => ({
+            result: [{ key: 'OPS-1' }],
+            updated_state: { [out]: [{ key: 'OPS-1' }] },
+            status: 'success', error: null, matched_branch: null,
+          }) } as unknown as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({ integrations: [
+          { name: 'jira', type: 'jira', status: 'ok', connected: true },
+        ] }) } as unknown as Response;
+      });
+    }
+
+    async function selectJiraQuery() {
+      const adapterSelect = await screen.findByLabelText('Adapter');
+      fireEvent.change(adapterSelect, { target: { value: 'jira' } });
+    }
+
+    test('Query "Use variable" with no state inserts a closed {{field}} placeholder', async () => {
+      mockPreviewWithState();
+      render(<AutomationStudio />);
+      await selectJiraQuery();
+      fireEvent.click(screen.getByRole('button', { name: 'Use variable' }));
+      const jql = screen.getByLabelText('param jql') as HTMLInputElement;
+      expect(jql.value).toBe('{{field}}');
+      expect(jql.value.match(/\{\{/g)?.length).toBe(jql.value.match(/\}\}/g)?.length);
+    });
+
+    test('Query "Add context" with no state inserts a closed {{state}} placeholder', async () => {
+      mockPreviewWithState();
+      render(<AutomationStudio />);
+      await selectJiraQuery();
+      fireEvent.click(screen.getByRole('button', { name: 'Add context variable' }));
+      const jql = screen.getByLabelText('param jql') as HTMLInputElement;
+      expect(jql.value).toBe('{{state}}');
+    });
+
+    test('Query "Use variable" uses the first available state key when one exists', async () => {
+      mockPreviewWithState();
+      render(<AutomationStudio />);
+      await selectJiraQuery();
+      fireEvent.change(screen.getByLabelText('output_ref'), { target: { value: 'jira_tickets' } });
+      fireEvent.click(screen.getByRole('button', { name: /Preview/i }));
+      await waitFor(() => expect(screen.getByText('#1')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Use variable' }));
+      expect((screen.getByLabelText('param jql') as HTMLInputElement).value).toBe('{{jira_tickets}}');
+    });
+
+    test('Query "Add context" uses the most recent state key and differs from "Use variable"', async () => {
+      mockPreviewWithState();
+      render(<AutomationStudio />);
+      await selectJiraQuery();
+      fireEvent.change(screen.getByLabelText('output_ref'), { target: { value: 'jira_tickets' } });
+      fireEvent.click(screen.getByRole('button', { name: /Preview/i }));
+      await waitFor(() => expect(screen.getByText('#1')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Add context variable' }));
+      const value = (screen.getByLabelText('param jql') as HTMLInputElement).value;
+      expect(value).toBe('{{jira_tickets}}');
+      // Both chips must not append the old unclosed " {{" text.
+      expect(value).not.toMatch(/\{\{(?!.*\}\})/);
+    });
+
+    test('script "Add context" inserts valid Python reading the run state', async () => {
+      mockPreviewWithState();
+      render(<AutomationStudio />);
+      await commitQueryForScript();
+      fireEvent.click(screen.getByRole('button', { name: 'Add context variable' }));
+      const script = (screen.getByLabelText('script') as HTMLTextAreaElement).value;
+      expect(script).toContain('state.get(');
+      expect(script).not.toContain('{{');
+    });
+
+    test('script "Use variable" inserts valid Python reading the item input', async () => {
+      mockPreviewWithState();
+      render(<AutomationStudio />);
+      await commitQueryForScript();
+      fireEvent.click(screen.getByRole('button', { name: 'Use variable' }));
+      const script = (screen.getByLabelText('script') as HTMLTextAreaElement).value;
+      expect(script).toContain('input');
+      expect(script).not.toContain('{{');
+      expect(script).not.toContain('item["{{field}}"]');
+    });
+
+    // Advance the wizard to the AI-transform turn, where the script chips live.
+    async function commitQueryForScript() {
+      await selectJiraQuery();
+      fireEvent.change(screen.getByLabelText('output_ref'), { target: { value: 'jira_tickets' } });
+      fireEvent.click(screen.getByRole('button', { name: /Preview/i }));
+      await waitFor(() => expect(screen.getByText('#1')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: /Commit turn/i }));
+      fireEvent.change(screen.getByLabelText('Source'), { target: { value: 'jira_tickets' } });
+      fireEvent.click(screen.getByRole('button', { name: /Commit turn/i }));
+      await screen.findByText('3. AI-transform');
+    }
+  });
 });
