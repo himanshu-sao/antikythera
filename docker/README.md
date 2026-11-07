@@ -36,7 +36,7 @@ vim ~/.antikythera/.env
 PORT=8006
 VITE_API_URL=http://localhost:8006
 
-# Jira Integration (Required)
+# Jira Integration (Optional: leave unset or remove to skip; the container only warns)
 JIRA_BASE_URL=https://your-domain.atlassian.net
 JIRA_PAT=your_jira_personal_access_token
 
@@ -410,12 +410,16 @@ A: Restart the container: `docker-compose restart backend`. Environment variable
 **Q: "Missing or unconfigured required variables"**
 
 ```
-[ERROR] Missing or unconfigured required variables: JIRA_PAT PORT
+[ERROR] Missing or unconfigured required variables: PORT
 ```
 
-**A:** Add these to `~/.antikythera/.env`:
+**A:** Add this to `~/.antikythera/.env` (values starting with `your_` or `dummy` count as unconfigured):
 ```ini
 PORT=8006
+```
+
+Jira is optional. If `JIRA_BASE_URL` or `JIRA_PAT` is missing or still a placeholder, the container logs a warning and starts without Jira. To enable it:
+```ini
 JIRA_BASE_URL=https://your-domain.atlassian.net
 JIRA_PAT=your_actual_token_here
 ```
