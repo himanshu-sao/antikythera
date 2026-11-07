@@ -116,6 +116,12 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
     }
   };
 
+  // Providers the backend's set-provider-api-key alias map accepts
+  // (api/routers/ai_engine_config_router.py, set_provider_api_key). Keep in sync with that map.
+  // OpenRouter is listed in the UI but the backend rejects it here, so its provider-level key
+  // form is disabled with an explanation. Per-model keys (Set Key) are not affected.
+  const PROVIDER_KEY_ENDPOINT_UNSUPPORTED = new Set<string>(['openrouter']);
+
   // Provider metadata (unchanged)
   const providers: ProviderInfo[] = [
     {
@@ -1026,7 +1032,13 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
                   <strong>{modelCount}</strong> {modelCount === 1 ? 'model' : 'models'} configured
                 </div>
 
-                {provider.requires_api_key && (
+                {provider.requires_api_key && PROVIDER_KEY_ENDPOINT_UNSUPPORTED.has(provider.id) && (
+                  <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1" data-testid={`provider-key-unsupported-${provider.id}`}>
+                    The backend does not accept a provider-wide key for {provider.name}. Set the key per model from the Models tab.
+                  </p>
+                )}
+
+                {provider.requires_api_key && !PROVIDER_KEY_ENDPOINT_UNSUPPORTED.has(provider.id) && (
                   <div className="flex items-center space-x-2">
                     <input
                       type="password"

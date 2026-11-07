@@ -175,3 +175,45 @@ describe('AIEngineSettings per-card Delete (U3)', () => {
     expect(screen.getByText('Gemma 7B')).toBeInTheDocument();
   });
 });
+
+describe('AIEngineSettings provider key form vs backend (U7)', () => {
+  async function openProviders() {
+    await screen.findByText(/AI Engine Configuration/i);
+    fireEvent.click(screen.getByRole('button', { name: /^Providers$/ }));
+  }
+
+  test('OpenRouter has no provider-wide key input and shows an inline explanation', async () => {
+    installFetch();
+    render(<AIEngineSettings />);
+    await openProviders();
+    const msg = await screen.findByTestId('provider-key-unsupported-openrouter');
+    expect(msg).toHaveTextContent(/does not accept a provider-wide key for OpenRouter/i);
+    // Only the providers the backend accepts keep a password box.
+    const passwordBoxes = document.querySelectorAll('input[type="password"][placeholder="Enter API key"]');
+    expect(passwordBoxes.length).toBe(3); // nvidia_nim, google_gemma, ibm_bob
+  });
+
+  test('LM Studio (no key required) has neither a key box nor the unsupported message', async () => {
+    installFetch();
+    render(<AIEngineSettings />);
+    await openProviders();
+    await screen.findByTestId('provider-key-unsupported-openrouter');
+    expect(screen.queryByTestId('provider-key-unsupported-lm_studio')).not.toBeInTheDocument();
+  });
+
+  test('a provider the backend accepts still posts to set-provider-api-key', async () => {
+    installFetch();
+    render(<AIEngineSettings />);
+    await openProviders();
+    const boxes = document.querySelectorAll('input[type="password"][placeholder="Enter API key"]');
+    const nvidiaBox = boxes[0] as HTMLInputElement;
+    fireEvent.change(nvidiaBox, { target: { value: 'k-test' } });
+    const saveButtons = screen.getAllByRole('button', { name: /^Save$/ });
+    fireEvent.click(saveButtons[0]);
+    await waitFor(() => {
+      const post = fetchMock.mock.calls.find((c) => String(c[0]) === '/api/ai-engine/set-provider-api-key');
+      expect(post).toBeTruthy();
+      expect(JSON.parse(String((post![1] as RequestInit).body))).toEqual({ provider_id: 'nvidia_nim', api_key: 'k-test' });
+    });
+  });
+});
