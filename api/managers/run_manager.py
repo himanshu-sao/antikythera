@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from api.managers.base import BaseJSONManager, CorruptStateError
+from api.settings_store import get_setting
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +51,7 @@ class RunManager(BaseJSONManager):
 
     def reap_stale_runs(
         self,
-        max_age_seconds: int = 3600,
+        max_age_seconds: Optional[int] = None,
         now: Optional[datetime] = None,
     ) -> List[str]:
         """Mark in-flight runs as FAILED so nothing shows them as still running.
@@ -60,7 +61,9 @@ class RunManager(BaseJSONManager):
         ``FAILED`` with reap_reason ``"orphaned: server restart"``, and a
         ``RUN_REAPED`` timeline event is logged.
 
-        ``max_age_seconds <= 0`` reaps every in-flight run regardless of age.
+        ``max_age_seconds`` defaults to the ``reap_age_s`` setting (3600 s when
+        unset), read per call. ``max_age_seconds <= 0`` reaps every in-flight run
+        regardless of age.
         The server calls it that way at boot, because a run's driver (its retry
         timers) lives only in memory, so every in-flight run is an orphan at
         that point.
@@ -71,6 +74,8 @@ class RunManager(BaseJSONManager):
         ``now`` is injectable for deterministic tests; it defaults to the
         current UTC time. Returns the list of run IDs that were reaped.
         """
+        if max_age_seconds is None:
+            max_age_seconds = get_setting("reap_age_s")
         if now is None:
             now = datetime.now(timezone.utc)
         elif now.tzinfo is None:
