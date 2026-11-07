@@ -109,6 +109,10 @@ class Orchestrator:
            resurrected.
         5. The fresh state is saved.
 
+        Failure isolation (2.12): an exception raised by a handler or by the
+        commit is logged with the item id, the item is left as it is on disk,
+        and the loop moves on. The heartbeat is committed last under the lock.
+
         Returns the number of items whose handler completed without raising.
         """
         self.logger.info("Pipeline run starting")
@@ -119,9 +123,16 @@ class Orchestrator:
         for item_id, item in actionable:
             self.logger.info("Processing item %s at stage %s", item_id, item.get("stage"))
             before = copy.deepcopy(item)
-            self.process_item(item, state, item_id)
+            try:
+                self.process_item(item, state, item_id)
+            except Exception:
+                self.logger.exception("Processing item %s failed; leaving it as on disk", item_id)
+                continue
             processed += 1
-            self._commit_item(item_id, before, item)
+            try:
+                self._commit_item(item_id, before, item)
+            except Exception:
+                self.logger.exception("Committing item %s failed; leaving it as on disk", item_id)
 
         self._commit_heartbeat()
         self.logger.info("Pipeline run complete. Processed %d items.", processed)
@@ -151,10 +162,13 @@ class Orchestrator:
 
     def _commit_heartbeat(self):
         now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-        with state_module.state_lock():
-            fresh = state_module.load_state()
-            fresh["last_heartbeat"] = now
-            state_module.save_state(fresh)
+        try:
+            with state_module.state_lock():
+                fresh = state_module.load_state()
+                fresh["last_heartbeat"] = now
+                state_module.save_state(fresh)
+        except Exception:
+            self.logger.exception("Failed to record pipeline heartbeat")
 
     def promote_artifact_to_pattern(self, item_id, artifact_name, content):
         """

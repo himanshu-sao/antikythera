@@ -163,3 +163,66 @@ class TestMergeDuringRun:
         # First call is the initial snapshot; the commit re-read must be locked.
         assert seen[0] is False
         assert seen[-1] is True
+
+
+class TestItemFailureIsolation:
+    """2.12 — one failing item must not lose the batch."""
+
+    def test_exception_in_one_item_leaves_it_on_disk_and_others_saved(self, caplog):
+        _seed({
+            "ID-001": make_item(stage="INTAKE", priority="high"),
+            "ID-002": make_item(stage="INTAKE", priority="medium"),
+            "ID-003": make_item(stage="INTAKE", priority="low"),
+        })
+        real_process = orchestrator.Orchestrator.process_item
+
+        def flaky(self, item, state, item_id):
+            if item_id == "ID-002":
+                # Mutate the snapshot first to prove the partial change is discarded.
+                item["stage"] = "BROKEN"
+                raise RuntimeError("boom in handler")
+            return real_process(self, item, state, item_id)
+
+        with patch("agents.orchestrator.Orchestrator.process_item", flaky), \
+             caplog.at_level("ERROR"):
+            processed = orchestrator.run_pipeline()
+
+        items = _load()["items"]
+        assert items["ID-002"]["stage"] == "INTAKE"          # left as on disk
+        assert items["ID-001"]["stage"] == "REFINEMENT"      # others committed
+        assert items["ID-003"]["stage"] == "REFINEMENT"
+        assert processed == 2
+        assert any("ID-002" in r.getMessage() for r in caplog.records)
+
+    def test_exception_is_logged_with_item_id_and_traceback(self, caplog):
+        _seed({"ID-001": make_item(stage="INTAKE")})
+        with patch("agents.orchestrator.Orchestrator.process_item",
+                   side_effect=ValueError("kaput")), \
+             caplog.at_level("ERROR"):
+            orchestrator.run_pipeline()
+        rec = [r for r in caplog.records if "ID-001" in r.getMessage()]
+        assert rec, "failure must be logged with the item id"
+        assert rec[0].exc_info is not None
+
+    def test_commit_failure_for_one_item_does_not_stop_the_loop(self):
+        _seed({
+            "ID-001": make_item(stage="INTAKE", priority="high"),
+            "ID-002": make_item(stage="INTAKE", priority="low"),
+        })
+        real_save = state_module.save_state
+        calls = {"n": 0}
+
+        def save_fail_first(st):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OSError("disk full")
+            return real_save(st)
+
+        with patch("agents.orchestrator.state_module.save_state", side_effect=save_fail_first):
+            processed = orchestrator.run_pipeline()
+
+        items = _load()["items"]
+        assert items["ID-001"]["stage"] == "INTAKE"
+        assert items["ID-002"]["stage"] == "REFINEMENT"
+        # processed counts items whose handler completed without error
+        assert processed == 2
