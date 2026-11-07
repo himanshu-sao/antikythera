@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { apiUrl } from '../config';
 import { Search } from 'lucide-react';
+import { MASK_PLACEHOLDER, maskForEditor, stripMasked } from '../utils/integrationConfig';
 
 interface Integration {
   name: string;
@@ -28,6 +29,19 @@ interface Tool {
 interface ExecutionResult {
   result: any;
   logs?: string;
+}
+
+const emptyJiraConfig = { url: '', token: '' };
+
+/** Replace one key with a ${env:NAME} reference. Unparseable text is returned unchanged so nothing typed is lost. */
+function setJiraEnvReference(current: string, key: 'jira_url' | 'token', envName: string): string {
+  try {
+    const cfg = JSON.parse(current);
+    cfg[key] = `\${env:${envName}}`;
+    return JSON.stringify(cfg, null, 2);
+  } catch {
+    return current;
+  }
 }
 
 interface ToolItemProps {
@@ -63,8 +77,8 @@ export function IntegrationsManager() {
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   
-  // Jira-specific config state
-  const [jiraConfig, setJiraConfig] = useState({ url: '', token: '' });
+  // Jira-specific config state. Holds only what the user typed; stored values are never pre-filled.
+  const [jiraConfig, setJiraConfig] = useState(emptyJiraConfig);
 
   // Focus management refs
   const addCardRef = useRef<HTMLDivElement>(null);
@@ -233,7 +247,8 @@ export function IntegrationsManager() {
 
   const handleUpdate = async (name: string) => {
     try {
-      const config = JSON.parse(editConfig);
+      // Masked placeholders are not sent: the server keeps the stored value for any key left out.
+      const config = stripMasked(JSON.parse(editConfig));
       const res = await fetch(`${apiUrl}/api/integrations/${name}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -391,22 +406,11 @@ export function IntegrationsManager() {
                                  onClick={(e) => {
                       e.stopPropagation();
                       setEditingInt(int);
-                      // Mask sensitive fields and remove helper keys before showing config
-                      const maskConfig = (cfg:any) => {
-                        const copy = {...cfg};
-                        // Remove test flag if present
-                        delete copy.test;
-                        // Mask secrets
-                        ['token','access_token','jira_url','url'].forEach(k => {
-                          if (copy[k]) copy[k] = '*****';
-                        });
-                        return JSON.stringify(copy, null, 2);
-                      };
-                      setEditConfig(maskConfig(int.config));
+                      setEditConfig(JSON.stringify(maskForEditor(int.config), null, 2));
                       setTestResult(null);
                       setShowTestLogs(false);
                       setMenuOpen(null);
-                      setJiraConfig({ url: int.config?.jira_url || '', token: int.config?.token || '' });
+                      setJiraConfig(emptyJiraConfig);
                     }}
                                  className="block w-full text-left px-3 py-2 text-sm hover:bg-gray-100"
                                >
@@ -528,16 +532,8 @@ export function IntegrationsManager() {
                   onClick={() => {
                     setShowDetailModal(false);
                     setEditingInt(selectedIntegration);
-                    // Mask secrets and remove helper keys before editing
-const maskConfig = (cfg:any) => {
-  const copy = {...cfg};
-  delete copy.test;
-  ['token','access_token','jira_url','url'].forEach(k => {
-    if (copy[k]) copy[k] = '*****';
-  });
-  return JSON.stringify(copy, null, 2);
-};
-setEditConfig(maskConfig(selectedIntegration.config));
+                    setEditConfig(JSON.stringify(maskForEditor(selectedIntegration.config), null, 2));
+                    setJiraConfig(emptyJiraConfig);
                     setTestResult(null);
                     setShowTestLogs(false);
                   }}
@@ -591,15 +587,16 @@ setEditConfig(maskConfig(selectedIntegration.config));
                         </label>
                         <input 
                           type="text" 
+                          aria-label="Jira URL Env Var Name"
                           className="w-full p-2 border rounded-lg text-sm" 
                           value={jiraConfig.url} 
                           onChange={e => setJiraConfig({...jiraConfig, url: e.target.value})} 
                           placeholder="JIRA_BASE_URL" 
                           onBlur={() => {
-                            // Save as placeholder string if value is not empty
-                            const varName = jiraConfig.url || "JIRA_BASE_URL";
-                            const cfg = { ...editingInt?.config, jira_url: `\${env:${varName}}` };
-                            setEditConfig(JSON.stringify(cfg, null, 2));
+                            // Only write a reference the user typed; blur alone never changes the stored value.
+                            if (jiraConfig.url.trim()) {
+                              setEditConfig(prev => setJiraEnvReference(prev, 'jira_url', jiraConfig.url.trim()));
+                            }
                           }}
                         />
                       </div>
@@ -610,15 +607,16 @@ setEditConfig(maskConfig(selectedIntegration.config));
                         </label>
                         <input 
                           type="text" 
+                          aria-label="Jira Token Env Var Name"
                           className="w-full p-2 border rounded-lg text-sm" 
                           value={jiraConfig.token} 
                           onChange={e => setJiraConfig({...jiraConfig, token: e.target.value})} 
-                          placeholder="JIRA_PAT" 
+                          placeholder={editingInt?.config?.token ? `${MASK_PLACEHOLDER} (stored, type to replace)` : 'JIRA_PAT'} 
                           onBlur={() => {
-                            // Save as placeholder string if value is not empty
-                            const varName = jiraConfig.token || "JIRA_PAT";
-                            const cfg = { ...editingInt?.config, token: `\${env:${varName}}` };
-                            setEditConfig(JSON.stringify(cfg, null, 2));
+                            // Only write a reference the user typed; an empty box keeps the stored secret.
+                            if (jiraConfig.token.trim()) {
+                              setEditConfig(prev => setJiraEnvReference(prev, 'token', jiraConfig.token.trim()));
+                            }
                           }}
                         />
                       </div>
@@ -632,23 +630,7 @@ setEditConfig(maskConfig(selectedIntegration.config));
 <textarea 
                         ref={editConfigRef}
                         className="w-full p-2 border rounded-lg font-mono text-xs h-48 resize-y overflow-auto custom-scrollbar" 
-                        value={
-                          // Mask tokens in the displayed JSON to avoid exposing secrets
-                          (() => {
-                            try {
-                              const cfg = JSON.parse(editConfig);
-                              const maskKeys = ["token", "access_token", "jira_url"];
-                              maskKeys.forEach(k => {
-                                if (cfg.hasOwnProperty(k)) {
-                                  cfg[k] = "*****";
-                                }
-                              });
-                              return JSON.stringify(cfg, null, 2);
-                            } catch {
-                              return editConfig;
-                            }
-                          })()
-                        } 
+                        value={editConfig}
                         onChange={e => setEditConfig(e.target.value)} 
                       />
                    </div>
