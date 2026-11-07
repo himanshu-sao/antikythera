@@ -105,37 +105,68 @@ docker-compose pull && docker-compose up
 ```
 
 **Services:**
-- Frontend UI: http://localhost:5173
-- Backend API: http://localhost:8006
+- Frontend UI: http://localhost:15173 (via the SSH tunnel; see [Security and access](#-security-and-access))
+- Backend API: http://localhost:18006 (via the SSH tunnel)
 - API docs: disabled by default. Set `ANTIKYTHERA_ENABLE_DOCS=1` to serve Swagger at http://localhost:8006/docs
 
 #### Option B: Local Development
 
-- **Backend**: `./venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 8006` (loopback only; see [Security and access](#-security-and-access))
+- **Backend**: `./venv/bin/python -m uvicorn api.main:app --host 127.0.0.1 --port 18006` (loopback only; ports per [Security and access](#-security-and-access) — today the default is still 8006 until the port change lands)
 - **Frontend**: `cd ui && npm run dev`
 
 ### 🔐 Security and access
 
-Antikythera is a single-user tool for a trusted machine. Treat it as local software, not a public service.
+Antikythera is a single-user tool. Treat it as local software, not a public service.
 
-**Current state (today):**
-- The API has **no authentication yet**. Anything that can reach the port can call it.
-- The local start script binds to `0.0.0.0`, the Docker compose files publish ports on all interfaces, and CORS allows all origins. These are being changed (see below).
-- Integration secrets are masked in list responses, but are stored in `~/.antikythera/` or `automation-ideas/integrations.json` as plain text.
-- Executor and Studio scripts run on the host. Only the terminal tool and SafeExecutor sandboxing are being tightened (see below).
+**Deployment topology (this setup):**
+
+Antikythera does **not** run on your laptop. It runs on a remote Docker host:
+
+- The Docker daemon (and every container) runs on the remote machine, reached via `DOCKER_HOST=ssh://...` (Docker context `remote-host`).
+- The remote host is a **regular user account, not root**, and holds a copy of the code (image builds send the build context there).
+- Data lives on the remote host: `~/.antikythera/` (config, `.env`, `.ai_env`) and `~/antikythera-data/` (the `automation-ideas` volume). Those paths mean *the remote host's home*, not your laptop's.
+- Your laptop only runs the browser and the `docker`/`ssh` clients.
+
+**Ports (decided): uncommon ports, loopback-only on the Docker host.**
+
+| Service | Container port | Published on the Docker host | Through the tunnel (your laptop) |
+|---|---|---|---|
+| Backend API | 8006 | `127.0.0.1:18006` | `http://localhost:18006` |
+| Frontend UI | 5173 | `127.0.0.1:15173` | `http://localhost:15173` |
+
+Containers keep their internal ports (8006/5173); only what is published on the host changes. The port change (compose files, start script default, Vite dev server, Playwright `baseURL`, `.env.example`) lands with the next change set — today the published ports are still `8006`/`5173` on all interfaces.
+
+**Reaching it from your laptop: SSH tunnel.**
+
+Nothing is published to the network. You reach the remote host's loopback through SSH:
+
+```bash
+ssh -N \
+  -L 18006:127.0.0.1:18006 \
+  -L 15173:127.0.0.1:15173 \
+  <user>@<docker-host>
+```
+
+- `-N` keeps the tunnel open without a shell; add `-f` to background it.
+- Then open `http://localhost:15173` in your browser. The UI talks to the API at `http://localhost:18006` (`VITE_API_URL`), which is the same tunnel.
+- The tunnel is only as secure as the SSH login. Anyone who can log in to that host — or hijack your SSH session — reaches the API. That is why the token below still matters.
+- Loopback-only publishing means the port numbers are not exposed to other machines; the uncommon ports (`18006`, `15173`) additionally avoid accidental collisions with anything else you forward.
 
 **Planned access model (decided, implementation pending):**
-- The backend listens on `127.0.0.1` by default. Publish it to other machines only on purpose.
-- Every `/api/*` request must send `Authorization: Bearer <token>`. The token comes from `ANTIKYTHERA_API_TOKEN`. If that variable is unset, a random token is generated on first start, saved to `~/.antikythera/api_token` (mode `0600`), and logged with its location. Do not commit it.
-- CORS is limited to the UI origin, set by `ANTIKYTHERA_CORS_ORIGINS` (default `http://localhost:5173`).
+- Compose publishes only `127.0.0.1:18006` and `127.0.0.1:15173` on the Docker host; the start script (local, non-Docker runs) binds `127.0.0.1` too.
+- Every `/api/*` request must send `Authorization: Bearer <token>`. The token comes from `ANTIKYTHERA_API_TOKEN`. If unset, a random token is generated on first start, saved to `~/.antikythera/api_token` (mode `0600`, on the Docker host) and logged with its location. Do not commit it. The UI asks for it once (setup screen) and keeps it in `sessionStorage`.
+- CORS is limited to the UI origin, set by `ANTIKYTHERA_CORS_ORIGINS` (default `http://localhost:15173`).
 - Swagger/OpenAPI at `/docs` is off unless `ANTIKYTHERA_ENABLE_DOCS=1`.
-- Until the token ships, run the backend on `127.0.0.1` and do not publish port 8006 to other machines. Note that `start_antikythera.sh` still binds `0.0.0.0` today; change it to `127.0.0.1` (or run uvicorn manually as shown in Option B).
+
+**First-run setup (decided, implementation pending):**
+
+Instead of hand-editing `~/.antikythera/.env` and `.ai_env` on the Docker host, a setup screen configures what is missing: provider keys (names only — it never shows existing values), Jira credentials, the API token, ports/origins and the backup directory. It appears only while setup is incomplete, accepts connections from loopback only (which the SSH tunnel satisfies), locks itself once complete, and writes through the existing safe env writer (single-quoted values, mode `0600`). See the *first-run setup wizard* entry in [docs/decisions.md](docs/decisions.md).
 
 **Your responsibilities:**
-- Keep `~/.antikythera/` at mode `700` and its files at `600`. Do not commit `.env`, `.ai_env`, `api_token`, `automation-ideas/` or `registry/` data.
+- On the Docker host: keep `~/.antikythera/` at mode `700` and its files at `600` (the account is a regular user; nothing needs root). Do not commit `.env`, `.ai_env`, `api_token`, `automation-ideas/` or `registry/` data.
 - Rotate any provider key that was ever pasted into a shared log, screen share or Docker image. Images published before commit `eac8428` contain a copy of the local data folder, including the vault key and integration records. Rebuild those images, rotate the secrets they held, and delete the old tags.
-- Back up `automation-ideas/` with `scripts/backup_data.sh` (the archive is written with mode `0600`). Store the backup somewhere encrypted.
-- The Docker compose files currently publish ports 8006 and 5173 on **all** host interfaces (`"8006:8006"`). Until authentication ships, change those entries to `"127.0.0.1:8006:8006"` and `"127.0.0.1:5173:5173"` so only this machine can reach them.
+- Back up the data volume with `scripts/backup_data.sh` (run it on the Docker host, where `~/antikythera-data` lives; the archive is written with mode `0600`). Store the backup somewhere encrypted.
+- If you ever need to expose the API beyond the tunnel, do not: publish loopback and extend the SSH config (`LocalForward` in `~/.ssh/config`) instead.
 
 **Executor and automation safety (planned):**
 - The executor's terminal tool will run only allowlisted programs without a shell. File writes will stay inside each item's folder.

@@ -32,5 +32,48 @@ These answers unblock the held items in `docs/pending-items.md` and the open lis
 ## Still not decided (skip and report)
 
 - Studio cron scheduling (decided "not now").
-- Non-root container user (decided "keep root for now").
-- Anything else not listed above.
+- Non-root container user (decided "keep root for now"; note the account on the Docker host is already a regular user — the question was only about the in-container user).
+- Anything else not listed above or in the D8/D9 sections.
+
+---
+
+# Decisions added later on 2026-11-07 (topology and setup)
+
+These came out of the deployment discussion after run 2. They extend, and where they overlap supersede, the table above.
+
+## D8 — Deployment topology and ports
+
+**Facts about the deployment (the user's setup):**
+- The Docker daemon and all containers run on a **remote Docker host**, reached via `DOCKER_HOST=ssh://...` (Docker context `remote-host`). The laptop only runs the browser and the `docker`/`ssh` clients.
+- The remote host runs as a **regular user, not root**, and holds a copy of the code (builds send the build context there).
+- Data paths are on the remote host: `~/.antikythera/` (config, `.env`, `.ai_env`) and `~/antikythera-data/` (the `automation-ideas` volume).
+
+**Decision:**
+- **Ports become 18006 (API) and 15173 (UI) everywhere they are exposed.** Containers keep 8006/5173 internally. Implement in: `docker/docker-compose*.yml` publish entries (`127.0.0.1:18006:8006`, `127.0.0.1:15173:5173`), `start_antikythera.sh` default `PORT`, `ui/vite.config.ts` (dev server port and default `API_PROXY_TARGET` port), `playwright.config.ts` `baseURL`, `.env.example` (`VITE_API_URL=http://localhost:18006`), and the compose `VITE_API_URL` values. Update every test that hard-codes 5173/8006.
+- **Publish loopback-only on the Docker host.** Nothing on any other interface. The local (non-Docker) start path also binds `127.0.0.1`.
+- **Access from the laptop is an SSH tunnel**, not published ports: `ssh -N -L 18006:127.0.0.1:18006 -L 15173:127.0.0.1:15173 <user>@<docker-host>`. Document the tunnel in `docker/README.md` and the main README (done in README). Suggest a `LocalForward` block for `~/.ssh/config` in the docs.
+- `ANTIKYTHERA_CORS_ORIGINS` default becomes `http://localhost:15173` (see D1).
+- Do not change the container-internal ports; only the published/host-side ones.
+
+## D9 — First-run setup wizard
+
+**Goal:** replace hand-editing `~/.antikythera/.env` and `.ai_env` on the Docker host with a guided UI. The user should be able to clone, start the stack, open the tunnel and configure everything from the browser.
+
+**Backend (new `/api/setup` router):**
+- `GET /api/setup/status` — what is missing, as a list of typed items (no secret values, only names and presence): env file present, each provider key set/unset (names only), Jira base URL/PAT set/unset, API token generated or not, ports/origins at their defaults, data directory present and writable, backup directory configured. Response includes `complete: bool`.
+- `POST /api/setup/config` — accepts a partial map of the values above; writes them through the **existing safe env writer** in the AI engine config service (single-quoted values, mode `0600`, `ANTIKYTHERA_HOME`-aware). Provider keys go to `.ai_env`; Jira and non-secret settings to `.env`. Rejects unknown keys and values containing newlines/NUL (same rules as the writer).
+- `POST /api/setup/complete` — writes the marker `~/.antikythera/.setup_complete` (mode `0600`); the setup endpoints refuse to do anything once it exists.
+- `DELETE /api/setup/complete` (or `POST /api/setup/reopen`) — clears the marker; requires the D1 token; for re-running setup later.
+
+**Security rules (must-have, test each):**
+- The setup endpoints are active **only while the marker file is absent**. After completion they return 404 (not 403 with detail).
+- While setup is incomplete the endpoints accept **loopback connections only** (check `request.client.host` in `127.0.0.0/8` and `::1`). The SSH tunnel terminates on the Docker host's loopback, so this works remotely. Non-loopback gets 403.
+- They never return existing secret values — only whether each is set. `POST /api/setup/config` never echoes values back.
+- Once the D1 token exists, reopening setup requires the token; the initial run (no token yet) is protected by the loopback restriction alone.
+- Rate-limit `POST /api/setup/config` (simple in-memory counter is enough) to blunt brute-force attempts against Jira/keys during the open window.
+
+**Frontend:**
+- A `Setup` screen shown automatically when `GET /api/setup/status` reports incomplete (the UI checks once on load): one section per status item, masked inputs for secrets, a final "Finish setup" that calls `/complete`, and a one-time display of the generated API token with a copy button.
+- The UI stores the token in `sessionStorage` and sends it as the D1 bearer on every request.
+
+**Out of scope for the first cut:** editing already-set values after completion (reopen flow covers it), multi-user anything.
