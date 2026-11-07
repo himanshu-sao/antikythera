@@ -10,7 +10,7 @@
 // Slice 1 scope: Query → Fan-out → AI-transform → Conditional-action → Save/Run.
 // No AuthModal/token-paste (dec #14); no Skill Brainstormer loop (dec #18).
 
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
 import { TextHighlighter } from './TextHighlighter';
 import {
