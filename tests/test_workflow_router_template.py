@@ -1110,7 +1110,8 @@ class TestSec13ExecutionCapableAdapters:
 
     def test_safe_type_and_config_adapter_still_accepted(self, client):
         tid = "sec13_safe"
-        step = {"id": 1, "type": "action", "action": "x", "config": {"adapter": "internal"},
+        step = {"id": 1, "type": "action", "action": "x",
+                "config": {"adapter": "internal", "action": "list_items"},
                 "board_stage": "INTAKE"}
         try:
             r = client.post("/api/workflows/templates", json=_sec13_payload(tid, step))

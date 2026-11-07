@@ -108,9 +108,12 @@ def _validate_template_adapters(template: Dict[str, Any]) -> list[str]:
     in any of those fields even though they are not in the allowlist anyway.
     """
     violations = []
-    steps = template.get("steps") or []
-    if not isinstance(steps, list):
+    steps = template.get("steps")
+    if steps is None:
         return violations
+    if not isinstance(steps, list):
+        # P1-3: an object/string/number here used to skip every check and be saved.
+        return [f"steps must be a list, got {type(steps).__name__}"]
     for step in steps:
         if not isinstance(step, dict):
             violations.append("step ?: must be an object")
@@ -153,10 +156,17 @@ def _validate_step_configs(template: Dict[str, Any]) -> list[str]:
     Returns list of violations (empty if all valid).
     """
     violations = []
-    for step in template.get("steps", []):
+    steps = template.get("steps")
+    if not isinstance(steps, list):
+        return violations  # absent/null is allowed; a wrong type is reported by _validate_template_adapters
+    for step in steps:
         if not isinstance(step, dict):
             continue  # reported by _validate_template_adapters
         adapter = _normalise_adapter_token(step.get("adapter")) or ""
+        config = step.get("config", {})
+        if not adapter and isinstance(config, dict):
+            # R16: the engines also dispatch on config.adapter, so use it when step.adapter is empty.
+            adapter = _normalise_adapter_token(config.get("adapter")) or ""
         if not adapter:
             continue  # Empty/absent adapter is allowed (B1 validation handles null/non-string)
 
@@ -165,10 +175,11 @@ def _validate_step_configs(template: Dict[str, Any]) -> list[str]:
             # No schema defined for this adapter - skip config validation
             continue
 
-        config = step.get("config", {})
         if not isinstance(config, dict):
             violations.append(f"step {step.get('id', '?')}: config must be an object")
             continue
+        # "adapter" in config is the dispatch selector, not a schema parameter (on both paths).
+        config = {k: v for k, v in config.items() if k != "adapter"}
 
         # Check for duplicate fields in config (JSON objects can't have duplicates in Python dict,
         # but we check for the edge case where the template might have been constructed with duplicates)
