@@ -1,10 +1,8 @@
 # Antikythera - Docker Compose (Production Mode)
 #
 # This compose file is optimized for production deployments:
-# - Frontend: NOT YET FUNCTIONAL. The frontend service is stock nginx:alpine with only
-#   nginx.conf mounted, and nothing places the built UI at /usr/share/nginx/html, so the
-#   UI root has no index.html to serve. nginx.conf also proxies /api/ to backend.
-#   See the O1 TODO below.
+# - Frontend: nginx serving the built UI (Dockerfile.ui, target prod); nginx.conf proxies
+#   /api/ to the backend. Built locally from the repo (`docker compose ... up -d --build`).
 # - Named volumes for data persistence
 # - No bind mounts except for config
 # - Resource limits and restart policies
@@ -50,18 +48,19 @@ services:
           memory: 512M
 
   # -------------------------------------------------------------------------
-  # Frontend - nginx proxy only (no built UI is served yet)
-  # TODO(O1): add an nginx stage to docker/Dockerfile.ui that copies /app/ui/dist to
-  # /usr/share/nginx/html and use that image here instead of nginx:alpine.
+  # Frontend - nginx serving the built UI (prod stage of Dockerfile.ui) and proxying
+  # /api/ to the backend (docker/nginx.conf is baked into the image).
   # -------------------------------------------------------------------------
   frontend:
-    image: nginx:alpine
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+      target: prod
+    image: himanshusao/antikythera-ui:prod
     container_name: antikythera-frontend
     restart: always
     ports:
       - "80:80"
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:
       - antikythera-network
     depends_on:

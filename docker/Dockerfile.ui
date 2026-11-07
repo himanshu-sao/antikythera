@@ -4,7 +4,7 @@
 # ------------------------------------------------------------------------------
 # Stage 1: Builder - Install dependencies and build
 # ------------------------------------------------------------------------------
-FROM node:20-alpine as builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app/ui
 
@@ -21,10 +21,29 @@ COPY ui/ ./
 RUN npm run build
 
 # ------------------------------------------------------------------------------
-# Stage 2: Runtime - runs the Vite DEV server (this image does NOT serve via nginx yet;
-# see the O1 TODO in docker-compose.prod.yml for the nginx production stage)
+# Stage 2: prod - nginx serving the built UI and proxying /api/ to the backend (O1)
+# Used by docker-compose.prod.yml via `target: prod`.
+# Declared BEFORE `runtime` on purpose: a plain `docker build` (build-docker.sh,
+# test-docker.sh, docker-compose.yml) builds the LAST stage, which must stay the Vite
+# dev-server image that the published himanshusao/antikythera-ui image has always been.
 # ------------------------------------------------------------------------------
-FROM node:20-alpine as runtime
+FROM nginx:alpine AS prod
+
+# The bundle is built without VITE_API_URL, so ui/src/config.ts uses relative /api URLs
+# and nginx.conf proxies them to http://backend:8006 on the compose network.
+COPY --from=builder /app/ui/dist /usr/share/nginx/html
+COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+    CMD wget -q --spider http://localhost/ || exit 1
+
+# ------------------------------------------------------------------------------
+# Stage 3: Runtime (final stage, so the default target) - runs the Vite DEV server, used
+# by docker-compose.yml and docker-compose.user.yml. For production see the `prod` stage.
+# ------------------------------------------------------------------------------
+FROM node:20-alpine AS runtime
 
 WORKDIR /app/ui
 
