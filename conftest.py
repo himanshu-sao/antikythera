@@ -148,21 +148,33 @@ def isolate_data_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(api_main.engine, "hub", test_hub, raising=False)
     monkeypatch.setattr(api_main.scheduler, "hub", test_hub, raising=False)
 
+    # Workflow state: one WorkflowStateManager rooted at tmp, shared by every
+    # holder of state (see _redirect_state_holders). Replaces the former
+    # separate reset_state_manager fixture so there is a single isolation point.
+    from api.workflow_state_manager import WorkflowStateManager
+    knowledge = base / "knowledge"
+    deltas = knowledge / "deltas"
+    knowledge.mkdir(exist_ok=True)
+    deltas.mkdir(exist_ok=True)
+    for name in ["user.md", "skills.md", "memory.md"]:
+        (knowledge / name).write_text(f"# {name.split('.')[0].capitalize()}")
+    _redirect_state_holders(monkeypatch, api_main, WorkflowStateManager(str(base)))
+
     yield base
 
 
-# Autouse fixture to provide a fresh WorkflowStateManager with isolated directories for each test.
-@pytest.fixture(autouse=True)
-def reset_state_manager(tmp_path):
-    import api.main
-    # Build temporary automation-ideas structure
-    base = tmp_path / "automation-ideas"
-    knowledge = base / "knowledge"
-    deltas = knowledge / "deltas"
-    knowledge.mkdir(parents=True)
-    deltas.mkdir()
-    # Create default markdown files
-    for name in ["user.md", "skills.md", "memory.md"]:
-        (knowledge / name).write_text(f"# {name.split('.')[0].capitalize()}")
-    # Replace the global state_manager with a fresh instance
-    api.main.state_manager = api.main.WorkflowStateManager(str(base))
+def _redirect_state_holders(monkeypatch, api_main, sm):
+    """Point every holder of workflow state at the same tmp manager.
+
+    Holders: the module global read by get_state_manager(), the app.state
+    copy, the engine (and its run_manager), the escalator, the retry manager
+    and the scheduler. Each is restored at teardown by monkeypatch. Attributes
+    that may not exist use raising=False.
+    """
+    monkeypatch.setattr(api_main, "state_manager", sm)
+    monkeypatch.setattr(api_main.app.state, "state_manager", sm, raising=False)
+    monkeypatch.setattr(api_main.engine, "state_manager", sm, raising=False)
+    monkeypatch.setattr(api_main.engine, "run_manager", sm.runs, raising=False)
+    monkeypatch.setattr(api_main.escalator, "state_manager", sm, raising=False)
+    monkeypatch.setattr(api_main.retry_manager, "state_manager", sm, raising=False)
+    monkeypatch.setattr(api_main.scheduler, "state_manager", sm, raising=False)
