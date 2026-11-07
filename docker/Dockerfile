@@ -5,7 +5,7 @@ ARG PYTHON_VERSION=3.12
 # ------------------------------------------------------------------------------
 # Stage 1: Builder - Install dependencies
 # ------------------------------------------------------------------------------
-FROM python:${PYTHON_VERSION}-slim as builder
+FROM python:${PYTHON_VERSION}-slim AS builder
 
 WORKDIR /app
 
@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir --user -r requirements.txt
 # ------------------------------------------------------------------------------
 # Stage 2: Runtime - Minimal image with entrypoint
 # ------------------------------------------------------------------------------
-FROM python:${PYTHON_VERSION}-slim as runtime
+FROM python:${PYTHON_VERSION}-slim AS runtime
 
 WORKDIR /app
 
@@ -41,9 +41,15 @@ COPY api/ ./api/
 COPY agents/ ./agents/
 COPY scripts/ ./scripts/
 
+# agents/refiner.py, architect.py and tester.py build an LLMClient from config.yaml at
+# import time, so the orchestrator cannot start without it (P0-8). It holds provider and
+# model names plus the NAMES of env vars for keys, never secret values.
+COPY config.yaml ./config.yaml
+
 # Data directory is an empty mount point: real state (pipeline, vault, integrations)
 # is bind-mounted or volume-mounted at run time and must never be baked into the image.
-# Local data is excluded from the build context by /.dockerignore (SEC-14).
+# Local data is excluded from the build context by /.dockerignore (SEC-14); never add a
+# COPY of automation-ideas/ here.
 RUN mkdir -p /app/automation-ideas /app/logs
 
 # Copy entrypoint script
