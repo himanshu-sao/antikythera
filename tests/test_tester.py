@@ -10,6 +10,27 @@ from unittest.mock import patch, MagicMock
 from agents import tester
 
 
+class _FakeAgentLLM:
+    """Deterministic stand-in for the module-level LLMClient. Returns an empty
+    reply so the agent's own deterministic fallback template is exercised."""
+
+    def __init__(self, reply=""):
+        self.reply = reply
+        self.calls = []
+
+    def generate_structured_content(self, system_prompt, user_prompt):
+        self.calls.append((system_prompt, user_prompt))
+        return self.reply
+
+
+@pytest.fixture(autouse=True)
+def fake_agent_llm(monkeypatch):
+    """Never reach a real provider: these tests assert on our code, not a model."""
+    fake = _FakeAgentLLM()
+    monkeypatch.setattr(tester, "llm", fake)
+    return fake
+
+
 class TestTesterIdea:
     def test_tester_idea_creates_tests_file(self):
         """tester_idea should create a tests.md file."""

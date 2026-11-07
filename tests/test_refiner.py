@@ -10,6 +10,27 @@ from unittest.mock import patch, mock_open
 from agents import refiner
 
 
+class _FakeAgentLLM:
+    """Deterministic stand-in for the module-level LLMClient. Returns an empty
+    reply so the agent's own deterministic fallback template is exercised."""
+
+    def __init__(self, reply=""):
+        self.reply = reply
+        self.calls = []
+
+    def generate_structured_content(self, system_prompt, user_prompt):
+        self.calls.append((system_prompt, user_prompt))
+        return self.reply
+
+
+@pytest.fixture(autouse=True)
+def fake_agent_llm(monkeypatch):
+    """Never reach a real provider: these tests assert on our code, not a model."""
+    fake = _FakeAgentLLM()
+    monkeypatch.setattr(refiner, "llm", fake)
+    return fake
+
+
 class TestRefineIdea:
     def test_refine_idea_creates_spec_file(self):
         """refine_idea should create a spec.md file."""
