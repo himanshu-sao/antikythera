@@ -18,7 +18,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from api.models.config import AIProvider, ModelConfig
-from api.services.ai_engine_config import AIEngineConfigService
+from api.services.ai_engine_config import AIEngineConfigService, AIEngineConfigError
 
 
 def _make_service(tmp_path, model_id="test-bob-model", provider=AIProvider.IBM_BOB,
@@ -152,3 +152,181 @@ def test_list_available_models_marks_ibm_bob_key_as_set(tmp_path):
     models = svc.list_available_models()
     bob = next(m for m in models if m["provider"] == "ibm_bob")
     assert bob["api_key_set"] is True
+
+
+# --------------------------------------------------------------------------
+# SEC-9 / T5 / T28: the persistent .ai_env file is sourced by bash at startup,
+# so every value must be inert under `source`, round-trip exactly, and the file
+# must be 0600 from creation. Tests redirect the env path into tmp_path; they
+# never touch the real ~/.antikythera.
+# --------------------------------------------------------------------------
+import os
+import stat
+import subprocess
+
+from api.services import ai_engine_config as _aec
+
+
+_PROVIDER_PREFIXES = ("NVIDIA_", "GOOGLE_", "IBM_BOB_", "OPENAI_", "ANTHROPIC_", "OLLAMA_", "OPENROUTER_")
+
+
+@pytest.fixture
+def env_file(tmp_path, monkeypatch):
+    """Redirect the persistent env file to tmp_path before the service is built.
+
+    Provider-prefixed variables inherited from the host shell are removed for the
+    duration of the test (monkeypatch restores them) so no real key is ever copied
+    into the tmp file.
+    """
+    target = tmp_path / ".ai_env"
+    monkeypatch.setattr(
+        _aec.AIEngineConfigService, "_persistent_env_path", lambda self: str(target)
+    )
+    for key in list(os.environ):
+        if key.startswith(_PROVIDER_PREFIXES):
+            monkeypatch.delenv(key, raising=False)
+    return target
+
+
+def _svc(tmp_path):
+    return AIEngineConfigService(config_path=str(tmp_path / "ai_config.json"))
+
+
+def _bash_source_then(path, snippet, env_name=None):
+    """Run ``bash -c 'source <path>; <snippet>'`` with a clean environment."""
+    env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+    return subprocess.run(
+        ["bash", "-c", 'source "$1"; ' + snippet, "bash", str(path)],
+        capture_output=True, text=True, env=env, timeout=20,
+    )
+
+
+class TestPersistentEnvSafety:
+    def test_command_substitution_and_backticks_are_inert(self, tmp_path, env_file, monkeypatch):
+        sentinel = tmp_path / "sentinel"
+        hostile = f"abc$(touch {sentinel})def`touch {sentinel}`ghi"
+        monkeypatch.setenv("NVIDIA_API_KEY", hostile)
+        svc = _svc(tmp_path)
+        svc._write_persistent_env()
+        assert env_file.exists()
+        result = _bash_source_then(env_file, "true")
+        assert result.returncode == 0
+        assert not sentinel.exists(), "sourcing the env file executed a command substitution"
+
+    def test_value_round_trips_exactly_through_bash(self, tmp_path, env_file, monkeypatch):
+        values = [
+            'plain-value-123',
+            "it's-quoted",
+            'dq"inside',
+            'back\\slash',
+            'dollar$HOME-not-expanded',
+            "mix'\"$(id)`x`\\",
+        ]
+        # Build the service once: its constructor loads the env file into os.environ,
+        # which would otherwise clobber the value set for the next iteration.
+        svc = _svc(tmp_path)
+        for value in values:
+            monkeypatch.setenv("NVIDIA_API_KEY", value)
+            svc._write_persistent_env()
+            result = _bash_source_then(env_file, 'printf %s "$NVIDIA_API_KEY"')
+            assert result.returncode == 0
+            assert result.stdout == value, "bash did not reproduce the stored value exactly"  # synthetic test values only
+
+    def test_env_file_mode_is_0600(self, tmp_path, env_file, monkeypatch):
+        monkeypatch.setenv("NVIDIA_API_KEY", "x")
+        _svc(tmp_path)._write_persistent_env()
+        assert stat.S_IMODE(os.stat(env_file).st_mode) == 0o600
+
+    def test_no_world_readable_window_on_overwrite(self, tmp_path, env_file, monkeypatch):
+        # A pre-existing, world-readable file must be replaced by a 0600 file, never
+        # written through with its old permissions.
+        env_file.write_text("old\n")
+        os.chmod(env_file, 0o644)
+        monkeypatch.setenv("NVIDIA_API_KEY", "x")
+        _svc(tmp_path)._write_persistent_env()
+        assert stat.S_IMODE(os.stat(env_file).st_mode) == 0o600
+
+    def test_no_temp_files_left_behind(self, tmp_path, env_file, monkeypatch):
+        monkeypatch.setenv("NVIDIA_API_KEY", "x")
+        _svc(tmp_path)._write_persistent_env()
+        leftovers = [p for p in os.listdir(tmp_path) if p.endswith(".tmp")]
+        assert leftovers == []
+
+    def test_newline_in_value_is_refused(self, tmp_path, env_file, monkeypatch):
+        monkeypatch.setenv("NVIDIA_API_KEY", "good")
+        svc = _svc(tmp_path)
+        svc._write_persistent_env()
+        monkeypatch.setenv("NVIDIA_API_KEY", "line1\nNVIDIA_EVIL=1")
+        svc._write_persistent_env()  # must not raise, must not write the injected line
+        text = env_file.read_text()
+        injected = "NVIDIA_EVIL" in text or "line1" in text
+        assert not injected, "newline in value produced an extra line in the env file"
+
+    def test_nul_in_value_is_refused(self, tmp_path, env_file):
+        # os.environ cannot hold NUL, so exercise the formatter directly.
+        with pytest.raises(ValueError):
+            _aec._format_env_line("NVIDIA_API_KEY", "bad\x00value")
+        with pytest.raises(ValueError):
+            _aec._format_env_line("NVIDIA_API_KEY", "bad\nvalue")
+        with pytest.raises(ValueError):
+            _aec._format_env_line("NVIDIA_API_KEY", "bad\rvalue")
+        with pytest.raises(ValueError):
+            _aec._format_env_line("NOT-A-NAME", "x")
+
+    def test_set_api_key_rejects_newline_before_mutating_env(self, tmp_path, env_file, monkeypatch):
+        svc = _svc(tmp_path)
+        model_id = "nim-test-model"
+        svc.add_model(ModelConfig(
+            model_id=model_id, provider=AIProvider.NVIDIA_NIM, name="n",
+            api_key_env="NVIDIA_API_KEY_SEC9",
+        ))
+        monkeypatch.delenv("NVIDIA_API_KEY_SEC9", raising=False)
+        with pytest.raises(AIEngineConfigError):
+            svc.set_api_key(model_id, "line1\nINJECTED=1")
+        assert "NVIDIA_API_KEY_SEC9" not in os.environ
+
+    def test_set_api_key_writes_safe_file_for_hostile_value(self, tmp_path, env_file, monkeypatch):
+        sentinel = tmp_path / "sentinel2"
+        svc = _svc(tmp_path)
+        model_id = "nim-test-model-2"
+        svc.add_model(ModelConfig(
+            model_id=model_id, provider=AIProvider.NVIDIA_NIM, name="n",
+            api_key_env="NVIDIA_API_KEY_SEC9B",
+        ))
+        monkeypatch.delenv("NVIDIA_API_KEY_SEC9B", raising=False)
+        svc.set_api_key(model_id, f"$(touch {sentinel})`touch {sentinel}`")
+        monkeypatch.delenv("NVIDIA_API_KEY_SEC9B", raising=False)
+        _bash_source_then(env_file, "true")
+        assert not sentinel.exists()
+        assert stat.S_IMODE(os.stat(env_file).st_mode) == 0o600
+
+
+class TestPersistentEnvLoaderRoundTrip:
+    def test_python_loader_reads_back_quoted_values(self, tmp_path, env_file, monkeypatch):
+        value = "it's $(x) `y` \"z\" back\\slash"
+        monkeypatch.setenv("NVIDIA_API_KEY", value)
+        _svc(tmp_path)._write_persistent_env()
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+        _svc(tmp_path)  # constructor runs _load_persistent_env
+        assert os.environ.get("NVIDIA_API_KEY") == value
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+
+
+class TestPersistentEnvCreateFlags:
+    def test_temp_file_created_exclusively_with_0600(self, tmp_path, env_file, monkeypatch):
+        seen = []
+        real_open = os.open
+
+        def spy(path, flags, mode=0o777, *a, **kw):
+            if str(path).startswith(str(env_file)) and str(path).endswith(".tmp"):
+                seen.append((flags, mode))
+            return real_open(path, flags, mode, *a, **kw)
+
+        monkeypatch.setattr(_aec.os, "open", spy)
+        monkeypatch.setenv("NVIDIA_API_KEY", "x")
+        _svc(tmp_path)._write_persistent_env()
+        assert seen, "temp file was not created through os.open"
+        flags, mode = seen[-1]
+        assert flags & os.O_EXCL, "temp file must be created with O_EXCL"
+        assert flags & os.O_CREAT
+        assert mode == 0o600

@@ -13,6 +13,9 @@ Manages AI model configurations, API keys, and connection settings for multiple 
 import os
 import json
 import logging
+import re
+import secrets
+import shlex
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 from datetime import datetime
@@ -26,6 +29,30 @@ from ..models.config import (
 )
 
 logger = logging.getLogger(__name__)
+
+_ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_env_value(value: str) -> None:
+    """Reject values that cannot be stored as one safe line in the env file (SEC-9)."""
+    if not isinstance(value, str):
+        raise ValueError("env value must be a string")
+    if "\x00" in value or "\n" in value or "\r" in value:
+        raise ValueError("env value must not contain NUL or line breaks")
+
+
+def _format_env_line(key: str, value: str) -> str:
+    """Return ``KEY='value'`` safe for ``bash source``.
+
+    Single quotes disable every expansion ($(...), backticks, $VAR, \\). An
+    embedded single quote is written as ``'\\''``. Keys must be plain shell names.
+    """
+    if not isinstance(key, str) or not _ENV_NAME_RE.match(key):
+        raise ValueError("invalid env var name")
+    _validate_env_value(value)
+    quoted = "'" + value.replace("'", "'\\''") + "'"
+    return f"{key}={quoted}"
+
 
 class AIEngineConfigError(Exception):
     """Custom exception for AI engine configuration errors"""
@@ -127,7 +154,11 @@ class AIEngineConfigService:
         model_config = self.get_model_config(model_id)
         if not model_config:
             raise AIEngineConfigError(f"Model '{model_id}' not found")
-        
+        try:
+            _validate_env_value(api_key)
+        except ValueError as exc:
+            raise AIEngineConfigError(str(exc)) from exc
+
         env_var = model_config.api_key_env
         os.environ[env_var] = api_key
         logger.info(f"Set API key for {model_id} in environment")
@@ -159,6 +190,10 @@ class AIEngineConfigService:
         normalized_key = alias_map.get(normalized)
         if not normalized_key:
             raise AIEngineConfigError(f"Invalid provider '{provider_id}'")
+        try:
+            _validate_env_value(api_key)
+        except ValueError as exc:
+            raise AIEngineConfigError(str(exc)) from exc
         try:
             provider_enum = AIProvider(normalized_key)
         except ValueError as exc:
@@ -683,37 +718,59 @@ class AIEngineConfigService:
                         continue
                     key, val = line.split("=", 1)
                     key = key.strip()
-                    # Strip surrounding quotes if present
-                    if (val.startswith('"') and val.endswith('"')) or (
-                        val.startswith("'") and val.endswith("'")
-                    ):
+                    if not _ENV_NAME_RE.match(key):
+                        continue
+                    if val.startswith("'") and val.endswith("'") and len(val) >= 2:
+                        # Shell single-quoted form written by _format_env_line.
+                        try:
+                            parts = shlex.split(val)
+                            val = parts[0] if len(parts) == 1 else val[1:-1]
+                        except ValueError:
+                            val = val[1:-1]
+                    elif val.startswith('"') and val.endswith('"') and len(val) >= 2:
+                        # Legacy double-quoted lines.
                         val = val[1:-1]
                     os.environ[key] = val
         except Exception as e:
             logger.warning(f"Failed to load persistent env from {env_path}: {e}")
 
     def _write_persistent_env(self) -> None:
-        """Write all provider‑related env vars currently in ``os.environ`` to the
+        """Write all provider-related env vars currently in ``os.environ`` to the
         persistent file.
 
         Only keys that match known provider prefixes (e.g. ``NVIDIA_``, ``GOOGLE_``,
         ``IBM_BOB_``, ``OPENAI_``, ``ANTHROPIC_``, ``OLLAMA_``) are persisted. This
         avoids leaking unrelated environment variables.
+
+        SEC-9: the file is sourced by bash at startup, so each value is single-quoted
+        (inert under ``source``); values containing NUL or line breaks are skipped.
+        The file is created 0600 via O_EXCL on a temp name and moved into place with
+        os.replace, so the final path never exists with looser permissions.
         """
         env_path = self._persistent_env_path()
         provider_prefixes = ["NVIDIA_", "GOOGLE_", "IBM_BOB_", "OPENAI_", "ANTHROPIC_", "OLLAMA_", "OPENROUTER_"]
         lines: List[str] = []
         for key, val in os.environ.items():
             if any(key.startswith(p) for p in provider_prefixes):
-                escaped = val.replace('"', '\\"')
-                lines.append(f"{key}=\"{escaped}\"")
+                try:
+                    lines.append(_format_env_line(key, val))
+                except ValueError:
+                    logger.warning("Skipping persistent env entry %s: unsafe value or name", key)
+        tmp_path = f"{env_path}.{secrets.token_hex(8)}.tmp"
         try:
-            with open(env_path, "w") as f:
-                f.write("# Auto‑generated by Antikythera AI Engine Config\n")
+            fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write("# Auto-generated by Antikythera AI Engine Config\n")
                 for line in lines:
                     f.write(line + "\n")
-            os.chmod(env_path, 0o600)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, env_path)
         except Exception as e:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
             logger.warning(f"Failed to write persistent env to {env_path}: {e}")
 
 _ai_engine_config_service: Optional[AIEngineConfigService] = None
