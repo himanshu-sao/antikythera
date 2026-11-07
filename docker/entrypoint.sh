@@ -35,6 +35,16 @@ log_success() {
     echo "${GREEN}[OK]${NC} $1"
 }
 
+# True (exit 0) when a value is empty or still a template placeholder.
+# POSIX sh does not glob-match on the right-hand side of `[ = ]`, so a
+# `case` pattern is required here (SEC-14 / O4).
+is_placeholder() {
+    case "$1" in
+        ""|your_*|dummy*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 # ------------------------------------------------------------------------------
 # Configuration Validation
 # ------------------------------------------------------------------------------
@@ -67,6 +77,7 @@ validate_config() {
         log_error "Template:"
         log_error "  PORT=8006"
         log_error "  VITE_API_URL=http://localhost:5173"
+        log_error "  # Optional (Jira integration):"
         log_error "  JIRA_BASE_URL=https://your-domain.atlassian.net"
         log_error "  JIRA_PAT=your_personal_access_token"
         log_error ""
@@ -78,21 +89,30 @@ validate_config() {
     . "$ENV_FILE"
     set +a
 
-    # Required variables check
-    REQUIRED_VARS="PORT JIRA_BASE_URL JIRA_PAT"
+    # Required variables check (Jira is optional: warn only)
+    REQUIRED_VARS="PORT"
     for var in $REQUIRED_VARS; do
         eval "value=\$$var"
-        if [ -z "$value" ] || [ "$value" = "your_"* ] || [ "$value" = "dummy"* ]; then
+        if is_placeholder "$value"; then
             MISSING_VARS="$MISSING_VARS $var"
         fi
     done
+
+    JIRA_CONFIGURED=""
+    eval "jira_url=\${JIRA_BASE_URL:-}"
+    eval "jira_pat=\${JIRA_PAT:-}"
+    if is_placeholder "$jira_url" || is_placeholder "$jira_pat"; then
+        WARNINGS="$WARNINGS Jira integration not configured (JIRA_BASE_URL/JIRA_PAT)"
+    else
+        JIRA_CONFIGURED="yes"
+    fi
 
     # Check for at least one AI provider key
     AI_KEYS="NVIDIA_API_KEY GOOGLE_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY ANTHROPIC_AUTH_TOKEN"
     AI_KEY_FOUND=""
     for key in $AI_KEYS; do
-        eval "value=\$$key"
-        if [ -n "$value" ] && [ "$value" != "dummy"* ] && [ "$value" != "your_"* ]; then
+        eval "value=\${$key:-}"
+        if ! is_placeholder "$value"; then
             AI_KEY_FOUND="$key"
             break
         fi
@@ -149,7 +169,11 @@ validate_config() {
 
     log_success "Configuration validation passed!"
     log_info "  - Port: $PORT"
-    log_info "  - Jira Base URL: $JIRA_BASE_URL"
+    if [ -n "$JIRA_CONFIGURED" ]; then
+        log_info "  - Jira Base URL: $JIRA_BASE_URL"
+    else
+        log_warn "  - Jira: not configured (optional; set JIRA_BASE_URL and JIRA_PAT to enable)"
+    fi
     log_info "  - Data directory: $DATA_DIR"
     if [ -n "$AI_KEY_FOUND" ]; then
         log_info "  - AI Provider: $AI_KEY_FOUND"
