@@ -253,3 +253,101 @@ class TestAtomicWritesAndCorruptFile:
             t.join()
         assert errors == []
         assert len(hub.list_integrations()) == 12
+
+
+# --------------------------------------------------------------------------
+# 2.20 / T24: native adapter coroutines must run inside an already-running loop
+# --------------------------------------------------------------------------
+import sys
+import types
+
+
+@pytest.fixture
+def fake_adapter_module(monkeypatch):
+    """Install an importable fake *Adapter module with async fetch/update/create/delete."""
+    calls = []
+
+    class FakeNativeAdapter:
+        def __init__(self, vault=None):
+            self.vault = vault
+
+        async def fetch(self, resource_id, params=None):
+            calls.append(("fetch", resource_id, params))
+            return {"id": resource_id, "params": params}
+
+        async def update(self, resource_id, payload):
+            calls.append(("update", resource_id, payload))
+            return {"updated": payload}
+
+        async def create(self, resource_id, payload):
+            calls.append(("create", resource_id, payload))
+            return {"created": payload}
+
+        async def delete(self, resource_id, payload=None):
+            calls.append(("delete", resource_id, payload))
+            return {"deleted": resource_id}
+
+        async def boom(self, resource_id, **kw):
+            raise RuntimeError("adapter exploded")
+
+        async def custom(self, resource_id, **kw):
+            return {"custom": resource_id, "kw": kw}
+
+    mod = types.ModuleType("fake_native_adapter_mod")
+    mod.FakeNativeAdapter = FakeNativeAdapter
+    monkeypatch.setitem(sys.modules, "fake_native_adapter_mod", mod)
+    return calls
+
+
+def _fake_hub(tmp_path):
+    hub = IntegrationHub(str(tmp_path))
+    hub.add_integration("fake", "native", {"adapter_module": "fake_native_adapter_mod"})
+    return hub
+
+
+class TestNativeAsyncBridge:
+    def test_sync_context_still_works(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "fetch_resource", {"resource_id": "R1", "arguments": {"a": 1}})
+        assert res["status"] == "success"
+        assert res["result"] == {"id": "R1", "params": {"a": 1}}
+
+    async def test_inside_running_loop_fetch(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "fetch_resource", {"resource_id": "R1", "arguments": {"a": 1}})
+        assert res["status"] == "success", res
+        assert res["result"] == {"id": "R1", "params": {"a": 1}}
+
+    async def test_inside_running_loop_update_create_delete(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        up = hub.execute_action("fake", "update_resource", {"resource_id": "R1", "arguments": {"x": 1}})
+        cr = hub.execute_action("fake", "create_resource", {"arguments": {"y": 2}})
+        de = hub.execute_action("fake", "delete_resource", {"resource_id": "R9"})
+        assert up["status"] == cr["status"] == de["status"] == "success", (up, cr, de)
+        assert up["result"] == {"updated": {"x": 1, "resource_id": "R1"}}
+        assert cr["result"] == {"created": {"y": 2}}
+        assert de["result"] == {"deleted": "R9"}
+
+    async def test_inside_running_loop_tool_call_fallback_branch(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "tools/call", {"name": "custom", "resource_id": "Z", "arguments": {"k": 1}})
+        assert res["status"] == "success", res
+        assert res["result"] == {"custom": "Z", "kw": {"k": 1}}
+
+    async def test_inside_running_loop_adapter_exception_reported(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "tools/call", {"name": "boom", "arguments": {}})
+        assert res["status"] == "error"
+        assert "adapter exploded" in res["result"]
+
+    async def test_loop_stays_usable_afterwards(self, tmp_path, fake_adapter_module):
+        import asyncio
+        hub = _fake_hub(tmp_path)
+        hub.execute_action("fake", "fetch_resource", {"resource_id": "R1"})
+        assert await asyncio.sleep(0, result="alive") == "alive"
+
+    def test_sync_context_adapter_exception_reported(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "tools/call", {"name": "boom", "arguments": {}})
+        assert res["status"] == "error"
+        assert "adapter exploded" in res["result"]

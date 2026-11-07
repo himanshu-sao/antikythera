@@ -84,6 +84,27 @@ class IntegrationConfigCorruptError(Exception):
     """
 
 
+def _run_coroutine_sync(coro_factory):
+    """Run an adapter coroutine to completion from synchronous code (2.20 / T24).
+
+    ``asyncio.run`` cannot be nested inside a running loop. Hub methods are
+    called from async FastAPI handlers, so when a loop is already running the
+    coroutine is executed on a short-lived worker thread that owns its own loop.
+    ``coro_factory`` is a zero-arg callable so the coroutine is created on the
+    thread that runs it.
+    """
+    import asyncio
+    import concurrent.futures
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro_factory())
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="hub-adapter") as pool:
+        return pool.submit(asyncio.run, coro_factory()).result()
+
+
 class IntegrationHub:
     """
     Manages external service connections.
@@ -391,17 +412,18 @@ class IntegrationHub:
             resource_id = params.get("resource_id") if isinstance(params, dict) else None
 
             if method_name == "fetch":
-                result = asyncio.run(method(resource_id, params=call_args))
+                result = _run_coroutine_sync(lambda: method(resource_id, params=call_args))
             elif method_name in ("update", "create", "delete"):
                 payload = call_args.copy() if call_args else {}
                 if resource_id:
                     payload["resource_id"] = resource_id
-                result = asyncio.run(method(resource_id if method_name == "delete" else None, payload))
+                result = _run_coroutine_sync(
+                    lambda: method(resource_id if method_name == "delete" else None, payload))
             elif method_name == "execute":
                 # synchronous mock path (used by tests)
                 result = method(run_id=params.get("run_id", ""), config=call_args, context={})
             else:
-                result = asyncio.run(method(resource_id, **call_args))
+                result = _run_coroutine_sync(lambda: method(resource_id, **call_args))
 
             return {"status": "success", "result": result, "logs": ""}
 
