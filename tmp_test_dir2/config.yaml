@@ -1,3 +1,0 @@
-llm:
-  model: test-model
-  provider: google
