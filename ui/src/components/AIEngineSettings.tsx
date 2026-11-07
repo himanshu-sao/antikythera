@@ -73,6 +73,7 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
   // Logs state for tail functionality
   const [logsContent, setLogsContent] = useState<string>('');
   const [logsLoading, setLogsLoading] = useState<boolean>(false);
+  const [logsTruncated, setLogsTruncated] = useState<boolean>(false);
 
   // Available models for Add Model UI
    const [selectedProvider, setSelectedProvider] = useState<string>('');
@@ -184,13 +185,16 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       if (activeTab !== 'logs' || logsLoading) return;
       setLogsLoading(true);
       try {
-        const res = await fetch('/api/ai-engine/logs?tail=1048576');
+        // The endpoint returns {"logs": "..."} and clamps to 2000 lines / 256 KiB.
+        const res = await fetch('/api/ai-engine/logs?lines=2000');
         if (!res.ok) throw new Error('Failed to fetch logs');
-        const text = await res.text();
-        setLogsContent(text);
+        const data = await res.json();
+        setLogsContent(typeof data?.logs === 'string' ? data.logs : '');
+        setLogsTruncated(res.headers?.get?.('x-log-truncated')?.toLowerCase() === 'true');
       } catch (e) {
         console.error(e);
         setLogsContent('Error loading logs');
+        setLogsTruncated(false);
       } finally {
         setLogsLoading(false);
       }
@@ -1064,7 +1068,12 @@ const [activeTab, setActiveTab] = useState<Tab>('overview');
       {/* Logs Tab */}
       {activeTab === 'logs' && (
           <div className="p-4">
-            <h3 className="text-lg font-bold mb-2">Logs (tail 1MiB)</h3>
+            <h3 className="text-lg font-bold mb-2">Logs (latest 2000 lines)</h3>
+            {logsTruncated && !logsLoading && (
+              <p className="text-xs text-amber-700 mb-2" data-testid="logs-truncated">
+                Output was truncated by the server; only the most recent lines are shown.
+              </p>
+            )}
             {logsLoading ? (
               <div className="flex items-center"><Loader className="w-5 h-5 animate-spin mr-2"/>Loading...</div>
             ) : (
