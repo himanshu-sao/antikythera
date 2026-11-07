@@ -1,11 +1,15 @@
 # Lightweight Python sandbox for running tests
+# Build from the repo root so the requirements files are in the build context:
+#   docker build -f docker/Dockerfile.sandbox -t antikythera-sandbox .
 FROM python:3.12-slim
 
-# Install basic testing tools
-RUN pip install --no-cache-dir pytest==8.4.2 pytest-cov==7.1.0
-
-# Set working directory
 WORKDIR /workspace
+
+# Install from the single source of truth instead of duplicating pins here (P5-3).
+# requirements-dev.txt pulls in requirements.txt via "-r requirements.txt", so both files
+# must be copied, and next to each other.
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
 
 # Default command: run tests
 CMD ["pytest", "-v"]
