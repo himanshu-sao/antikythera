@@ -229,3 +229,56 @@ Mutation check on the orchestrator run lock: with the lock wait changed from 0 t
 - `WorkflowBuilder.tsx` still shows "Failed to save template" for the new 422 responses (it doesn't read the violations). Not a regression.
 - The orchestrator merge replaces a changed list wholesale, so an API append to a list the handler also changed in the same run can be lost (narrow, unchanged by this run).
 - Integration list responses now mask many more fields. The UI may show `*****` in `args`, nested objects and URL passwords.
+
+---
+
+# Arc A (plumbing, D1-D9 + D14 backend) — 2026-11-07
+
+Baseline `7826013` (arc A ownership map). Result `f6245ae3`, pushed. **30 commits** by eight parallel workers (A1-A8) plus coordinator fixes.
+
+## Verification (all green)
+
+- Backend: `1859 passed, 5 skipped, 10 deselected`, provider keys unset, zero network-blocked attempts. (Was 1492 before the arc: ~367 new tests.)
+- UI vitest: `249 passed` across 29 files. (Was 196.)
+- Playwright existing specs: `10/10` against the dev server on the new port 15173.
+- Real data: `automation-ideas/` and `registry/` byte-identical to the pre-arc snapshot.
+- Mutation checks: A1 (token dependency + CORS Authorization header), A3 (two-argument dispatch revert fails T8), A4 (review-gate removal fails gating tests), A6 (hard-coded max_tasks fails the planner test), A7 (loopback removal fails 5 tests). A5's was blocked by its permission classifier and run by the coordinator instead: reverting the terminal tool to raw `shell=True` fails 44 tests including the allowlist, argv and metacharacter ones.
+
+## What landed
+
+| Item | What | Key commits |
+|---|---|---|
+| D1 | Bearer-token auth on every `/api` route (`api/security.py`, token from `ANTIKYTHERA_API_TOKEN` or a generated `~/.antikythera/api_token`, 0600); CORS allowlist with `Authorization` allowed; Swagger off unless `ANTIKYTHERA_ENABLE_DOCS=1`; conftest bypass keeps old tests green; UI `apiFetch` + TokenGate (sessionStorage, one-time paste); every UI fetch migrated | `04d3584`, `7e963c6`, `f2307ce`, `e363e47` |
+| D8 | Ports 18006/15173 everywhere exposed, loopback-only publishing in compose, start script binds 127.0.0.1, tunnel docs, Playwright/vite/specs updated | `1391b08`, `0d46fcc`, `ab89cf7`, `1cce403`, `cc49ae9` |
+| D2 | Steps dispatch on `adapter`+`action`; `type` only marks ORCHESTRATOR_TASK; validator requires `action` and rejects stray `type`; `migrate_step` handles both the `type`-driven legacy shape and the stored `config.adapter`/`config.action` shape (coordinator fix `0a121915`); builder emits and validates the new shape | `1c50ba9b`, `fb266b55`, `0a121915` |
+| D5 | `POST /api/item/{id}/review` (sets review_status, appends review.md + history); `/api/move` gated (review gate + tier path, 422, `force` bypass); UI review form uses the API, explicit Force move | `9090103`, `d073e39` |
+| D7 | Terminal tool: argv + allowlist, no shell; file tools realpath-confined to the item dir, absolute paths rejected; SafeExecutor runs in a subprocess (10 s timeout, CPU/FSIZE limits, `getattr` removed from child builtins) | `da35d5cd`, `cdaac99b` |
+| D14 backend | `settings.json` store (0600, atomic, bounds-validated) + `GET/PATCH /api/settings`; retry delays, reap age, max tasks, bob timeout, poison strikes read from it; `wired: false` reported honestly for the interval, digest and Studio caps | `69b6725`, `ffbffa4`, `9f6d8d3`, `853da79`, `184a92c`, `ce3a4ce`, `72edf5c` |
+| D9 | `/api/setup` status/config/complete + reopen; loopback-only while incomplete, 404 after completion, rate-limited, values never echoed; SetupScreen shown on first run; generated token displayed once from `complete` | `27c966d`, `bb739eb`, `6db8417` |
+
+## Behaviour changes you will notice
+
+- Every API call needs the token. Scripts: `Authorization: Bearer <token>`; the token file is `~/.antikythera/api_token` (0600) when the env var is unset. The UI asks once (TokenGate) and keeps it in sessionStorage.
+- Ports are 18006 (API) and 15173 (UI), loopback only. Use the SSH tunnel from the README/docker docs.
+- `/api/move` refuses gate-skipping moves (422) unless `force: true` is sent from the explicit UI control.
+- Terminal executor commands outside the allowlist are rejected; absolute paths in executor file tools are rejected.
+- SafeExecutor scripts run in a subprocess (~50-100 ms overhead per call) and `getattr` is no longer available in them.
+- A fresh install shows the Setup screen; after completion the endpoints 404.
+
+## Known limitations and gaps (arc B or later)
+
+- **Stored templates still cannot run end to end**: `migrate_step` now normalizes their shape, but the hub resolves `adapter` names against `integrations.json` only (the real names are `jira_test`, `bob-pr-reviewer`), so a migrated `github` step fails with "Integration github not found" through the retry path. Needs either canonical-name fallback in the hub or integrations named canonically — an arc B design item. The `BOB_SHELL` stored template additionally names an execution-capable adapter.
+- A5's memory cap is NOT enforced on macOS (setrlimit rejects RLIMIT_AS/RLIMIT_DATA); CPU (12 s) and FSIZE (16 MB) limits are. The allowlist is not a sandbox: python/pip/pytest still run arbitrary code as the current user.
+- Settings wired: `wired: false` for `orchestrator_interval_s` (run script still hard-codes 30 s), `digest_interval_h` (no digest yet, D10) and the two Studio caps.
+- Executor tunables (`MAX_TASK_ATTEMPTS`, workspace cap, terminal timeout) are not yet settings — arc B consumers.
+- AppShell requests fire before the setup gate resolves (harmless, disclosed by A7).
+- The rate limit on setup POSTs is global (20/60 s).
+- JIRA_PAT is written to the secrets file `.ai_env` (A7's deviation, accepted).
+- Root `vite.config.ts` is a stale duplicate of the UI one; its proxy default was updated (`f6245ae3`) but the whole root JS toolchain (root package.json, jest config) remains a cleanup decision.
+
+## Coordinator fixes during the arc
+
+- `0a121915`: `migrate_step` promotes `config.adapter`/`config.action` (A3 asked; verified against the real stored shapes) and the builder UIs drop the stale step `type` field.
+- `f6245ae3`: root `vite.config.ts` port default.
+- A5's mutation check run by the coordinator (its scratch-copy command was denied by a classifier).
+- Cross-worker relays: A1 CORS Authorization header; A7 migrating App.tsx fetches to apiFetch.
