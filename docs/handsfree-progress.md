@@ -267,7 +267,7 @@ Baseline `7826013` (arc A ownership map). Result `f6245ae3`, pushed. **30 commit
 
 ## Known limitations and gaps (arc B or later)
 
-- **Stored templates still cannot run end to end**: `migrate_step` now normalizes their shape, but the hub resolves `adapter` names against `integrations.json` only (the real names are `jira_test`, `bob-pr-reviewer`), so a migrated `github` step fails with "Integration github not found" through the retry path. Needs either canonical-name fallback in the hub or integrations named canonically — an arc B design item. The `BOB_SHELL` stored template additionally names an execution-capable adapter.
+- ~~Stored templates still cannot run end to end~~ **Fixed 2026-11-07 (post-arc-A)**: the hub now falls back to canonical adapter modules (`internal`, `github`, `jira`, `ai`, `bob_shell`) when no integration with that name exists; synthetic records are never persisted, `bob_shell` logs a warning, and the internal verbs plus `analyze` dispatch correctly. The stored AUTO-MOVE-TEST shape runs to COMPLETED end to end (11 tests, mutation-checked). A `github`/`jira` canonical step still needs credentials from the environment (no integration record), which is the pre-existing credential model.
 - A5's memory cap is NOT enforced on macOS (setrlimit rejects RLIMIT_AS/RLIMIT_DATA); CPU (12 s) and FSIZE (16 MB) limits are. The allowlist is not a sandbox: python/pip/pytest still run arbitrary code as the current user.
 - Settings wired: `wired: false` for `orchestrator_interval_s` (run script still hard-codes 30 s), `digest_interval_h` (no digest yet, D10) and the two Studio caps.
 - Executor tunables (`MAX_TASK_ATTEMPTS`, workspace cap, terminal timeout) are not yet settings — arc B consumers.
