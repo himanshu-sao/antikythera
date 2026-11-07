@@ -70,9 +70,26 @@ class ExecutionEngine:
             raise ValueError(f"No active run found for item {item_id}")
  
         logger.info(f"Resuming linked run {run_id} for item {item_id}")
-        
+
+        # A run paused at a HITL step (ORCHESTRATOR_TASK) has had that step
+        # answered by the human, so move past it. Without this the resumed run
+        # would re-execute the same step and pause again forever. Runs resumed
+        # from any other state (e.g. BLOCKED after a failure) retry the step.
+        updates: Dict[str, Any] = {"status": "RUNNING"}
+        run = self.run_manager.get_run(run_id)
+        if run and run.get("status") == "WAITING_FOR_HUMAN":
+            template = self.state_manager.templates.get_template(run["template_id"]) or {}
+            steps = template.get("steps", [])
+            idx = run.get("current_step_index", 0)
+            if idx < len(steps) and steps[idx].get("type") == "ORCHESTRATOR_TASK":
+                updates["current_step_index"] = idx + 1
+                self.run_manager.log_event(
+                    run_id, "STEP_END",
+                    {"step": steps[idx].get("name", f"Step {idx}"), "result": "HITL_RESOLVED"},
+                )
+
         # Mark run as RUNNING again and trigger next step
-        self.run_manager.update_run(run_id, {"status": "RUNNING"})
+        self.run_manager.update_run(run_id, updates)
         self.process_next_step(run_id)
         return run_id
  
