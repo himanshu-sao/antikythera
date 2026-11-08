@@ -151,7 +151,7 @@ class PathStepGraphEngine:
     # Public API
     # -------------------------------------------------------------------------
 
-    def start_run(self, graph_id: str, inputs: Dict[str, Any], dry_run: bool = False) -> str:
+    def start_run(self, graph_id: str, inputs: Dict[str, Any], dry_run: bool = True) -> str:
         """
         Start a new graph run.
 
@@ -163,6 +163,9 @@ class PathStepGraphEngine:
                 to a logged "would-have-run" result. Reads still execute, so
                 routing + undefined-queue + run-logs can be verified without
                 side effects before the single real write at slice-1 end.
+                P2-3: defaults to True (matching the API's RunRequest), so an
+                internal caller that omits the flag gets a dry run too; a live
+                run always requires an explicit dry_run=False.
 
         Returns:
             run_id of the started execution

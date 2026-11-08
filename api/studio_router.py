@@ -187,9 +187,12 @@ class RunRequest(BaseModel):
     # dec #16: dry_run=True exercises the graph end-to-end (reads run, condition
     # routing + undefined-queue + run-logs all populate) but short-circuits the
     # conditional true/false adapter writes to a logged "would-have-run" result,
-    # so the verification pass never fires a live Jira write. Flip False for
-    # the single real write at slice-1 end (plan §6 "after dry-run logging").
-    dry_run: bool = False
+    # so the verification pass never fires a live Jira write.
+    # P2-3: the default is True. An API caller that omits the flag gets a dry
+    # run; a live run now requires an explicit "dry_run": false in the request
+    # body. Before P2-3 the default was False, so only the UI checkbox stood
+    # between a forgetful curl caller and a live adapter write.
+    dry_run: bool = True
 
 
 class RunResponse(BaseModel):
@@ -197,7 +200,9 @@ class RunResponse(BaseModel):
     graph_id: str
     status: str
     started_at: str
-    dry_run: bool = False
+    # Echoes the run's mode; defaults to True to match RunRequest (P2-3).
+    # Always populated explicitly by the run endpoint.
+    dry_run: bool = True
 
 
 class RunLogResponse(BaseModel):
