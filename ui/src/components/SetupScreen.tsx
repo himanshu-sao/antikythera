@@ -21,6 +21,8 @@ export interface SetupItem {
 export interface SetupStatus {
   complete: boolean;
   items: SetupItem[];
+  /** True while the one-time setup secret exists (P0-1). Gates the writes. */
+  setup_secret_required?: boolean;
 }
 
 export interface SetupScreenProps {
@@ -63,6 +65,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete }) => {
   const [error, setError] = useState<string | null>(null);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [setupSecret, setSetupSecret] = useState('');
 
   const load = async () => {
     try {
@@ -102,15 +105,29 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete }) => {
     return out;
   };
 
+  // P0-1: while a setup secret exists, both write endpoints require the
+  // X-Setup-Secret header (constant-time compared server-side). Plain fetch
+  // stays: these calls are pre-token by design.
+  const secretHeaders = (): Record<string, string> =>
+    status?.setup_secret_required ? { 'X-Setup-Secret': setupSecret.trim() } : {};
+
+  const secretRejected = (): void => {
+    setError('The setup secret was not accepted. It is printed in the backend log at first start.');
+  };
+
   const saveConfig = async (): Promise<boolean> => {
     const updates = typedUpdates();
     if (Object.keys(updates).length === 0) return true;
     const res = await fetch(`${SETUP_BASE}/config`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...secretHeaders() },
       body: JSON.stringify(updates),
     });
     if (!res.ok) {
+      if (res.status === 403) {
+        secretRejected();
+        return false;
+      }
       const body = await res.json().catch(() => ({}));
       setError(typeof body.detail === 'string' ? body.detail : `Saving failed (${res.status}).`);
       return false;
@@ -126,8 +143,15 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete }) => {
     try {
       const saved = await saveConfig();
       if (!saved) return;
-      const res = await fetch(`${SETUP_BASE}/complete`, { method: 'POST' });
+      const res = await fetch(`${SETUP_BASE}/complete`, {
+        method: 'POST',
+        headers: secretHeaders(),
+      });
       if (!res.ok) {
+        if (res.status === 403) {
+          secretRejected();
+          return;
+        }
         setError(`Finishing setup failed (${res.status}).`);
         return;
       }
@@ -259,6 +283,25 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete }) => {
             {loadError}
             <button type="button" onClick={load} className="ml-3 underline">Retry</button>
           </div>
+        )}
+
+        {status?.setup_secret_required && (
+          <section className="space-y-1 border-t border-gray-200 pt-4">
+            <label htmlFor="setup-secret" className="block text-sm font-medium text-gray-900">
+              Setup secret
+            </label>
+            <p className="text-xs text-gray-500">Printed in the backend log at first start.</p>
+            <input
+              id="setup-secret"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="Setup secret"
+              value={setupSecret}
+              onChange={(e) => setSetupSecret(e.target.value)}
+              className="block w-full border-gray-300 rounded-md shadow-sm focus:ring-teal-500 focus:border-teal-500"
+            />
+          </section>
         )}
 
         {status &&

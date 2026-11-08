@@ -168,3 +168,98 @@ describe('SetupScreen', () => {
     expect(calls.some((c) => c.url.endsWith('/api/setup/complete'))).toBe(false);
   });
 });
+
+describe('SetupScreen setup secret (P0-1)', () => {
+  const secretStatusBody = { ...statusBody, setup_secret_required: true };
+
+  const headerOf = (call: Call | undefined, name: string) =>
+    (call?.init?.headers as Record<string, string> | undefined)?.[name];
+
+  test('the setup secret field appears only when status reports it required', async () => {
+    installFetch({ '/api/setup/status': () => ({ json: async () => statusBody }) });
+    render(<SetupScreen />);
+    await screen.findByText('AI provider keys');
+    expect(screen.queryByLabelText('Setup secret')).not.toBeInTheDocument();
+
+    installFetch({ '/api/setup/status': () => ({ json: async () => secretStatusBody }) });
+    render(<SetupScreen />);
+    const field = await screen.findByLabelText('Setup secret');
+    expect(field).toHaveAttribute('type', 'password');
+    expect(field).toHaveValue('');
+    expect(screen.getByText(/printed in the backend log at first start/i)).toBeInTheDocument();
+  });
+
+  test('config and complete carry X-Setup-Secret with the typed value', async () => {
+    const calls = installFetch({
+      '/api/setup/status': () => ({ json: async () => secretStatusBody }),
+      '/api/setup/config': () => ({ json: async () => ({ written: ['JIRA_BASE_URL'] }) }),
+      '/api/setup/complete': () => ({ json: async () => ({ complete: true, api_token: null }) }),
+    });
+    const onComplete = vi.fn();
+    render(<SetupScreen onComplete={onComplete} />);
+
+    fireEvent.change(await screen.findByLabelText('Setup secret'), { target: { value: '  set-me-123  ' } });
+    fireEvent.change(await screen.findByLabelText(/Jira base URL/), { target: { value: 'https://x.example' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+
+    const configCall = calls.find((c) => c.url.endsWith('/api/setup/config'));
+    const completeCall = calls.find((c) => c.url.endsWith('/api/setup/complete'));
+    expect(headerOf(configCall, 'X-Setup-Secret')).toBe('set-me-123');
+    expect(headerOf(completeCall, 'X-Setup-Secret')).toBe('set-me-123');
+  });
+
+  test('no X-Setup-Secret header is sent when the status does not require one', async () => {
+    const calls = installFetch({
+      '/api/setup/status': () => ({ json: async () => statusBody }),
+      '/api/setup/config': () => ({ json: async () => ({}) }),
+      '/api/setup/complete': () => ({ json: async () => ({ complete: true, api_token: null }) }),
+    });
+    const onComplete = vi.fn();
+    render(<SetupScreen onComplete={onComplete} />);
+    fireEvent.change(await screen.findByLabelText(/Jira base URL/), { target: { value: 'https://x.example' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
+    await waitFor(() => expect(onComplete).toHaveBeenCalled());
+    expect(headerOf(calls.find((c) => c.url.endsWith('/api/setup/config')), 'X-Setup-Secret')).toBeUndefined();
+    expect(headerOf(calls.find((c) => c.url.endsWith('/api/setup/complete')), 'X-Setup-Secret')).toBeUndefined();
+  });
+
+  test('a 403 on a wrong secret shows the error and does not lock the screen', async () => {
+    const calls = installFetch({
+      '/api/setup/status': () => ({ json: async () => secretStatusBody }),
+      '/api/setup/config': () => ({ ok: false, status: 403, json: async () => ({ detail: 'Forbidden' }) }),
+    });
+    const onComplete = vi.fn();
+    render(<SetupScreen onComplete={onComplete} />);
+
+    fireEvent.change(await screen.findByLabelText('Setup secret'), { target: { value: 'wrong-secret' } });
+    fireEvent.change(await screen.findByLabelText(/Jira base URL/), { target: { value: 'https://x.example' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/setup secret/i);
+    // Not locked: the buttons are still enabled and nothing was completed.
+    expect(screen.getByRole('button', { name: 'Finish setup' })).not.toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save' })).not.toBeDisabled();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(calls.some((c) => c.url.endsWith('/api/setup/complete'))).toBe(false);
+  });
+
+  test('a 403 from complete (wrong secret at the final step) shows the error and does not finish', async () => {
+    const calls = installFetch({
+      '/api/setup/status': () => ({ json: async () => secretStatusBody }),
+      '/api/setup/config': () => ({ json: async () => ({}) }),
+      '/api/setup/complete': () => ({ ok: false, status: 403, json: async () => ({ detail: 'Forbidden' }) }),
+    });
+    const onComplete = vi.fn();
+    render(<SetupScreen onComplete={onComplete} />);
+
+    fireEvent.change(await screen.findByLabelText('Setup secret'), { target: { value: 'wrong-secret' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/setup secret/i);
+    expect(screen.getByRole('button', { name: 'Finish setup' })).not.toBeDisabled();
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('setup-generated-token')).not.toBeInTheDocument();
+  });
+});
+
