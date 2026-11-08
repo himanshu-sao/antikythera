@@ -100,11 +100,13 @@
   <ul>
     <li>Provider API keys (Google/Gemma, OpenRouter, NVIDIA&hellip;) — names only, never shown again</li>
     <li>Jira credentials (base URL + personal access token)</li>
-    <li>The Slack webhook for notifications</li>
+    <li>The Slack webhook (stored now; notifications arrive with the next release)</li>
     <li>The API token (generated for you, shown once — copy it)</li>
   </ul>
-  <p>Click <strong>Finish setup</strong> and the app loads. The setup screen only accepts connections
-     from the machine itself (your tunnel counts); afterwards the endpoints are locked.</p>
+  <p>The two write steps ask for a one-time <strong>setup secret</strong>, generated at first start
+     into <code>&lt;config dir&gt;/setup_secret</code> (the first-start log line names the file path).
+     Read it once on the server, paste it into the setup screen, and it is deleted when setup
+     completes; the endpoints then answer 404.</p>
 
   <h3>Where things live</h3>
   <table>
@@ -126,7 +128,8 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:18006/api/state</code></
   <ul>
     <li>If <code>ANTIKYTHERA_API_TOKEN</code> is set in the environment, that value is used instead.</li>
     <li>Missing or wrong token &rarr; <code>401</code>.</li>
-    <li>The token is never written to logs and never returned by any endpoint.</li>
+    <li>The token is never written to logs. The only exception to showing it is the
+        setup screen, which displays a newly generated token exactly once.</li>
   </ul>
   <div class="note">The API docs (Swagger) are off by default. Set <code>ANTIKYTHERA_ENABLE_DOCS=1</code>
      and restart to get them at <code>/docs</code>.</div>
@@ -159,8 +162,8 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:18006/api/state</code></
 
   <h3>Approving and moving</h3>
   <p>Use the review form on an item (the drawer&rsquo;s Review tab). <strong>Approve</strong> records the
-     decision and lets the item move on; <strong>Needs revision</strong> sends it back to the previous
-     agent stage. Dragging a card works, but the board enforces the rules:</p>
+     decision and lets the item move on; <strong>Needs revision</strong> records the decision, and the
+     pipeline sends the item back to the previous agent stage on its next cycle (about 30 seconds). Dragging a card works, but the board enforces the rules:</p>
   <ul>
     <li>You cannot drag an item out of a review stage until it is approved.</li>
     <li>You cannot drag an item into a stage its tier skips.</li>
@@ -223,8 +226,7 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:18006/api/state</code></
      "config": {"resource_id": "{{number}}"}},
     {"step_id": "S2", "name": "Comment",
      "adapter": "internal", "action": "add_comment",
-     "config": {"item_id": "ID-001", "body": "Released {{number}}"},
-     "next_step": "S2"}
+     "config": {"item_id": "ID-001", "body": "Released {{number}}"}
   ]}'</code></pre>
 
   <h3>Rules the save endpoint enforces</h3>
@@ -290,8 +292,9 @@ curl -H "Authorization: Bearer $TOKEN" http://localhost:18006/api/state</code></
 curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -X PATCH http://localhost:18006/api/settings \
   -d '{"retry_delays_min": [2, 5, 10]}'</code></pre>
-  <p>Tunable today: orchestrator interval, retry delays, poison-item strikes, reap age, bob
-     timeout, executor max tasks, digest interval, Studio queue cap and run-log limit.</p>
+  <p>Wired today: retry delays, poison-item strikes, reap age, bob timeout and executor max
+     tasks. The orchestrator interval, digest interval and the two Studio caps are listed but not
+     yet wired (the response marks them); setting them persists for when they are.</p>
 </section>
 
 <section id="ops">
@@ -308,7 +311,7 @@ tar -tzf ~/antikythera-backups/automation-ideas-&lt;timestamp&gt;.tar.gz | head<
      <code>GET /api/ai-engine/logs?lines=200</code>. Item timelines are on each card.</p>
   <h3>Corrupt files</h3>
   <div class="note errbox">If a state file is ever damaged, the API refuses to serve an empty
-     board: it returns an error naming the file, keeps the original untouched, and saves a copy as
+     board: it returns an error (the server log names the file), keeps the original untouched, and saves a copy as
      <code>&lt;file&gt;.corrupt-&lt;timestamp&gt;</code> beside it. Restore from backup or fix the
      copy, then restart.</div>
 </section>
@@ -321,7 +324,7 @@ tar -tzf ~/antikythera-backups/automation-ideas-&lt;timestamp&gt;.tar.gz | head<
     <tr><td>Page won&rsquo;t load / connection refused</td><td>The tunnel is down, or the stack is not running. Re-run the <code>ssh -N -L ...</code> command; check <code>docker-compose ps</code> on the host.</td></tr>
     <tr><td><code>422</code> when dragging a card</td><td>The move gate: approve the item first, or use the explicit <strong>Force move</strong> button. The message says which rule tripped.</td></tr>
     <tr><td><code>Integration github not found</code></td><td>No integration supplies that adapter. Create one in the Integrations tab (any name, matching adapter, token filled in) or set the environment variable.</td></tr>
-    <tr><td>Setup screen says &ldquo;local only&rdquo;</td><td>Setup accepts loopback connections only — your SSH tunnel qualifies; a direct remote connection does not.</td></tr>
+    <tr><td>Setup asks for a &ldquo;setup secret&rdquo;</td><td>Read <code>&lt;config dir&gt;/setup_secret</code> on the server (the first-start log names its path) and paste it. It is deleted once setup completes.</td></tr>
     <tr><td>Item stuck <em>blocked</em></td><td>The agent failed 3 times at the same stage; the reason is on the card. Often the AI provider is unreachable (check the key in the AI Engine tab).</td></tr>
     <tr><td>Run <code>BLOCKED</code> with a <code>REC-</code> card</td><td>A workflow step exhausted its retries. Fix the cause and resume from the recovery card.</td></tr>
     <tr><td>Run <code>FAILED</code> &ldquo;orphaned: server restart&rdquo;</td><td>The stack restarted mid-run. Resume the run; nothing was lost.</td></tr>
