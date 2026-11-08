@@ -443,3 +443,109 @@ class TestBobShellActionMigration:
         m = migrate_step({"step_id": "S1", "config": {"action": "move_item"}})
         assert m["adapter"] == "internal"
         assert m["action"] == "move_item"
+
+
+# ---------------------------------------------------------------------------
+# P0-3 end-to-end: the stored AI_INTEGRATION_BOB shape through a real hub
+# ---------------------------------------------------------------------------
+
+class TestBobShellEndToEnd:
+    """The stored AI_INTEGRATION_BOB template (config.adapter BOB_SHELL,
+    prompt/args, no action) runs through a real IntegrationHub and the
+    canonical bob_shell adapter. A fake adapter class replaces
+    BobShellAdapter on the api.adapters.bob_shell module, so nothing shells
+    out to the real bob binary; the canonical fallback resolves the module by
+    name and picks the class up from it.
+
+    Before the P0-3 fixes this run reached COMPLETED even though every step
+    failed (fetch raises NotImplementedError, reported as an error dict that
+    _advance never checked)."""
+
+    @pytest.fixture
+    def fake_bob(self, monkeypatch):
+        import api.adapters.bob_shell as bob_module
+
+        recorded = []
+
+        class FakeBobShellAdapter:
+            def __init__(self, vault=None):
+                self.vault = vault
+
+            def execute(self, run_id, config, context):
+                recorded.append({"run_id": run_id, "config": dict(config), "context": context})
+                if config.get("prompt") == "BOOM":
+                    raise RuntimeError("bob exploded")
+                return {"status": "success", "output": "bob says hi"}
+
+        monkeypatch.setattr(bob_module, "BobShellAdapter", FakeBobShellAdapter)
+        return recorded
+
+    def _save_bob_template(self, sm, prompt="Analyze recent changes"):
+        _save(sm, "AI_INTEGRATION_BOB", [{
+            "step_id": "S1", "name": "Run Bob Shell Analysis", "category": "ACTION",
+            "config": {"adapter": "BOB_SHELL", "prompt": prompt,
+                       "args": ["--yolo"], "api_key_env": "IBM_BOB_SHELL_DEFAULT_KEY"},
+            "next_step": None,
+        }])
+
+    def test_failing_bob_step_blocks_the_run(self, sm, tmp_path, fake_bob):
+        self._save_bob_template(sm, prompt="BOOM")
+        hub = IntegrationHub(str(tmp_path))
+        escalator = _Escalator()
+        engine = ExecutionEngine(sm, hub, escalator)
+        run_id = engine.start_run("AI_INTEGRATION_BOB", {})
+
+        run = _run(sm, run_id)
+        assert run["status"] == "BLOCKED", run
+        assert "RUN_COMPLETED" not in _events(sm, run_id)
+        assert "RUN_BLOCKED" in _events(sm, run_id)
+        # The step dispatched to the adapter's execute (not fetch) and the
+        # adapter failure reached the escalation as the reason.
+        assert len(fake_bob) == 1
+        assert "bob exploded" in escalator.escalations[0]["error"]
+        assert escalator.escalations[0]["step_name"] == "Run Bob Shell Analysis"
+
+    def test_failing_bob_step_goes_through_the_retry_path(self, sm, tmp_path, fake_bob,
+                                                          monkeypatch):
+        import threading
+
+        scheduled = []
+
+        class _Timer:
+            def __init__(self, interval, fn):
+                self.interval, self.fn, self.daemon = interval, fn, False
+                scheduled.append(self)
+
+            def start(self):
+                pass
+
+            def cancel(self):
+                pass
+
+        monkeypatch.setattr(threading, "Timer", _Timer)
+        self._save_bob_template(sm, prompt="BOOM")
+        hub = IntegrationHub(str(tmp_path))
+        engine = ExecutionEngine(sm, hub, _Escalator(), RetryManager(sm))
+        run_id = engine.start_run("AI_INTEGRATION_BOB", {})
+
+        assert _run(sm, run_id)["status"] == "RUNNING"  # retry scheduled
+        assert _run(sm, run_id)["retry_count"] == 1
+        assert [t.interval for t in scheduled] == [300]
+
+    def test_successful_bob_step_completes_with_the_prompt_config(self, sm, tmp_path, fake_bob):
+        self._save_bob_template(sm)
+        hub = IntegrationHub(str(tmp_path))
+        engine = ExecutionEngine(sm, hub, _Escalator())
+        run_id = engine.start_run("AI_INTEGRATION_BOB", {})
+
+        run = _run(sm, run_id)
+        assert run["status"] == "COMPLETED", run
+        # The step config carries no run_id, so the hub's execute bridge passes
+        # an empty one; the prompt/args config reaches the adapter verbatim.
+        assert fake_bob == [{
+            "run_id": "",
+            "config": {"adapter": "BOB_SHELL", "prompt": "Analyze recent changes",
+                       "args": ["--yolo"], "api_key_env": "IBM_BOB_SHELL_DEFAULT_KEY"},
+            "context": {},
+        }]
+        assert run["context"]["Run Bob Shell Analysis"]["result"]["output"] == "bob says hi"
