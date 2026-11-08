@@ -290,7 +290,7 @@ export const SetupScreen: React.FC<SetupScreenProps> = ({ onComplete }) => {
             <label htmlFor="setup-secret" className="block text-sm font-medium text-gray-900">
               Setup secret
             </label>
-            <p className="text-xs text-gray-500">Printed in the backend log at first start.</p>
+            <p className="text-xs text-gray-500">In the setup_secret file under the Antikythera config directory on the server (the first-start log line names its path).</p>
             <input
               id="setup-secret"
               type="password"
