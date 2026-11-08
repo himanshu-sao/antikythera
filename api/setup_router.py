@@ -1,21 +1,29 @@
-"""First-run setup wizard router (D9).
+"""First-run setup wizard router (D9, P0-1 setup-secret gate).
 
-Three routes under ``/api/setup`` (no token dependency, except DELETE):
+Routes under ``/api/setup`` (no token dependency, except DELETE):
 
 - ``GET /status``: typed setup items, names and presence only, never values.
+  Also reports ``setup_secret_required`` and ensures the one-time setup secret
+  exists while setup is open, so the wizard can ask for it up front.
 - ``POST /config``: partial map of settings, written to ``.ai_env`` (secrets) or
-  ``.env`` (plain) in the config directory.
-- ``POST /complete``: writes the ``.setup_complete`` marker and, when no
-  ``ANTIKYTHERA_API_TOKEN`` is set, returns the generated API token once.
+  ``.env`` (plain) in the config directory. Requires the ``X-Setup-Secret``
+  header matching the setup secret (constant-time compare).
+- ``POST /complete``: writes the ``.setup_complete`` marker, deletes the setup
+  secret and, when no ``ANTIKYTHERA_API_TOKEN`` is set, returns the generated
+  API token once. Also requires ``X-Setup-Secret``.
+- ``DELETE /complete``: reopens setup; requires the bearer token (not the
+  secret).
 
-While the marker is absent the routes accept loopback clients only. Once the
-marker exists GET/POST routes return 404. ``DELETE /complete`` reopens setup
-and requires the bearer token.
+The old loopback-only peer-address gate is gone (P0-1): under Docker NAT or a
+reverse proxy the backend never sees 127.0.0.1, so it locked out the
+legitimate first-run user. Possession of the setup secret — a 0600 file in the
+server's config directory — is the proof of local access instead. Once the
+marker exists the GET/POST routes return 404.
 """
 
 from __future__ import annotations
 
-import ipaddress
+import hmac
 import os
 import re
 import secrets
@@ -28,12 +36,21 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 
-from api.security import TOKEN_ENV_VAR, config_dir, get_or_create_token, token_file_path
+from api.security import (
+    TOKEN_ENV_VAR,
+    SETUP_MARKER_FILENAME,
+    config_dir,
+    delete_setup_secret,
+    get_or_create_setup_secret,
+    get_or_create_token,
+    setup_secret_exists,
+    token_file_path,
+)
 from api.services.ai_engine_config import _format_env_line, _validate_env_value, get_ai_engine_config
 
 router = APIRouter(prefix="/api/setup", tags=["setup"])
 
-MARKER_FILENAME = ".setup_complete"
+MARKER_FILENAME = SETUP_MARKER_FILENAME
 ENV_FILENAME = ".env"
 DEFAULT_PORT = "18006"
 DEFAULT_CORS_ORIGINS = "http://localhost:15173"
@@ -108,30 +125,34 @@ def _token_exists() -> bool:
         return False
 
 
-def _is_loopback(host: Optional[str]) -> bool:
-    """True for 127.0.0.0/8, ::1 and IPv4-mapped loopback. Anything unparseable is False."""
-    if not host:
-        return False
-    try:
-        ip = ipaddress.ip_address(host.split("%", 1)[0])
-    except ValueError:
-        return False
-    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
-    return ip.is_loopback
-
-
-def _guard_open(request: Request) -> None:
+def _guard_open() -> None:
     """Gate for GET status, POST config and POST complete.
 
     Once the marker exists the routes do not exist (404, same body as an unknown
-    path). While setup is open only loopback clients are served.
+    path). While setup is open the routes are reachable from any address; the
+    write routes are protected by the one-time setup secret instead (P0-1).
     """
     if _is_complete():
         raise HTTPException(status_code=404)
-    host = request.client.host if request.client else None
-    if not _is_loopback(host):
-        raise HTTPException(status_code=403, detail="Setup is only available from the local machine")
+
+
+def _require_setup_secret(request: Request) -> None:
+    """P0-1: gate the setup write routes on the one-time setup secret.
+
+    The secret lives in a 0600 file in the server's config directory, so
+    presenting its value proves access to the server's filesystem — the same
+    trust the old loopback check tried to establish, but one that survives
+    Docker NAT and reverse proxies. Compared in constant time; a single generic
+    message for a missing, wrong or unavailable secret.
+    """
+    expected = get_or_create_setup_secret()
+    supplied = request.headers.get("x-setup-secret", "")
+    if (
+        expected is None
+        or not supplied
+        or not hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
+    ):
+        raise HTTPException(status_code=403, detail="Invalid setup secret")
 
 
 def _check_rate_limit() -> None:
@@ -334,13 +355,22 @@ def _write_marker() -> None:
 
 @router.get("/status")
 def setup_status(request: Request) -> Dict[str, Any]:
-    _guard_open(request)
-    return {"complete": _is_complete(), "items": _status_items()}
+    _guard_open()
+    # P0-1: make sure the one-time secret exists from the first status poll so
+    # the wizard can ask for it before the first write. The response reports
+    # presence only — never the value.
+    get_or_create_setup_secret()
+    return {
+        "complete": _is_complete(),
+        "items": _status_items(),
+        "setup_secret_required": setup_secret_exists(),
+    }
 
 
 @router.post("/config")
 def setup_config(request: Request, body: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
-    _guard_open(request)
+    _guard_open()
+    _require_setup_secret(request)
     _check_rate_limit()
     updates = _validate_config(body)
     _write_config(updates)
@@ -349,14 +379,18 @@ def setup_config(request: Request, body: Dict[str, Any] = Body(...)) -> Dict[str
 
 @router.post("/complete")
 def setup_complete(request: Request) -> Dict[str, Any]:
-    _guard_open(request)
+    _guard_open()
+    _require_setup_secret(request)
     # A token generated by this call is returned once so the wizard can show it.
-    # Status never carries it, and this route is loopback-only while setup is open.
-    # A token that already existed, or one supplied by the environment, is not echoed.
+    # Status never carries it, and this route is secret-gated while setup is
+    # open. A token that already existed, or one supplied by the environment,
+    # is not echoed.
     api_token: Optional[str] = None
     if not _env(TOKEN_ENV_VAR) and not _token_exists():
         api_token = get_or_create_token()
     _write_marker()
+    # P0-1: the one-time secret has served its purpose.
+    delete_setup_secret()
     return {"complete": True, "api_token": api_token}
 
 

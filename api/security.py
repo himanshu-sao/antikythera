@@ -27,7 +27,14 @@ logger = logging.getLogger("antikythera.security")
 TOKEN_ENV_VAR = "ANTIKYTHERA_API_TOKEN"
 TOKEN_FILENAME = "api_token"
 
+# First-run setup wizard (P0-1). The one-time setup secret gates the setup
+# write routes instead of the old loopback-only peer check (which rejected
+# every legitimate client behind Docker NAT / a reverse proxy).
+SETUP_MARKER_FILENAME = ".setup_complete"
+SETUP_SECRET_FILENAME = "setup_secret"
+
 _lock = threading.Lock()
+_setup_secret_lock = threading.Lock()
 
 
 def config_dir() -> Path:
@@ -84,6 +91,55 @@ def get_or_create_token() -> str:
         _write_token_file(path, token)
         logger.info("Generated API token and wrote it to %s", path)
         return token
+
+
+# ---------------------------------------------------------------------------
+# One-time setup secret (P0-1, fix-session contract 2026-11-08)
+# ---------------------------------------------------------------------------
+
+def setup_marker_path() -> Path:
+    """Path of the ``.setup_complete`` marker in the config directory."""
+    return config_dir() / SETUP_MARKER_FILENAME
+
+
+def setup_secret_file_path() -> Path:
+    """Path of the ``setup_secret`` file in the config directory."""
+    return config_dir() / SETUP_SECRET_FILENAME
+
+
+def setup_secret_exists() -> bool:
+    """True when a non-empty setup secret file exists (presence only)."""
+    return _read_token_file(setup_secret_file_path()) is not None
+
+
+def get_or_create_setup_secret() -> Optional[str]:
+    """Return the one-time setup secret, creating it while setup is open.
+
+    Like the API token: a ``secrets.token_urlsafe(24)`` value written atomically
+    to ``setup_secret`` in the config directory (``$ANTIKYTHERA_HOME``, default
+    ``~/.antikythera``) with mode 0600. Created only while the
+    ``.setup_complete`` marker is absent; the setup router deletes it on
+    successful completion. Only the file path is logged, never the value.
+    """
+    if setup_marker_path().is_file():
+        return None
+    path = setup_secret_file_path()
+    with _setup_secret_lock:
+        existing = _read_token_file(path)
+        if existing:
+            return existing
+        secret = secrets.token_urlsafe(24)
+        _write_token_file(path, secret)
+        logger.info("Generated first-run setup secret and wrote it to %s", path)
+        return secret
+
+
+def delete_setup_secret() -> None:
+    """Remove the setup secret file (idempotent; called on completion)."""
+    try:
+        setup_secret_file_path().unlink()
+    except FileNotFoundError:
+        pass
 
 
 def _unauthorized(detail: str) -> HTTPException:

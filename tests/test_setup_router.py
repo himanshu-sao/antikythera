@@ -1,11 +1,14 @@
 """Tests for the D9 first-run setup wizard router (api/setup_router.py).
 
-Client addresses: the TestClient default is the string ``testclient``, which is not
-an IP and is therefore treated as non-loopback. Loopback cases construct the client with
-``client=("127.0.0.1", 50000)``; non-loopback cases use ``client=("203.0.113.7", 50000)``.
-The mini app mounts only the setup router; the last test checks the real ``api.main`` app.
+P0-1: the write routes (POST config, POST complete) are gated on the one-time
+setup secret (``X-Setup-Secret`` header, constant-time compare) instead of the
+old loopback-only peer check, which rejected every legitimate client behind
+Docker NAT. GET status stays open and reports ``setup_secret_required``.
+Client addresses no longer matter: LOOPBACK and REMOTE clients behave
+identically. ``DELETE /complete`` (reopen) keeps the bearer-token gate.
 """
 
+import logging
 import os
 import stat
 
@@ -15,14 +18,23 @@ from starlette.testclient import TestClient
 
 import api.services.ai_engine_config as aec
 import api.setup_router as setup_router
-from api.security import TOKEN_ENV_VAR
-
+from api.security import (
+    TOKEN_ENV_VAR,
+    delete_setup_secret,
+    get_or_create_setup_secret,
+    setup_secret_exists,
+    setup_secret_file_path,
+)
 LOOPBACK = ("127.0.0.1", 50000)
 REMOTE = ("203.0.113.7", 50000)
 
 SECRET_VALUE = "sk-live-VALUE-must-not-leak-9f3a"
 PAT_VALUE = "jira-pat-VALUE-must-not-leak-77c1"
 SLACK_VALUE = "https://hooks.slack.com/services/T000/B000/VALUE-must-not-leak"
+
+# Fixture value for the setup secret (a test constant, never a real secret).
+SETUP_SECRET = "setup-secret-fixture-value-6fb2"
+SECRET_HEADER = {"X-Setup-Secret": SETUP_SECRET}
 
 
 @pytest.fixture
@@ -59,17 +71,31 @@ def home(tmp_path, monkeypatch):
     setup_router._reset_rate_limit()
 
 
+def _seed_secret(home):
+    """Plant a known setup secret so tests can present the right header."""
+    (home / "setup_secret").write_text(SETUP_SECRET + "\n", encoding="utf-8")
+
+
 @pytest.fixture
 def client(home):
+    """Loopback client that presents the correct setup secret by default."""
+    _seed_secret(home)
     app = FastAPI()
     app.include_router(setup_router.router)
-    return TestClient(app, client=LOOPBACK)
+    c = TestClient(app, client=LOOPBACK)
+    c.headers.update(SECRET_HEADER)
+    return c
 
 
-def _client_at(address):
+def _client_at(home, address, with_secret=True):
+    """A client at an arbitrary source address; header only when asked."""
     app = FastAPI()
     app.include_router(setup_router.router)
-    return TestClient(app, client=address)
+    c = TestClient(app, client=address)
+    if with_secret:
+        _seed_secret(home)
+        c.headers.update(SECRET_HEADER)
+    return c
 
 
 def _items_by_id(body):
@@ -77,23 +103,42 @@ def _items_by_id(body):
 
 
 # ---------------------------------------------------------------------------
-# Loopback classification
+# One-time setup secret (api/security.py)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize(
-    "host",
-    ["127.0.0.1", "127.8.9.10", "127.255.255.254", "::1", "::ffff:127.0.0.1", "::1%lo0"],
-)
-def test_is_loopback_accepts_loopback_addresses(host):
-    assert setup_router._is_loopback(host) is True
+def test_get_or_create_setup_secret_creates_0600_file(home):
+    assert not setup_secret_file_path().exists()
+    secret = get_or_create_setup_secret()
+    assert isinstance(secret, str) and len(secret) >= 24
+    path = setup_secret_file_path()
+    assert path == home / "setup_secret"
+    assert path.read_text(encoding="utf-8").strip() == secret
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    # Idempotent: the same value comes back on the next call.
+    assert get_or_create_setup_secret() == secret
 
 
-@pytest.mark.parametrize(
-    "host",
-    [None, "", "testclient", "10.0.0.5", "192.168.1.9", "128.0.0.1", "203.0.113.7", "::2", "fe80::1", "localhost"],
-)
-def test_is_loopback_rejects_everything_else(host):
-    assert setup_router._is_loopback(host) is False
+def test_get_or_create_setup_secret_not_created_once_complete(home):
+    (home / ".setup_complete").write_text("setup completed\n", encoding="utf-8")
+    assert get_or_create_setup_secret() is None
+    assert not (home / "setup_secret").exists()
+    assert setup_secret_exists() is False
+
+
+def test_setup_secret_log_names_path_not_value(home, caplog):
+    with caplog.at_level(logging.INFO, logger="antikythera.security"):
+        secret = get_or_create_setup_secret()
+    assert isinstance(secret, str) and secret
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(str(home / "setup_secret") in m for m in messages)
+    assert all(secret not in m for m in messages), "the secret value must never be logged"
+
+
+def test_delete_setup_secret_is_idempotent(home):
+    get_or_create_setup_secret()
+    delete_setup_secret()
+    delete_setup_secret()
+    assert not (home / "setup_secret").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +150,7 @@ def test_status_reports_typed_items_and_incomplete(client):
     assert response.status_code == 200
     body = response.json()
     assert body["complete"] is False
+    assert body["setup_secret_required"] is True
     items = _items_by_id(body)
     expected_ids = {
         "env_file",
@@ -128,6 +174,24 @@ def test_status_reports_typed_items_and_incomplete(client):
         assert set(item) == {"id", "kind", "name", "label", "ok", "state", "settable", "secret"}
 
 
+def test_status_creates_the_secret_when_missing(home):
+    """First status poll on a fresh install ensures the secret exists (P0-1)."""
+    plain = _client_at(home, REMOTE, with_secret=False)
+    assert not (home / "setup_secret").exists()
+    response = plain.get("/api/setup/status")
+    assert response.status_code == 200
+    assert response.json()["setup_secret_required"] is True
+    assert (home / "setup_secret").is_file()
+    # Presence only: the value never appears in the response.
+    assert (home / "setup_secret").read_text(encoding="utf-8").strip() not in response.text
+
+
+def test_status_is_open_from_any_address(home):
+    for address in (LOOPBACK, REMOTE, ("::1", 50000)):
+        response = _client_at(home, address, with_secret=False).get("/api/setup/status")
+        assert response.status_code == 200, address
+
+
 def test_status_never_contains_secret_values(client, monkeypatch):
     monkeypatch.setenv("NVIDIA_API_KEY", SECRET_VALUE)
     monkeypatch.setenv("JIRA_PAT", PAT_VALUE)
@@ -138,6 +202,7 @@ def test_status_never_contains_secret_values(client, monkeypatch):
     assert SECRET_VALUE not in text
     assert PAT_VALUE not in text
     assert SLACK_VALUE not in text
+    assert SETUP_SECRET not in text
     assert "example.atlassian.net" not in text
     items = _items_by_id(response.json())
     assert items["NVIDIA_API_KEY"]["ok"] is True and items["NVIDIA_API_KEY"]["state"] == "set"
@@ -326,49 +391,62 @@ def test_config_rate_limit_window_expires(client, monkeypatch):
     assert client.post("/api/setup/config", json={}).status_code == 200
 
 
-def test_rate_limit_is_not_spent_by_status_or_refused_remote_calls(home):
-    local = _client_at(LOOPBACK)
-    remote = _client_at(REMOTE)
+def test_rate_limit_is_not_spent_by_status_or_refused_calls(home):
+    """403 secret refusals and status polls must not consume the POST budget."""
+    refused = _client_at(home, LOOPBACK, with_secret=False)
+    _seed_secret(home)  # a secret exists, but this client does not present it
     for _ in range(setup_router.RATE_LIMIT_MAX_CALLS + 5):
-        assert remote.post("/api/setup/config", json={}).status_code == 403
-    assert local.post("/api/setup/config", json={}).status_code == 200
+        assert refused.post("/api/setup/config", json={}).status_code == 403
+    ok = _client_at(home, REMOTE)
+    assert ok.post("/api/setup/config", json={}).status_code == 200
 
 
 # ---------------------------------------------------------------------------
-# Loopback gate
+# Setup-secret gate (P0-1) — replaces the old loopback gate
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("method,path,body", [
-    ("get", "/api/setup/status", None),
-    ("post", "/api/setup/config", {"JIRA_BASE_URL": "https://x.example"}),
-    ("post", "/api/setup/complete", None),
-])
-def test_non_loopback_client_gets_403_while_incomplete(home, method, path, body):
-    remote = _client_at(REMOTE)
-    kwargs = {"json": body} if body is not None else {}
-    response = getattr(remote, method)(path, **kwargs)
+@pytest.mark.parametrize("address", [LOOPBACK, REMOTE])
+def test_config_without_secret_header_is_403_from_any_origin(home, address):
+    plain = _client_at(home, address, with_secret=False)
+    get_or_create_setup_secret()  # a secret exists to check against
+    response = plain.post("/api/setup/config", json={"JIRA_BASE_URL": "https://x.example"})
     assert response.status_code == 403
-    assert "local machine" in response.json()["detail"]
+    assert response.json()["detail"] == "Invalid setup secret"
     assert not (home / ".setup_complete").exists()
     assert not (home / ".env").exists()
 
 
-def test_testclient_default_address_is_refused(home):
-    # The default TestClient address ('testclient') is not loopback.
-    app = FastAPI()
-    app.include_router(setup_router.router)
-    response = TestClient(app).get("/api/setup/status")
+@pytest.mark.parametrize("address", [LOOPBACK, REMOTE])
+def test_config_with_wrong_secret_is_403_from_any_origin(home, address):
+    get_or_create_setup_secret()
+    wrong = _client_at(home, address, with_secret=False)
+    response = wrong.post(
+        "/api/setup/config",
+        json={"JIRA_BASE_URL": "https://x.example"},
+        headers={"X-Setup-Secret": "not-the-secret"},
+    )
     assert response.status_code == 403
+    assert response.json()["detail"] == "Invalid setup secret"
+    assert SETUP_SECRET not in response.text
+    assert not (home / ".env").exists()
 
 
-def test_ipv6_loopback_client_is_served(home):
-    response = _client_at(("::1", 50000)).get("/api/setup/status")
+@pytest.mark.parametrize("address", [LOOPBACK, REMOTE])
+def test_config_with_correct_secret_is_200_from_any_origin(home, address):
+    ok = _client_at(home, address)
+    response = ok.post("/api/setup/config", json={"JIRA_BASE_URL": "https://x.example"})
     assert response.status_code == 200
+    assert "JIRA_BASE_URL='https://x.example'" in (home / ".env").read_text(encoding="utf-8")
 
 
-def test_ipv4_mapped_loopback_client_is_served(home):
-    response = _client_at(("::ffff:127.0.0.1", 50000)).get("/api/setup/status")
-    assert response.status_code == 200
+def test_secret_refusal_message_is_generic(home):
+    """Missing and wrong secrets are indistinguishable in the response."""
+    get_or_create_setup_secret()
+    plain = _client_at(home, REMOTE, with_secret=False)
+    missing = plain.post("/api/setup/config", json={})
+    wrong = plain.post("/api/setup/config", json={}, headers={"X-Setup-Secret": "nope"})
+    assert missing.status_code == wrong.status_code == 403
+    assert missing.json() == wrong.json() == {"detail": "Invalid setup secret"}
 
 
 # ---------------------------------------------------------------------------
@@ -386,6 +464,28 @@ def test_complete_writes_marker_mode_0600_and_returns_generated_token_once(clien
     token = body["api_token"]
     assert isinstance(token, str) and len(token) >= 32
     assert token == (home / "api_token").read_text(encoding="utf-8").strip()
+
+
+def test_complete_deletes_the_setup_secret(client, home):
+    assert (home / "setup_secret").is_file()
+    response = client.post("/api/setup/complete")
+    assert response.status_code == 200
+    assert not (home / "setup_secret").exists()
+    assert setup_secret_exists() is False
+
+
+@pytest.mark.parametrize("address", [LOOPBACK, REMOTE])
+def test_complete_requires_the_secret_from_any_origin(home, address):
+    plain = _client_at(home, address, with_secret=False)
+    get_or_create_setup_secret()
+    refused = plain.post("/api/setup/complete")
+    assert refused.status_code == 403
+    assert refused.json()["detail"] == "Invalid setup secret"
+    assert not (home / ".setup_complete").exists()
+
+    ok = _client_at(home, address)
+    assert ok.post("/api/setup/complete").status_code == 200
+    assert (home / ".setup_complete").is_file()
 
 
 def test_complete_does_not_reecho_an_existing_token(client, home):
@@ -413,17 +513,17 @@ def test_all_routes_return_404_after_completion(client, home):
     assert not (home / ".env").exists()
 
 
-def test_completed_locks_remote_clients_to_404_not_403(home):
-    _client_at(LOOPBACK).post("/api/setup/complete")
-    remote = _client_at(REMOTE)
+def test_completed_setup_404s_from_any_address(home):
+    _client_at(home, LOOPBACK).post("/api/setup/complete")
+    remote = _client_at(home, REMOTE, with_secret=False)
     response = remote.get("/api/setup/status")
     assert response.status_code == 404
-    assert "local machine" not in response.text
+    assert "Invalid setup secret" not in response.text
 
 
 def test_delete_reopen_requires_token(home, monkeypatch):
     monkeypatch.setenv(TOKEN_ENV_VAR, "reopen-token")
-    local = _client_at(LOOPBACK)
+    local = _client_at(home, LOOPBACK)
     local.post("/api/setup/complete")
     assert (home / ".setup_complete").exists()
 
@@ -435,6 +535,11 @@ def test_delete_reopen_requires_token(home, monkeypatch):
     assert wrong.status_code == 401
     assert (home / ".setup_complete").exists()
 
+    # The bearer token — not the setup secret — protects reopen.
+    secret_but_no_token = local.delete("/api/setup/complete", headers=SECRET_HEADER)
+    assert secret_but_no_token.status_code == 401
+    assert (home / ".setup_complete").exists()
+
     ok = local.delete("/api/setup/complete", headers={"Authorization": "Bearer reopen-token"})
     assert ok.status_code == 200
     assert ok.json() == {"complete": False}
@@ -442,11 +547,11 @@ def test_delete_reopen_requires_token(home, monkeypatch):
     assert local.get("/api/setup/status").status_code == 200
 
 
-def test_reopen_works_from_non_loopback_with_token(home, monkeypatch):
-    # The token is the protection for reopen, so the loopback gate does not apply to DELETE.
+def test_reopen_works_from_any_address_with_token(home, monkeypatch):
+    # The token is the protection for reopen, so no address or secret is needed.
     monkeypatch.setenv(TOKEN_ENV_VAR, "reopen-token")
-    _client_at(LOOPBACK).post("/api/setup/complete")
-    response = _client_at(REMOTE).delete(
+    _client_at(home, LOOPBACK).post("/api/setup/complete")
+    response = _client_at(home, REMOTE, with_secret=False).delete(
         "/api/setup/complete", headers={"Authorization": "Bearer reopen-token"}
     )
     assert response.status_code == 200
@@ -471,3 +576,4 @@ def test_setup_status_on_main_app_needs_no_bearer_token(home, monkeypatch):
     response = local.get("/api/setup/status")
     assert response.status_code == 200
     assert response.json()["complete"] is False
+    assert response.json()["setup_secret_required"] is True
