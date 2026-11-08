@@ -594,7 +594,16 @@ class IntegrationHub:
         # through the adapter's execute(), which switches on config["action"].
         "move_item": "execute",
         "add_comment": "execute",
-        "list_items": "execute",
+        # Builder list/vector verbs (github/jira/internal adapters) and the
+        # bare update/execute verbs the fallback templates emit: identity
+        # entries, dispatched to the adapter method of the same name (P0-3).
+        "list_items": "list_items",
+        "list_repos": "list_repos",
+        "list_pull_requests": "list_pull_requests",
+        "list_tickets": "list_tickets",
+        "list_projects": "list_projects",
+        "update": "update",
+        "execute": "execute",
         # AI adapter (api.adapters.ai) — builder templates emit analyze steps.
         "analyze": "analyze",
         "create_resource": "create",
@@ -691,14 +700,26 @@ class IntegrationHub:
         method = getattr(adapter_instance, method_name)
 
         # --- call the adapter method (sync bridge for async methods) --------------
+        # Workflow-step configs sit at the top level (no "arguments" wrapper),
+        # like the execute/analyze branches. "action"/"adapter" are dispatch
+        # metadata of the internal-adapter step convention, never method
+        # parameters, so they are dropped from the top-level fallback.
+        _METADATA_KEYS = ("action", "adapter", "resource_id", "run_id")
+
         try:
             call_args = params.get("arguments", {}) if isinstance(params, dict) else {}
             resource_id = params.get("resource_id") if isinstance(params, dict) else None
 
+            def _top_level_params() -> Dict[str, Any]:
+                """The step config itself, minus dispatch metadata keys."""
+                if not isinstance(params, dict):
+                    return {}
+                return {k: v for k, v in params.items() if k not in _METADATA_KEYS}
+
             if method_name == "fetch":
                 result = _run_coroutine_sync(lambda: method(resource_id, params=call_args))
             elif method_name in ("update", "create", "delete"):
-                payload = call_args.copy() if call_args else {}
+                payload = call_args.copy() if call_args else _top_level_params()
                 if resource_id:
                     payload["resource_id"] = resource_id
                 result = _run_coroutine_sync(
@@ -712,7 +733,21 @@ class IntegrationHub:
                 result = _run_coroutine_sync(
                     lambda: method(None, **(call_args if call_args else params)))
             else:
-                result = _run_coroutine_sync(lambda: method(resource_id, **call_args))
+                # List/vector verbs. The legacy convention fills the method's
+                # first positional slot with resource_id (fetch-like methods);
+                # list methods name their first parameter themselves (org,
+                # owner, jql, stage) and the config supplies it by keyword, so
+                # the positional slot is only filled when the method does not
+                # name it — otherwise the call would pass it twice.
+                kwargs = dict(call_args) if call_args else _top_level_params()
+                import inspect as _inspect
+                first_param = next(iter(_inspect.signature(method).parameters), None)
+                if first_param is None or first_param in kwargs:
+                    # No positional slot to fill (list_projects) or the config
+                    # already names the first parameter by keyword.
+                    result = _run_coroutine_sync(lambda: method(**kwargs))
+                else:
+                    result = _run_coroutine_sync(lambda: method(resource_id, **kwargs))
 
             return {"status": "success", "result": result, "logs": ""}
 

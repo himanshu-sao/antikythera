@@ -76,11 +76,18 @@ class TestCanonicalFallback:
 
 class TestActionMap:
     def test_internal_verbs_map_to_execute(self):
-        for verb in ("move_item", "add_comment", "list_items"):
+        for verb in ("move_item", "add_comment"):
             assert IntegrationHub._ACTION_MAP[verb] == "execute"
 
     def test_analyze_maps_to_analyze(self):
         assert IntegrationHub._ACTION_MAP["analyze"] == "analyze"
+
+    def test_builder_verbs_have_identity_entries(self):
+        # P0-3: the builder fallback templates emit these actions; without an
+        # entry each one failed with "Unsupported action".
+        for verb in ("list_items", "list_repos", "list_pull_requests", "list_tickets",
+                     "list_projects", "update", "execute"):
+            assert IntegrationHub._ACTION_MAP[verb] == verb
 
 
 class TestInternalEndToEnd:
@@ -139,6 +146,21 @@ class TestInternalEndToEnd:
         assert run["status"] == "COMPLETED", run
         assert sm.kanban.get_item_details("RUN-TEST-ITEM")["stage"] == "REFINEMENT"
         assert "internal" not in hub._load_config()
+
+    def test_internal_list_items_step_still_runs(self, hub):
+        # Regression for the list_items identity entry: the internal-adapter
+        # step convention carries an "action" key in the config (the save-time
+        # schema requires it), which is dispatch metadata and must not be
+        # passed to the adapter's list_items method as a keyword.
+        sm = self._state_manager()
+        assert sm.kanban.create_item("RUN-TEST-ITEM", "Run test item")
+        assert sm.kanban.update_item("RUN-TEST-ITEM", {"stage": "REFINEMENT"})
+
+        res = hub.execute_action("internal", "list_items",
+                                 {"action": "list_items", "stage": "REFINEMENT"})
+        assert res["status"] == "success", res
+        titles = [i.get("title") for i in res["result"]["items"]]
+        assert "Run test item" in titles
 
 
 class TestAiAdapter:

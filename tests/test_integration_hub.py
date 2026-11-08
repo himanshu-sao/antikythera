@@ -293,6 +293,33 @@ def fake_adapter_module(monkeypatch):
         async def custom(self, resource_id, **kw):
             return {"custom": resource_id, "kw": kw}
 
+        # Builder list/vector verbs (P0-3): the _ACTION_MAP identity entries
+        # dispatch to these with the workflow-step config at the top level.
+        async def list_repos(self, org=None, type="all", per_page=50):
+            calls.append(("list_repos", {"org": org, "type": type, "per_page": per_page}))
+            return ["repo-a"]
+
+        async def list_pull_requests(self, owner, repo, state="open", per_page=50):
+            calls.append(("list_pull_requests",
+                          {"owner": owner, "repo": repo, "state": state, "per_page": per_page}))
+            return ["pr-1"]
+
+        async def list_tickets(self, jql="order by created DESC", max_results=50):
+            calls.append(("list_tickets", {"jql": jql, "max_results": max_results}))
+            return ["ticket-1"]
+
+        async def list_projects(self):
+            calls.append(("list_projects", {}))
+            return ["project-a"]
+
+        async def list_items(self, stage=None):
+            calls.append(("list_items", {"stage": stage}))
+            return ["item-1"]
+
+        def execute(self, run_id, config, context):
+            calls.append(("execute", {"run_id": run_id, "config": config, "context": context}))
+            return {"executed": True}
+
     mod = types.ModuleType("fake_native_adapter_mod")
     mod.FakeNativeAdapter = FakeNativeAdapter
     monkeypatch.setitem(sys.modules, "fake_native_adapter_mod", mod)
@@ -351,3 +378,81 @@ class TestNativeAsyncBridge:
         res = hub.execute_action("fake", "tools/call", {"name": "boom", "arguments": {}})
         assert res["status"] == "error"
         assert "adapter exploded" in res["result"]
+
+
+# --------------------------------------------------------------------------
+# B1 (P0-3): builder list/vector verbs and update/execute must dispatch
+# --------------------------------------------------------------------------
+
+class TestBuilderVerbDispatch:
+    """The builder fallback templates emit actions the action map lacked, so
+    every builder template failed with "Unsupported action". Each verb now
+    dispatches to the adapter method of the same name, with the workflow-step
+    config at the top level (there is no "arguments" wrapper)."""
+
+    def test_list_repos_dispatches_with_top_level_params(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "list_repos", {"org": "acme", "type": "private"})
+        assert res["status"] == "success", res
+        assert res["result"] == ["repo-a"]
+        assert ("list_repos", {"org": "acme", "type": "private", "per_page": 50}) in fake_adapter_module
+
+    def test_list_pull_requests_dispatches_with_top_level_params(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "list_pull_requests",
+                                 {"owner": "acme", "repo": "api", "state": "closed"})
+        assert res["status"] == "success", res
+        assert ("list_pull_requests",
+                {"owner": "acme", "repo": "api", "state": "closed", "per_page": 50}) in fake_adapter_module
+
+    def test_list_tickets_dispatches_with_top_level_params(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "list_tickets", {"jql": "created > -1h", "max_results": 5})
+        assert res["status"] == "success", res
+        assert ("list_tickets", {"jql": "created > -1h", "max_results": 5}) in fake_adapter_module
+
+    def test_list_projects_dispatches_with_no_params(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "list_projects", {})
+        assert res["status"] == "success", res
+        assert ("list_projects", {}) in fake_adapter_module
+
+    def test_list_items_dispatches_with_top_level_params(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "list_items", {"stage": "INTAKE"})
+        assert res["status"] == "success", res
+        assert ("list_items", {"stage": "INTAKE"}) in fake_adapter_module
+
+    def test_list_items_step_config_keys_are_not_passed_as_kwargs(self, tmp_path, fake_adapter_module):
+        # The internal-adapter convention puts an "action" (and sometimes an
+        # "adapter") key in the step config; those are dispatch metadata, not
+        # method parameters, and must not reach the adapter method.
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "list_items",
+                                 {"action": "list_items", "adapter": "fake", "stage": "DONE"})
+        assert res["status"] == "success", res
+        assert ("list_items", {"stage": "DONE"}) in fake_adapter_module
+
+    def test_update_dispatches_with_top_level_params(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "update",
+                                 {"resource_id": "PROJ-1", "transition": "Triage Done"})
+        assert res["status"] == "success", res
+        # update(resource_id, payload): the config fields reach the payload.
+        assert ("update", None, {"transition": "Triage Done", "resource_id": "PROJ-1"}) in fake_adapter_module
+
+    def test_execute_dispatches_with_top_level_config(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "execute", {"prompt": "summarise", "args": ["--yolo"]})
+        assert res["status"] == "success", res
+        recorded = [c for c in fake_adapter_module if c[0] == "execute"]
+        assert recorded == [("execute", {"run_id": "",
+                                         "config": {"prompt": "summarise", "args": ["--yolo"]},
+                                         "context": {}})]
+
+    def test_list_verb_via_arguments_wrapper_still_works(self, tmp_path, fake_adapter_module):
+        hub = _fake_hub(tmp_path)
+        res = hub.execute_action("fake", "tools/call",
+                                 {"name": "list_repos", "arguments": {"org": "wrapped"}})
+        assert res["status"] == "success", res
+        assert ("list_repos", {"org": "wrapped", "type": "all", "per_page": 50}) in fake_adapter_module
