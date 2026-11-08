@@ -12,6 +12,7 @@ interface Step {
 }
 
 interface Template {
+  template_id?: string;
   name: string;
   description: string;
   trigger: {
@@ -52,11 +53,20 @@ export function WorkflowBuilder() {
 
   const saveTemplate = async () => {
     if (!template) return;
+    // P0-4: POST /api/workflows/templates requires a template_id. The generate
+    // response does not always carry one, so derive it from the (possibly
+    // edited) name exactly like BlueprintArchitect does: lowercase slug,
+    // non-alphanumerics to hyphens, trimmed; stable fallback for empty slugs.
+    // A server-provided id always wins.
+    const templateId =
+      template.template_id ||
+      template.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') ||
+      'workflow';
     try {
       const res = await apiFetch(`${apiUrl}/api/workflows/templates`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(template),
+        body: JSON.stringify({ ...template, template_id: templateId }),
       });
       if (!res.ok) {
         // 422s carry {message, violations} — surface them instead of a generic text.
