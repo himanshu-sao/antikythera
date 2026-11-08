@@ -58,7 +58,16 @@ export function WorkflowBuilder() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(template),
       });
-      if (!res.ok) throw new Error('Failed to save template');
+      if (!res.ok) {
+        // 422s carry {message, violations} — surface them instead of a generic text.
+        let detail = 'Failed to save template';
+        try {
+          const body = await res.json();
+          const v = Array.isArray(body?.detail?.violations) ? body.detail.violations : [];
+          detail = [body?.detail?.message || body?.detail || detail, ...v].filter(Boolean).join('\n');
+        } catch { /* keep the generic message */ }
+        throw new Error(detail);
+      }
       toast.success("Template saved to library!");
     } catch (e: any) {
       toast.error(e.message);
