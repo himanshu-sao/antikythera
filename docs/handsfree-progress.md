@@ -294,3 +294,39 @@ Headlines:
 - **Two security gaps**: a SafeExecutor escape via `operator.attrgetter("__class__")` (whitelisted `operator`, `type` still in builtins, AST dunder ban blind to string args); the terminal tool passes the full parent env to model-chosen `python -c`, leaking the API token and provider keys.
 - **Four decided items fell between the arcs**: D3 (hold at stage on failure), D4 (executor without a bound run), the Studio `dry_run` backend default, and the perpetual aggregate — all decided, none assigned, none built.
 - The help page has eight inaccurate claims (listed in pending-items P3-1); consumer tests read the developer's real `~/.antikythera/settings.json` (missing autouse `ANTIKYTHERA_HOME`); `docs/api-spec.md` and `docs/agents/*` remain stale; the root JS toolchain still needs a delete decision.
+
+---
+
+# Fix session (2026-11-08, P0+P1+P2) — done
+
+Baseline `c58f2e1f`. Five parallel workers (B1-B5) plus coordinator fixes, per the user's Q/A answers: setup = one-time secret gating writes only; terminal env = minimal; bob_shell fetch maps to execute; scope P0+P1+P2.
+
+## Verification (all green)
+
+- Backend: `1987 passed, 5 skipped, 10 deselected`, provider keys unset, zero network attempts (was 1892).
+- UI vitest: `262 passed` across 31 files (was 249).
+- Real data byte-identical to the pre-session snapshot.
+- Mutation checks by every worker (B1 engine status check, B2 both security fixes, B3 secret gate + D3 hold, B4 both Studio items) plus B5's red-first evidence.
+
+## What landed
+
+| Item | Fix | Commits |
+|---|---|---|
+| P0-1 | One-time setup secret (`X-Setup-Secret` on config/complete, status open and reports the flag, secret file 0600 deleted on completion, loopback gate removed) — setup now works through Docker NAT; UI field + corrected hint | `655bb047`, `4fc61236`, `c6ecaa39` |
+| P0-2 | `loadPipelines` via apiFetch — pipeline tabs work in production, 401 opens the TokenGate | `fc95e24b` |
+| P0-3 | Engine checks hub error dicts and routes to the retry/BLOCKED path; action map gains the list/update/execute verbs with top-level config fallback; the stored AI_INTEGRATION_BOB template actually invokes bob (execute) and a failing step now ends BLOCKED | `c6132f0d`, `a0c45633`, `58f7ef65`, `4c13cb94` |
+| P0-4 | `/api/builder/generate` emits `template_id`; WorkflowBuilder derives one client-side as a guard — builder saves work now | `e94b1d4f`, `222b7c11` |
+| P1-1 | SafeExecutor: `operator`/`types` off the whitelist, `type` out of child builtins, dunder strings in attrgetter/itemgetter calls rejected | `560cf1b` |
+| P1-2 | Terminal tool runs with a minimal env (PATH, LANG, LC_ALL, TMPDIR) — no API token, no provider keys, no HOME | `eac09d1f` |
+| P1-3 | `adapter_module` validated against the canonical modules on add/update; PATCH validation rejections 400 not 404 | `de7a2a28`, `48f84e56` |
+| P2-1 (D3) | Failed or stub-reply agents hold the item at its stage with `blocked_reason`; no artifact written; retried next cycle | `6ab46f66` |
+| P2-2 (D4) | EXECUTING without a bound run executes directly (synthetic `pipeline-<ID>` log); failures stay tier-aware | `6ab46f66` |
+| P2-3 | Studio run `dry_run` defaults to true at the API and engine | `002f565a` |
+| P2-4 | Perpetual per-graph aggregate (survives pruning, corrupt-rebuild, in the graph detail response) | `a9e6036f` |
+| P3-1 | All eight help-page corrections (setup secret, review wording, wired tunables, corrupt-file message, example, Slack) | `2325de5d` |
+| extra | B4 fixed a pre-existing dependency-override leak in `test_studio_router_endpoints.py` teardown | `d95dc3f2` |
+
+## New known items
+
+- A repeatedly failing-but-not-raising agent (D3 hold) is retried every cycle indefinitely; the poison three-strike block counts only raising handlers. Extend strike-counting to held items (P3-level).
+- B1's test escape hatch: `ANTIKYTHERA_ALLOW_ANY_ADAPTER_MODULE` is set in `tests/conftest.py` for legacy fake-module tests; production never sets it, so the API stays strict.

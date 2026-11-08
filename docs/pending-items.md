@@ -1,5 +1,7 @@
 # Pending items (review at de14fad0, 2026-11-08)
 
+> **Update 2026-11-08 (fix session, baseline c58f2e1f):** P0-1..P0-4, P1-1..P1-3, P2-1..P2-4 and P3-1 are DONE (five parallel workers B1-B5 plus coordinator fixes; backend 1987 passed, UI 262 passed, real data unchanged, all mutation-checked). The tables below are the pre-fix record. What remains open: P3-2..P3-8, P4-1..P4-6, P5 (arc B scope), P6 (root JS toolchain decision), and the known limitations — plus one new item: a repeatedly failing-but-not-raising agent is now held at its stage and retried every cycle indefinitely (the three-strike poison block counts only raising handlers; extend strike-counting to held items). B4 also fixed a pre-existing dependency-override leak in tests/test_studio_router_endpoints.py tearDown.
+
 Consolidated from two read-only reviews of `252945a..HEAD` (run 3 + arc A + post-arc fixes, 110 commits) plus a direct verification of every decided-but-unbuilt item. Supersedes the previous list entirely.
 
 **Tags:** `V` = verified against the code by the coordinator or a reviewer with file:line evidence. `D#` = blocks on or violates a recorded decision in `docs/decisions.md`.
