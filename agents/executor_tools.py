@@ -150,6 +150,31 @@ _SHELL_OPERATOR_TOKENS = frozenset({
 })
 TERMINAL_TIMEOUT_SECONDS = 300
 
+# P1-2 — the terminal tool must not leak the API's own environment.  The
+# allowlisted programs (python/pip/pytest) run arbitrary model-chosen code, so
+# the subprocess gets only what it needs to find executables and write temp
+# files.  Secrets (the API token, JIRA_PAT, provider keys) and HOME are
+# deliberately absent; the practical cost is that pip loses its user cache.
+_TERMINAL_ENV_VARS = ("PATH", "LANG", "LC_ALL", "TMPDIR")
+
+
+def _terminal_env() -> Dict[str, str]:
+    """Minimal environment for a terminal-tool subprocess.
+
+    Only PATH, LANG, LC_ALL and TMPDIR cross the boundary, resolved from the
+    parent's ``os.environ`` at call time (so a test or runtime change to PATH
+    is honoured).  Everything else — the API token, provider keys, HOME — is
+    deliberately absent: model-chosen ``python -c`` code must not be able to
+    read the API's own credentials.  Side effect: ``pip`` cannot see its user
+    cache directory and re-downloads packages.
+    """
+    env: Dict[str, str] = {}
+    for name in _TERMINAL_ENV_VARS:
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+    return env
+
 
 def _terminal_argv(command: Any) -> Tuple[List[str], str]:
     """Validate ``command`` and return ``(argv, "")`` or ``([], reason)``."""
@@ -299,6 +324,12 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
     absolute paths and anything that resolves outside the item directory (see
     :func:`_resolve_item_path`).  The allowlist is not a sandbox: ``python`` and
     ``pip`` can still run arbitrary code as the current user.
+
+    P1-2: the terminal subprocess runs with a minimal environment
+    (:func:`_terminal_env`) — only PATH, LANG, LC_ALL and TMPDIR, resolved at
+    call time.  Secrets and HOME are deliberately absent so model-chosen
+    ``python -c`` code cannot read the API token or provider keys; the cost is
+    that ``pip`` loses its cache.
     """
     try:
         if tool_name == "terminal":
@@ -306,10 +337,11 @@ def execute_tool(tool_name: str, args: Dict[str, Any], item_id: str) -> Tuple[bo
             argv, reason = _terminal_argv(cmd)
             if not argv:
                 return False, f"ERROR: terminal command rejected: {reason}"
-            # shell=False: the argv list goes straight to execve.
+            # shell=False: the argv list goes straight to execve.  Minimal env:
+            # no secrets, no HOME (P1-2).
             process = subprocess.run(
                 argv, shell=False, capture_output=True, text=True,
-                timeout=TERMINAL_TIMEOUT_SECONDS,
+                timeout=TERMINAL_TIMEOUT_SECONDS, env=_terminal_env(),
             )
             output = process.stdout if process.stdout else ""
             error = process.stderr if process.stderr else ""

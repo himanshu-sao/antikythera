@@ -13,6 +13,7 @@
   ``write_file`` self-verifies via a read-back.  See
   ``test_write_file_small_real_content_is_done``.
 """
+import ast
 import os
 
 import pytest
@@ -706,3 +707,70 @@ def test_tools_description_mentions_no_shell_and_relative_paths():
     desc = _et.get_tools_description()
     assert "no shell" in desc
     assert "RELATIVE" in desc
+
+
+# ---------------------------------------------------------------------------
+# P1-2 — the terminal tool runs with a minimal environment (no secrets).
+# ---------------------------------------------------------------------------
+
+def test_terminal_subprocess_env_has_path_but_not_secrets(monkeypatch):
+    """P1-2: model-chosen ``python -c`` code must not be able to read the API
+    token or provider keys from the subprocess environment.  The child gets
+    PATH (and the other safe vars) but nothing secret, and not HOME."""
+    monkeypatch.setenv("FAKE_SECRET_TOKEN", "not-a-real-secret")
+    monkeypatch.setenv("FAKE_PROVIDER_API_KEY", "not-a-real-key")
+    done, msg = execute_tool(
+        "terminal",
+        {"command": "python3 -c 'import os; print(sorted(os.environ))'"},
+        "X",
+    )
+    assert not msg.startswith("ERROR"), msg
+    body = msg.split("TOOL RESULT (terminal):\n", 1)[1].strip()
+    names = set(ast.literal_eval(body))
+    assert "PATH" in names, f"PATH missing from terminal env: {sorted(names)}"
+    assert "FAKE_SECRET_TOKEN" not in names
+    assert "FAKE_PROVIDER_API_KEY" not in names
+    assert "HOME" not in names
+
+
+def test_terminal_env_is_minimal_and_resolved_at_call_time(monkeypatch):
+    """Only PATH / LANG / LC_ALL / TMPDIR cross the boundary, values resolved
+    from ``os.environ`` at call time (PATH set here, after module import)."""
+    monkeypatch.setenv("FAKE_SECRET_TOKEN", "not-a-real-secret")
+    monkeypatch.setenv("PATH", "/fake/bin")
+    monkeypatch.setenv("LANG", "C")
+    monkeypatch.delenv("LC_ALL", raising=False)
+    monkeypatch.delenv("TMPDIR", raising=False)
+    env = _et._terminal_env()
+    assert set(env) == {"PATH", "LANG"}
+    assert env["PATH"] == "/fake/bin"
+    assert env["LANG"] == "C"
+
+
+def test_terminal_passes_minimal_env_to_subprocess(monkeypatch):
+    """The subprocess.run call itself carries the minimal env."""
+    seen = {}
+
+    class _P:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(argv, **kw):
+        seen.update(kw)
+        return _P()
+
+    monkeypatch.setattr(_et.subprocess, "run", fake_run)
+    monkeypatch.setenv("FAKE_SECRET_TOKEN", "not-a-real-secret")
+    execute_tool("terminal", {"command": "echo hi"}, "X")
+    assert "FAKE_SECRET_TOKEN" not in seen["env"]
+    assert "PATH" in seen["env"]
+
+
+def test_terminal_allowed_commands_still_run_with_minimal_env():
+    """P1-2 must not break the allowlisted programs themselves."""
+    done, msg = execute_tool("terminal", {"command": "python3 -c 'print(6*7)'"}, "X")
+    assert not msg.startswith("ERROR"), msg
+    assert "42" in msg
+    done, msg = execute_tool("terminal", {"command": "echo still works"}, "X")
+    assert "still works" in msg and not msg.startswith("ERROR"), msg
