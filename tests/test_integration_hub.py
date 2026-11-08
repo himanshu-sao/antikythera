@@ -56,6 +56,8 @@ if __name__ == "__main__":
 # --------------------------------------------------------------------------
 import pytest
 
+from api.integration_hub import CANONICAL_ADAPTERS
+
 MASK = "*****"
 
 
@@ -328,7 +330,8 @@ def fake_adapter_module(monkeypatch):
 
 def _fake_hub(tmp_path):
     hub = IntegrationHub(str(tmp_path))
-    hub.add_integration("fake", "native", {"adapter_module": "fake_native_adapter_mod"})
+    hub.add_integration("fake", "native", {"adapter_module": "fake_native_adapter_mod"},
+                        allow_any_module=True)  # P1-3 test escape: fake module
     return hub
 
 
@@ -456,3 +459,90 @@ class TestBuilderVerbDispatch:
                                  {"name": "list_repos", "arguments": {"org": "wrapped"}})
         assert res["status"] == "success", res
         assert ("list_repos", {"org": "wrapped", "type": "all", "per_page": 50}) in fake_adapter_module
+
+
+# --------------------------------------------------------------------------
+# B1 (P1-3): native integrations may only name a canonical adapter module
+# --------------------------------------------------------------------------
+# _execute_native imports whatever module string is stored, so an arbitrary
+# importable module with an *Adapter class would run with the hub's access.
+# Production never sets ANTIKYTHERA_ALLOW_ANY_ADAPTER_MODULE; the test suite
+# sets it in tests/conftest.py so legacy unit tests can use fake modules, and
+# these tests delete it to exercise the strict path.
+
+STRICT_ENV = "ANTIKYTHERA_ALLOW_ANY_ADAPTER_MODULE"
+
+
+class TestAdapterModuleValidation:
+    @pytest.fixture(autouse=True)
+    def strict(self, monkeypatch):
+        monkeypatch.delenv(STRICT_ENV, raising=False)
+
+    def test_non_canonical_module_is_rejected_on_add(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        with pytest.raises(ValueError, match="adapter_module"):
+            hub.add_integration("evil", "native", {"adapter_module": "os"})
+        assert hub.get_integration("evil") is None  # nothing was saved
+
+    def test_blank_module_is_rejected_on_add(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        with pytest.raises(ValueError, match="adapter_module"):
+            hub.add_integration("blank", "native", {"adapter_module": ""})
+
+    def test_missing_module_is_rejected_on_add(self, tmp_path):
+        # The old code silently stored the unusable "mock_module" default.
+        hub = IntegrationHub(str(tmp_path))
+        with pytest.raises(ValueError, match="adapter_module"):
+            hub.add_integration("bare", "native", {})
+
+    def test_every_canonical_module_passes_on_add(self, tmp_path):
+        for i, module in enumerate(sorted(set(CANONICAL_ADAPTERS.values()))):
+            hub = IntegrationHub(str(tmp_path))
+            assert hub.add_integration(f"ok{i}", "native", {"adapter_module": module})
+            assert hub.get_integration(f"ok{i}")["config"]["adapter_module"] == module
+
+    def test_non_canonical_module_is_rejected_on_update(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        assert hub.add_integration("svc", "native", {"adapter_module": "api.adapters.jira"})
+        with pytest.raises(ValueError, match="adapter_module"):
+            hub.update_integration("svc", {"adapter_module": "os", "token": "t"})
+        # The stored record is untouched by the rejected update.
+        assert hub.get_integration("svc")["config"]["adapter_module"] == "api.adapters.jira"
+
+    def test_canonical_module_passes_on_update(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        assert hub.add_integration("svc", "native", {"adapter_module": "api.adapters.jira"})
+        assert hub.update_integration("svc", {"adapter_module": "api.adapters.github", "url": "u"})
+        cfg = hub.get_integration("svc")["config"]
+        assert cfg["adapter_module"] == "api.adapters.github"
+        assert cfg["url"] == "u"
+
+    def test_update_that_does_not_touch_the_module_is_allowed(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        assert hub.add_integration("svc", "native", {"adapter_module": "api.adapters.jira"})
+        assert hub.update_integration("svc", {"token": "t"})
+        assert hub.get_integration("svc")["config"]["adapter_module"] == "api.adapters.jira"
+
+    def test_mcp_integrations_are_not_affected(self, tmp_path):
+        hub = IntegrationHub(str(tmp_path))
+        assert hub.add_integration("m", "mcp", {"command": "echo", "args": []})
+        assert hub.get_integration("m")["config"]["command"] == "echo"
+
+    def test_escape_parameter_allows_fake_modules(self, tmp_path):
+        # Test-only escape: unit tests that install a fake adapter module in
+        # sys.modules pass allow_any_module=True explicitly.
+        hub = IntegrationHub(str(tmp_path))
+        assert hub.add_integration("fake", "native",
+                                   {"adapter_module": "some_fake_module"},
+                                   allow_any_module=True)
+        assert hub.update_integration("fake", {"adapter_module": "another_fake_module"},
+                                      allow_any_module=True)
+
+    def test_env_escape_restores_the_legacy_default(self, tmp_path, monkeypatch):
+        # tests/conftest.py sets this for the whole suite; setting it here too
+        # documents that the escape also restores the historical mock_module
+        # default for native adds without a module (old unit tests rely on it).
+        monkeypatch.setenv(STRICT_ENV, "1")
+        hub = IntegrationHub(str(tmp_path))
+        assert hub.add_integration("legacy", "native", {})
+        assert hub.get_integration("legacy")["config"]["adapter_module"] == "mock_module"

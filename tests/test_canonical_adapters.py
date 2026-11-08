@@ -50,7 +50,8 @@ class TestCanonicalFallback:
             return {"status": "success", "result": None, "logs": ""}
 
         monkeypatch.setattr(hub, "_execute_native", fake_native)
-        assert hub.add_integration("github", "native", {"adapter_module": "t8_fake_native_adapter"})
+        assert hub.add_integration("github", "native", {"adapter_module": "t8_fake_native_adapter"},
+                                   allow_any_module=True)  # P1-3 test escape: fake module
         hub.execute_action("github", "fetch_resource", {})
         assert captured["config"]["adapter_module"] == "t8_fake_native_adapter"
         assert captured.get("status") != "canonical"

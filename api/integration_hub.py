@@ -26,6 +26,27 @@ CANONICAL_ADAPTERS = {
 
 MASK_PLACEHOLDER = "*****"
 
+# P1-3: test-only escape for the adapter_module validation. Production never
+# sets it, so the API stays strict; tests/conftest.py sets it for the suite so
+# legacy unit tests can register fake adapter modules (or rely on the
+# historical mock_module default). Tests that verify the validation itself
+# delete the variable.
+_ANY_MODULE_ENV = "ANTIKYTHERA_ALLOW_ANY_ADAPTER_MODULE"
+
+
+def _canonical_adapter_modules() -> List[str]:
+    return sorted(set(CANONICAL_ADAPTERS.values()))
+
+
+def _adapter_module_violation(module: Any) -> Optional[str]:
+    """The validation error for a non-canonical adapter_module, or None."""
+    if module in CANONICAL_ADAPTERS.values():
+        return None
+    return (
+        "adapter_module must be one of the canonical adapter modules "
+        f"({', '.join(_canonical_adapter_modules())}); got {module!r}"
+    )
+
 # Name segments that mark a secret. Matching is on whole segments after splitting
 # camelCase and snake/kebab/dot names, so "path" is not "pat" and "monkey" is not "key".
 _SECRET_SEGMENTS = {
@@ -381,10 +402,23 @@ class IntegrationHub:
                 pass
             raise
 
-    def add_integration(self, name: str, type: str, config: Dict[str, Any]) -> bool:
+    @staticmethod
+    def _any_module_allowed(allow_any_module: bool) -> bool:
+        """True when the adapter_module validation is switched off (tests only)."""
+        if allow_any_module:
+            return True
+        return os.environ.get(_ANY_MODULE_ENV, "").strip().lower() in ("1", "true", "yes", "on")
+
+    def add_integration(self, name: str, type: str, config: Dict[str, Any],
+                        allow_any_module: bool = False) -> bool:
         """
         type: 'native' or 'mcp'
         config: { "adapter_class": "..." } or { "command": "...", "args": [...] }
+
+        P1-3: a native integration's adapter_module must name one of the
+        canonical api.adapters.* modules — _execute_native imports whatever is
+        stored, so an arbitrary importable module would run with the hub's
+        access. ``allow_any_module`` is a test-only escape for fake modules.
         """
         if type == "mcp":
             # Tests may create an MCP integration with an empty config.
@@ -394,10 +428,19 @@ class IntegrationHub:
             if "args" not in config:
                 config["args"] = []
         elif type == "native":
-            # Allow empty config for testing; default to a mock adapter module if none provided
-            if "adapter_module" not in config:
-                config["adapter_module"] = "mock_module"
-                # No exception raised – proceed with mock module
+            module = config.get("adapter_module")
+            if not module:
+                if self._any_module_allowed(allow_any_module):
+                    # Historical test default, kept only under the test escape.
+                    config["adapter_module"] = "mock_module"
+                else:
+                    raise ValueError(
+                        "a native integration requires adapter_module, one of: "
+                        + ", ".join(_canonical_adapter_modules()))
+            else:
+                violation = _adapter_module_violation(module)
+                if violation and not self._any_module_allowed(allow_any_module):
+                    raise ValueError(violation)
 
 
         try:
@@ -445,15 +488,26 @@ class IntegrationHub:
                 return True
             return False
 
-    def update_integration(self, name: str, config: Dict[str, Any]) -> bool:
+    def update_integration(self, name: str, config: Dict[str, Any],
+                           allow_any_module: bool = False) -> bool:
         """Replace the configuration of an existing integration.
         Raises ValueError if the integration does not exist.
         Updates the connection status based on credential presence.
+
+        P1-3: an update may not introduce a non-canonical adapter_module
+        (``allow_any_module`` is the same test-only escape as on add). An
+        update that does not touch adapter_module keeps the stored value.
         """
         with self._lock():
             current = self._load_config()
             if name not in current:
                 raise ValueError(f"Integration {name} not found")
+            if current[name].get("type") == "native":
+                module = config.get("adapter_module")
+                if module is not None and not self._any_module_allowed(allow_any_module):
+                    violation = _adapter_module_violation(module)
+                    if violation:
+                        raise ValueError(violation)
             # Preserve other fields (type, created_at, status) and merge new config keys
             # into the existing config so required fields like 'adapter_module' survive.
             existing_cfg = current[name].get("config", {}) or {}

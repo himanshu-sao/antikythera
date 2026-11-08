@@ -51,7 +51,10 @@ def sm(tmp_path):
 @pytest.fixture
 def hub(tmp_path, fake_adapter):
     h = IntegrationHub(str(tmp_path))
-    assert h.add_integration("fake", "native", {"adapter_module": FAKE_MODULE})
+    # allow_any_module: this suite dispatches against a fake adapter module,
+    # not a canonical api.adapters.* one (P1-3 test escape).
+    assert h.add_integration("fake", "native", {"adapter_module": FAKE_MODULE},
+                             allow_any_module=True)
     return h
 
 
