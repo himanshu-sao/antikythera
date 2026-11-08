@@ -23,7 +23,6 @@ Additional panels available via sidebar:
 - **AI Engine** (`AIEngineSettings.tsx` + `AIEngineOverview.tsx`): Multi-provider model management
 - **Workflow Architect** (`WorkflowArchitect.tsx`): Lifecycle Orchestrator — per-item 7-stage phase transitions (`DISCOVERY → HANDOVER`) via `/api/orchestrator/*`, opened as a modal from the Workflows tab's "Workflow Builder" button.
 - **Blueprint** (`BlueprintArchitect.tsx`): Natural-language → workflow-template generator — prompt → `POST /api/builder/generate` → editable template → `POST /api/builder/validate` → save via `POST /api/workflows/templates` (its own sidebar tab).
-- **Brain Settings** (`BrainSettings.tsx`): Learning/pattern configuration
 
 ## Key Design Decisions
 1. **Generic Board Model**: The Kanban board is stage-agnostic. Stages come from the backend's `pipeline-state.json`; the UI does not hardcode column names.
@@ -39,7 +38,7 @@ See `docs/ui/architecture_map.md` for a full component tree.
 ## Development
 ```bash
 cd ui && npm install       # Install dependencies
-cd ui && npm run dev       # Start dev server (port 5173, proxies /api → :8006)
+cd ui && npm run dev       # Start dev server (port 15173, proxies /api → :18006; override with API_PROXY_TARGET)
 cd ui && npx vitest run    # Run unit tests
 cd ui && npx vitest --watch  # Run tests in watch mode
 ```

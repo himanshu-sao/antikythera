@@ -25,7 +25,7 @@
 | `trigger_router.py` | (root) | — |
 | `builders/ai_engine_config_router.py` | `/api/ai-engine` | AI Engine Config |
 
-Additionally, `/docs` serves the `automation-ideas/` directory as static files.
+Swagger/OpenAPI at `/docs` is disabled unless `ANTIKYTHERA_ENABLE_DOCS=1`; `automation-ideas/` is never served. A built-in help page is at `/help`.
 
 ## State Management
 The system has **two generations** of state management:
