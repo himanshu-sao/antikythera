@@ -175,7 +175,12 @@ async def update_integration(name: str, request: Request, req: IntegrationUpdate
         await run_in_threadpool(hub.update_integration, name, req.config)
         return {"status": "success", "message": f"Integration {name} updated"}
     except ValueError as ve:
-        raise HTTPException(status_code=404, detail=str(ve))
+        # The hub raises ValueError for both not-found and validation
+        # rejections (e.g. a non-canonical adapter_module). Not-found stays
+        # 404; validation errors are 400, matching the add path.
+        if str(ve) == f"Integration {name} not found":
+            raise HTTPException(status_code=404, detail=str(ve))
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise _server_error(e, "INTEGRATION_UPDATE_FAILED", "Updating the integration")
 
