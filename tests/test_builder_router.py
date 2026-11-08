@@ -127,12 +127,12 @@ class TestGenerate:
         fake_llm(reply=json.dumps(VALID_TEMPLATE))
         r = _generate(client, prompt="A completely unrelated request about cats")
         assert r.status_code == 200, r.text
-        assert r.json() == VALID_TEMPLATE
+        assert r.json() == {**VALID_TEMPLATE, "template_id": "llm-template"}
 
     def test_fenced_json_reply_is_used(self, client, fake_llm):
         fake_llm(reply="```json\n" + json.dumps(VALID_TEMPLATE) + "\n```")
         r = _generate(client)
-        assert r.json() == VALID_TEMPLATE
+        assert r.json() == {**VALID_TEMPLATE, "template_id": "llm-template"}
 
     def test_prose_reply_falls_back_to_keyword_template(self, client, fake_llm):
         fake_llm(reply="Here is a plan: first build, then release.")
@@ -258,3 +258,66 @@ class TestValidateEndpoint:
             tpl = _fallback_template(GenerationRequest(prompt=prompt))
             body = client.post("/api/builder/validate", json={"template_data": tpl}).json()
             assert body["status"] == "valid", (prompt, body)
+
+
+# -- template_id (P0-4) -------------------------------------------------------
+
+class TestTemplateId:
+    """POST /api/workflows/templates requires a template_id; the generate
+    response must carry one, derived from the template name with the same
+    slug rule BlueprintArchitect applies client-side, for the LLM path and
+    every fallback template. Otherwise the WorkflowBuilder save always 400s."""
+
+    def test_llm_path_gets_a_template_id(self, client, fake_llm):
+        fake_llm(reply=json.dumps(VALID_TEMPLATE))
+        r = _generate(client, prompt="a wholly unrelated request")
+        assert r.json()["template_id"] == "llm-template"
+
+    def test_llm_provided_template_id_is_replaced_by_the_derived_one(self, client, fake_llm):
+        # The id is derived deterministically from the name; an LLM-emitted id
+        # (which may be arbitrary) never reaches the save endpoint.
+        template = {**VALID_TEMPLATE, "template_id": "TRUST ME"}
+        fake_llm(reply=json.dumps(template))
+        r = _generate(client, prompt="a wholly unrelated request")
+        assert r.json()["template_id"] == "llm-template"
+
+    @pytest.mark.parametrize("prompt,expected", [
+        ("github merge release", "github-pr-review"),
+        ("jira ticket triage", "jira-triage"),
+        ("something entirely different", "custom-workflow"),
+    ])
+    def test_fallback_templates_get_their_slug(self, client, fake_llm, prompt, expected):
+        fake_llm(reply="prose only")
+        r = client.post("/api/builder/generate", json={"prompt": prompt})
+        assert r.status_code == 200
+        assert r.json()["template_id"] == expected
+
+    def test_fallback_with_template_name_override_uses_that_name(self, client, fake_llm):
+        fake_llm(reply="prose only")
+        r = _generate(client)
+        assert r.json()["name"] == "Mine"
+        assert r.json()["template_id"] == "mine"
+
+    @pytest.mark.parametrize("name,expected", [
+        ("Simple", "simple"),
+        ("  Padded Name  ", "padded-name"),
+        ("Many -- Special __ Chars!!", "many-special-chars"),
+        ("-leading and trailing-", "leading-and-trailing"),
+        ("Ünïcödé nàme", "n-c-d-n-me"),  # non-ascii runs each collapse to one hyphen
+        ("", "blueprint"),
+        ("   ", "blueprint"),
+        ("!!!", "blueprint"),
+    ])
+    def test_slug_rule_matches_the_client(self, name, expected):
+        from api.builder_router import _template_id_from_name
+        assert _template_id_from_name(name) == expected
+
+    def test_none_name_falls_back(self):
+        from api.builder_router import _template_id_from_name
+        assert _template_id_from_name(None) == "blueprint"
+
+    def test_response_shape_is_otherwise_unchanged(self, client, fake_llm):
+        fake_llm(reply=json.dumps(VALID_TEMPLATE))
+        r = _generate(client, prompt="a wholly unrelated request")
+        body = r.json()
+        assert set(body) == set(VALID_TEMPLATE) | {"template_id"}

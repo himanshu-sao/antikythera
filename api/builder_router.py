@@ -39,6 +39,19 @@ class GenerationRequest(BaseModel):
     template_name: Optional[str] = None
 
 
+def _template_id_from_name(name: Any) -> str:
+    """Stable template_id derived from the template name (P0-4).
+
+    Same slug rule BlueprintArchitect applies client-side: lowercase, every
+    run of non-alphanumerics becomes one hyphen, leading/trailing hyphens are
+    trimmed, and an empty result falls back to "blueprint". POST
+    /api/workflows/templates requires a template_id, so the generate response
+    carries one and the WorkflowBuilder save no longer 400s.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "-", str(name or "").strip().lower()).strip("-")
+    return slug or "blueprint"
+
+
 class TemplateValidationRequest(BaseModel):
     template_data: Dict[str, Any]
 
@@ -163,6 +176,9 @@ async def generate_template(request: GenerationRequest):
     template = _parse_template_reply(reply)
     if template is None:
         template = _fallback_template(request)
+    # P0-4: the save endpoint requires a template_id; derive it from the name
+    # (deterministic, same rule as the UI) for the LLM path and every fallback.
+    template["template_id"] = _template_id_from_name(template.get("name"))
     return template
 
 
