@@ -3,8 +3,9 @@ import os
 from pathlib import Path
 from agents import refiner, architect, tester, audit as audit_module
 from agents import logger as task_logger
-from agents.constants import REVIEW_STAGES, TIER_STAGES, DEFAULT_COMPLEXITY
+from agents.constants import DEFAULT_COMPLEXITY
 from agents.constants import next_stage
+from agents.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,31 @@ class StageHandler:
     """
     def __init__(self, orchestrator):
         self.orchestrator = orchestrator
+
+    # ------------------------------------------------------------------
+    # D3 (P2-1): hold at stage on agent failure or stub reply
+    # ------------------------------------------------------------------
+
+    def _artifact_is_stub(self, agent_module, item_id, artifact_name):
+        """True when the agent's freshly generated artifact is stub text.
+
+        Reads the artifact the agent just wrote and applies the single-source
+        ``LLMClient.is_stub`` check. A missing file (agent mocked in tests, or
+        it raised before writing) is not a stub.
+        """
+        try:
+            path = Path(agent_module.REQUIREMENTS_DIR, item_id, artifact_name)
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            return False
+        return LLMClient.is_stub(content)
+
+    def _discard_stub_artifact(self, agent_module, item_id, artifact_name):
+        """Remove a stub artifact: D3 says a stub reply writes no artifact."""
+        try:
+            Path(agent_module.REQUIREMENTS_DIR, item_id, artifact_name).unlink()
+        except OSError:
+            pass
 
     def _advance(self, item, state, item_id):
         """Move to the next stage for this item's complexity tier (DONE if none).
@@ -59,9 +85,23 @@ class StageHandler:
                 outputs=f"requirements/{item_id}/spec.md (confidence: {confidence})",
             )
         except Exception as e:
+            # D3 (P2-1): hold the item at REFINEMENT with the reason set; the
+            # orchestrator retries it next cycle (three-strike poison block).
             logger.error("Refiner failed for %s: %s", item_id, str(e))
             t_logger.error("refiner", "REFINEMENT_FAILED", str(e))
             item["blocked_reason"] = f"Refiner failed: {str(e)}"
+            return
+
+        if self._artifact_is_stub(refiner, item_id, "spec.md"):
+            # D3: a stub reply is a failure — no artifact, no advance.
+            self._discard_stub_artifact(refiner, item_id, "spec.md")
+            logger.error("Refiner returned a stub response for %s; holding at REFINEMENT", item_id)
+            t_logger.error("refiner", "REFINEMENT_STUB", "Refiner returned a stub response")
+            item["blocked_reason"] = "Refiner returned a stub response"
+            return
+
+        # A later successful run clears a previous block (D3).
+        item.pop("blocked_reason", None)
 
         # P4.1: classify complexity at REFINEMENT, but only when the human
         # hasn't already set it (an explicit ``complexity`` at create-time, or
@@ -113,10 +153,23 @@ class StageHandler:
                 outputs=f"requirements/{item_id}/architecture.md (confidence: {confidence})",
             )
         except Exception as e:
+            # D3 (P2-1): hold the item at ARCHITECTURE with the reason set.
             logger.error("Architect failed for %s: %s", item_id, str(e))
             t_logger.error("architect", "ARCHITECTURE_FAILED", str(e))
             item["blocked_reason"] = f"Architect failed: {str(e)}"
-        
+            return
+
+        if self._artifact_is_stub(architect, item_id, "architecture.md"):
+            # D3: a stub reply is a failure — no artifact, no advance.
+            self._discard_stub_artifact(architect, item_id, "architecture.md")
+            logger.error("Architect returned a stub response for %s; holding at ARCHITECTURE", item_id)
+            t_logger.error("architect", "ARCHITECTURE_STUB", "Architect returned a stub response")
+            item["blocked_reason"] = "Architect returned a stub response"
+            return
+
+        # A later successful run clears a previous block (D3).
+        item.pop("blocked_reason", None)
+
         self._advance(item, state, item_id)
 
     def handle_review_arch(self, item, state, item_id):
@@ -151,9 +204,22 @@ class StageHandler:
                 outputs=f"requirements/{item_id}/tests.md (confidence: {confidence})",
             )
         except Exception as e:
+            # D3 (P2-1): hold the item at TESTING with the reason set.
             logger.error("Tester failed for %s: %s", item_id, str(e))
             t_logger.error("tester", "TESTING_FAILED", str(e))
             item["blocked_reason"] = f"Tester failed: {str(e)}"
+            return
+
+        if self._artifact_is_stub(tester, item_id, "tests.md"):
+            # D3: a stub reply is a failure — no artifact, no advance.
+            self._discard_stub_artifact(tester, item_id, "tests.md")
+            logger.error("Tester returned a stub response for %s; holding at TESTING", item_id)
+            t_logger.error("tester", "TESTING_STUB", "Tester returned a stub response")
+            item["blocked_reason"] = "Tester returned a stub response"
+            return
+
+        # A later successful run clears a previous block (D3).
+        item.pop("blocked_reason", None)
 
         self._advance(item, state, item_id)
 
@@ -189,30 +255,31 @@ class StageHandler:
 
         confidence = 0
         try:
+            # D4 (P2-2): a bound workflow run is used when one exists; an
+            # unbound pipeline item runs the agent executor directly under a
+            # synthetic per-item log id instead of failing with "No active run
+            # found". RunManager.log_event only appends to a per-id events
+            # file, so a synthetic id needs no run record.
+            run_id = state_manager.bindings.get_run_id_for_item(item_id)
+            if not run_id:
+                run_id = f"pipeline-{item_id}"
+                logger.info("No bound run for %s; running the agent executor directly", item_id)
+
             execution_mode = item.get('execution_policy', {}).get('mode', 'ENGINEERING')
             if execution_mode == 'INLINE':
                 logger.info("Executing INLINE task for %s", item_id)
                 from agents import executor
-                
-                # Get the current run_id for this item
-                run_id = state_manager.bindings.get_run_id_for_item(item_id)
-                if not run_id:
-                    raise RuntimeError(f"No active run found for item {item_id}")
-                
+
                 result = executor.executor_idea(item_id, run_manager, run_id)
                 item['inline_output'] = result
                 # No whole-state save here: the orchestrator commits this
                 # item's changes under the state lock (see run_pipeline).
+                item.pop("blocked_reason", None)  # a later success clears a block (D3)
                 self.orchestrator.transition_stage(item, 'DONE', state, item_id)
                 t_logger.info("executor", "EXECUTION_COMPLETE_INLINE", f"Inline execution successful")
                 return
-            
+
             from agents import executor
-            
-            # Get the current run_id for this item
-            run_id = state_manager.bindings.get_run_id_for_item(item_id)
-            if not run_id:
-                raise RuntimeError(f"No active run found for item {item_id}")
 
             confidence = executor.executor_idea(item_id, run_manager, run_id)
             item["confidence_score"] = confidence
@@ -233,6 +300,8 @@ class StageHandler:
             item["blocked_reason"] = f"Executor failed: {str(e)}"
         
         if confidence > 0:
+            # A later successful run clears a previous block (D3).
+            item.pop("blocked_reason", None)
             self.orchestrator.transition_stage(item, "DONE", state, item_id)
         else:
             # P4.1: REVIEW_TEST only exists for the `complex` tier. For

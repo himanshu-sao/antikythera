@@ -1,9 +1,13 @@
 """
 Tests for Orchestrator stage transitions and pipeline runs.
 """
+from pathlib import Path
+
 import pytest
 from unittest.mock import patch
 from agents import orchestrator
+from agents import refiner
+from agents import state as state_module
 from tests.test_helpers import make_items, make_item
 
 class TestTransitionStage:
@@ -164,3 +168,47 @@ class TestReviewStatusReset:
         mock_load.return_value = state
         assert orchestrator.run_pipeline() == 0
         assert state["items"]["ID-001"]["stage"] == "REVIEW_ARCH"
+
+
+# ---------------------------------------------------------------------------
+# D3 (P2-1): a failed agent holds the item at its stage across cycles
+# ---------------------------------------------------------------------------
+
+class TestHoldAtStageAcrossCycles:
+    def _seed(self, stage="REFINEMENT", **extra):
+        item = make_item(stage=stage, title="My idea")
+        item.update(extra)
+        state = make_items({"ID-001": item})
+        state_module.save_state(state)
+        return state
+
+    def test_failed_refiner_holds_item_for_the_next_cycle(self):
+        self._seed()
+        with patch("agents.orchestrator.refiner.refine_idea", side_effect=ValueError("boom")):
+            assert orchestrator.run_pipeline() == 1
+        item = state_module.load_state()["items"]["ID-001"]
+        assert item["stage"] == "REFINEMENT"
+        assert "boom" in item["blocked_reason"]
+        # Still actionable: the next cycle retries it (three-strike poison
+        # block only counts raising handlers, and this one returned normally).
+        with patch("agents.orchestrator.refiner.refine_idea", return_value=85):
+            assert orchestrator.run_pipeline() == 1
+        item = state_module.load_state()["items"]["ID-001"]
+        assert item["stage"] == "REVIEW_SPEC"
+        assert not item.get("blocked_reason")
+
+    def test_stub_refiner_holds_item_for_the_next_cycle(self):
+        self._seed()
+        stub_spec = Path(refiner.REQUIREMENTS_DIR, "ID-001", "spec.md")
+
+        def stub_refine(idea_id, title):
+            stub_spec.parent.mkdir(parents=True, exist_ok=True)
+            stub_spec.write_text("[stub response]", encoding="utf-8")
+            return 10
+
+        with patch("agents.orchestrator.refiner.refine_idea", side_effect=stub_refine):
+            orchestrator.run_pipeline()
+        item = state_module.load_state()["items"]["ID-001"]
+        assert item["stage"] == "REFINEMENT"
+        assert "stub" in item["blocked_reason"].lower()
+        assert not stub_spec.exists()

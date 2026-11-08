@@ -255,6 +255,32 @@ class TestExecutorFallback:
         item = self._run_executing_with_confidence("complex", 0)
         assert item["stage"] == "REVIEW_TEST"
 
+    def _run_executing_unbound(self, tier, confidence):
+        """D4 (P2-2): no bound run — the agent executor runs directly."""
+        from unittest.mock import MagicMock
+        item = make_item(stage="EXECUTING", title="t", confidence=None)
+        item["complexity"] = tier
+        state = make_items({"ID-001": item})
+        fake_sm = MagicMock()
+        fake_sm.bindings.get_run_id_for_item.return_value = None
+        with patch("api.workflow_state_manager.WorkflowStateManager",
+                   return_value=fake_sm), \
+             patch("agents.executor.executor_idea", return_value=confidence):
+            orchestrator.handle_executing(item, state, "ID-001")
+        return item
+
+    def test_unbound_success_reaches_done(self):
+        item = self._run_executing_unbound("complex", 80)
+        assert item["stage"] == "DONE"
+
+    def test_unbound_trivial_failure_falls_back_to_review_spec(self):
+        item = self._run_executing_unbound("trivial", 0)
+        assert item["stage"] == "REVIEW_SPEC"
+
+    def test_unbound_complex_failure_falls_back_to_review_test(self):
+        item = self._run_executing_unbound("complex", 0)
+        assert item["stage"] == "REVIEW_TEST"
+
 
 # ---------------------------------------------------------------------------
 # Pydantic schema validation
