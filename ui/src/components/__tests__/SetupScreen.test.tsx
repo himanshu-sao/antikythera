@@ -186,7 +186,7 @@ describe('SetupScreen setup secret (P0-1)', () => {
     const field = await screen.findByLabelText('Setup secret');
     expect(field).toHaveAttribute('type', 'password');
     expect(field).toHaveValue('');
-    expect(screen.getByText(/printed in the backend log at first start/i)).toBeInTheDocument();
+    expect(screen.getByText(/setup_secret file under the Antikythera config directory/i)).toBeInTheDocument();
   });
 
   test('config and complete carry X-Setup-Secret with the typed value', async () => {
