@@ -282,3 +282,15 @@ Baseline `7826013` (arc A ownership map). Result `f6245ae3`, pushed. **30 commit
 - `f6245ae3`: root `vite.config.ts` port default.
 - A5's mutation check run by the coordinator (its scratch-copy command was denied by a classifier).
 - Cross-worker relays: A1 CORS Authorization header; A7 migrating App.tsx fetches to apiFetch.
+
+---
+
+# Post-arc-A comprehensive review (2026-11-08)
+
+Two read-only reviewers covered `252945a..HEAD` (110 commits: run 3, arc A, post-arc fixes) against `docs/decisions.md` D1-D14, plus a coordinator verification of every decided-but-unbuilt item. Full findings in `docs/pending-items.md` (rewritten). Data-safety verdict: clean.
+
+Headlines:
+- **Four P0 deployment blockers**: the setup wizard's loopback gate 403s everyone in Docker (Docker NAT/proxy breaks the peer-IP assumption); `App.loadPipelines` still uses plain fetch so the pipeline tab is silently empty and TokenGate never fires for it; failed workflow steps are recorded as done (`_execute_native` error dicts never checked, runs falsely COMPLETED — the stored `AI_INTEGRATION_BOB` template demonstrates it); WorkflowBuilder cannot save a template at all (no `template_id` derived).
+- **Two security gaps**: a SafeExecutor escape via `operator.attrgetter("__class__")` (whitelisted `operator`, `type` still in builtins, AST dunder ban blind to string args); the terminal tool passes the full parent env to model-chosen `python -c`, leaking the API token and provider keys.
+- **Four decided items fell between the arcs**: D3 (hold at stage on failure), D4 (executor without a bound run), the Studio `dry_run` backend default, and the perpetual aggregate — all decided, none assigned, none built.
+- The help page has eight inaccurate claims (listed in pending-items P3-1); consumer tests read the developer's real `~/.antikythera/settings.json` (missing autouse `ANTIKYTHERA_HOME`); `docs/api-spec.md` and `docs/agents/*` remain stale; the root JS toolchain still needs a delete decision.
