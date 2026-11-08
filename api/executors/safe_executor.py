@@ -121,7 +121,15 @@ def _decode(value):
 
 def _find_blocked_attribute(code_string):
     """Return the first dunder attribute (or ``__builtins__`` name) the snippet
-    uses, or None.  Blocks the ``__class__`` / ``__subclasses__`` escape family."""
+    uses, or None.  Blocks the ``__class__`` / ``__subclasses__`` escape family.
+
+    P1-1: also inspects CALL ARGUMENTS.  ``operator.attrgetter`` /
+    ``operator.itemgetter`` take attribute names as *strings*, which the
+    ``Attribute``-node scan above never sees; a string argument containing a
+    double underscore reaches the same dunder attributes, so any call spelled
+    ``attrgetter(...)`` / ``itemgetter(...)`` (attribute or bare name) with
+    such a string is refused too.
+    """
     tree = ast.parse(code_string)
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
@@ -129,6 +137,19 @@ def _find_blocked_attribute(code_string):
                 return node.attr
         elif isinstance(node, ast.Name) and node.id == "__builtins__":
             return node.id
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute):
+                fname = func.attr
+            elif isinstance(func, ast.Name):
+                fname = func.id
+            else:
+                fname = None
+            if fname in ("attrgetter", "itemgetter"):
+                for arg in list(node.args) + [kw.value for kw in node.keywords]:
+                    if (isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                            and "__" in arg.value):
+                        return f"{fname}({arg.value!r})"
     return None
 
 
@@ -277,13 +298,19 @@ class SafeExecutor:
 
     # Whitelist of allowed top-level modules.
     # These are considered safe and do not require explicit installation approval.
+    # P1-1: ``operator`` and ``types`` are deliberately ABSENT.  ``operator``
+    # exposes ``attrgetter``/``itemgetter``, which take attribute names as
+    # strings and so bypass the AST dunder-attribute ban (the static check
+    # below also refuses dunder strings in those calls, but the module stays
+    # off the whitelist as the primary defence).  ``types`` hands out
+    # ``FunctionType``/``MethodType``, another route to class internals.
     WHITELIST: Set[str] = {
         'json', 're', 'httpx', 'datetime', 'yaml', 'typing', 'collections',
         'math', 'random', 'string', 'time', 'csv', 'decimal', 'fractions',
         'statistics', 'itertools', 'functools', 'hashlib', 'base64', 'uuid',
         'ipaddress', 'textwrap', 'difflib', 'pprint', 'copy',
         'enum', 'dataclasses', 'contextlib', 'queue', 'heapq', 'bisect',
-        'array', 'weakref', 'types', 'operator', 'keyword', 'tokenize',
+        'array', 'weakref', 'keyword', 'tokenize',
     }
 
     # Blocklist of modules that are never allowed due to security risks.
@@ -298,11 +325,13 @@ class SafeExecutor:
 
     # Built-ins removed from the child's execution environment.  getattr,
     # setattr and delattr are removed so a string cannot be used to reach a
-    # dunder attribute after the static check.
+    # dunder attribute after the static check.  P1-1: ``type`` is removed too
+    # (``type(x).__subclasses__()`` is the same class-hierarchy escape).
     DANGEROUS_BUILTINS: Set[str] = {
         'eval', 'exec', 'compile', 'open', 'input', 'help', 'exit', 'quit',
         'copyright', 'credits', 'license', '__import__',
         'getattr', 'setattr', 'delattr', 'globals', 'locals', 'vars', 'breakpoint',
+        'type',
     }
 
     @classmethod

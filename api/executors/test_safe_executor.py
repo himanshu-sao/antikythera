@@ -202,3 +202,91 @@ def test_child_refuses_a_blocked_import_even_without_the_parent_check():
 def test_relative_import_is_not_treated_as_a_dependency():
     """``from . import x`` is local; the old extractor ignored it and so do we."""
     assert SafeExecutor.extract_imports("from . import x") == set()
+
+
+# --- P1-1: operator.attrgetter escape ------------------------------------------
+
+def test_attrgetter_escape_payload_raises_safe_executor_error():
+    """P1-1: ``operator.attrgetter`` takes dunder names as STRINGS, which the
+    Attribute-node scan never saw.  The full escape (walk ``()`` to its class,
+    to ``object``, to ``__subclasses__``) must be refused, not executed."""
+    payload = (
+        "import operator\n"
+        "ag = operator.attrgetter\n"
+        "cls = ag('__class__')(())\n"
+        "base = ag('__base__')(cls)\n"
+        "subclasses = ag('__subclasses__')(base)()\n"
+        "result = len(subclasses)\n"
+    )
+    with pytest.raises(SafeExecutorError):
+        SafeExecutor.execute(payload)
+
+
+def test_operator_and_types_are_not_whitelisted():
+    """P1-1: ``operator`` (attrgetter/itemgetter reach dunders by string) and
+    ``types`` are off the whitelist; importing them is a dependency error."""
+    assert "operator" not in SafeExecutor.WHITELIST
+    assert "types" not in SafeExecutor.WHITELIST
+    with pytest.raises(DependencyRequiredError):
+        SafeExecutor.execute("import operator\nresult = 1")
+    with pytest.raises(DependencyRequiredError):
+        SafeExecutor.execute("import types\nresult = 1")
+
+
+def test_type_is_not_available_in_the_child():
+    """P1-1: ``type`` is removed from the child builtins, so ``type(x)`` can no
+    longer be used to reach class internals (``type(x).__subclasses__()``)."""
+    with pytest.raises(SafeExecutorError, match="name 'type' is not defined"):
+        SafeExecutor.execute("result = type(1) is type('x')")
+
+
+def test_itemgetter_dunder_string_is_rejected_by_the_parent(monkeypatch):
+    """P1-1: the static check inspects CALL ARGUMENTS, not just Attribute
+    nodes.  A dunder string passed to itemgetter is refused even if the import
+    were somehow allowed (here: operator temporarily re-whitelisted)."""
+    monkeypatch.setattr(SafeExecutor, "WHITELIST", SafeExecutor.WHITELIST | {"operator"})
+    with pytest.raises(SecurityError, match="Blocked attribute access"):
+        SafeExecutor.execute("import operator\nresult = operator.itemgetter('__class__')(())")
+
+
+def test_attrgetter_dunder_string_is_rejected_by_the_child():
+    """Defence in depth: the child re-runs the call-argument check even when
+    the parent's import whitelist is bypassed entirely."""
+    payload = {
+        "code": "import operator\nresult = operator.attrgetter('__class__')(())",
+        "context": {},
+        "limits": {},
+        "whitelist": sorted(SafeExecutor.WHITELIST | {"operator"}),
+        "blocklist": sorted(SafeExecutor.BLOCKLIST),
+        "dangerous_builtins": sorted(SafeExecutor.DANGEROUS_BUILTINS),
+    }
+    with pytest.raises(SecurityError, match="Blocked attribute access"):
+        SafeExecutor._run_in_subprocess(payload)
+
+
+def test_dunder_string_outside_attrgetter_calls_is_allowed():
+    """A dunder-looking string literal on its own reaches no attribute; only
+    attrgetter/itemgetter arguments turn it into an access."""
+    assert SafeExecutor.execute('result = "__class__" in "x__class__y"') is True
+    assert se._find_blocked_attribute("g = operator.itemgetter('name')") is None
+
+
+def test_operator_free_script_still_runs():
+    """The tightened whitelist/builtins must not break legitimate scripts."""
+    code = """
+import json, re, itertools
+data = {"values": [1, 2, 3]}
+result = {
+    "sum": sum(data["values"]),
+    "slug": re.sub(r"\\s+", "_", "a b c"),
+    "pairs": list(itertools.combinations([1, 2], 2)),
+    "dump": json.dumps(data),
+}
+"""
+    out = SafeExecutor.execute(code)
+    assert out == {
+        "sum": 6,
+        "slug": "a_b_c",
+        "pairs": [(1, 2)],
+        "dump": '{"values": [1, 2, 3]}',
+    }
