@@ -223,7 +223,18 @@ class ExecutionEngine:
 
             # Dispatch on the step's adapter and action
             result = self.hub.execute_action(adapter, action, resolved_config)
-            
+
+            # P0-3: the hub reports adapter failures (unsupported action, an
+            # adapter exception, an unloadable module) as
+            # ``{"status": "error", ...}`` instead of raising. Route that
+            # through the same failure path as an exception, with the hub's
+            # error text as the reason, or a run whose every step failed
+            # marches on to COMPLETED. Anything else (a success status or a
+            # legacy plain result dict) advances as before.
+            if isinstance(result, dict) and result.get("status") == "error":
+                detail = result.get("result") or result.get("logs") or "unknown error"
+                raise RuntimeError(f"adapter reported an error: {detail}")
+
             # 3. Record Outcome
             self.run_manager.log_event(run_id, "STEP_END", {"step": step_name, "result": result})
             

@@ -675,6 +675,103 @@ class TestTimerGuard:
 
 
 # ---------------------------------------------------------------------------
+# B1 (P0-3): a hub error dict must fail the step, not read as success
+# ---------------------------------------------------------------------------
+
+class ErrorDictHub(FakeHub):
+    """Returns the hub's ``{"status": "error"}`` shape instead of raising.
+
+    _execute_native reports adapter failures (a missing method, an adapter
+    exception, an unloadable module) as an error dict rather than by raising,
+    so the engine must inspect the status or a run whose every step failed
+    marches to COMPLETED.
+    """
+
+    def execute_action(self, adapter, action, params):
+        self.calls.append((adapter, action, params))
+        return {"status": "error",
+                "result": "Adapter http.fetch failed: upstream exploded",
+                "logs": "traceback"}
+
+
+class SuccessDictHub(FakeHub):
+    def execute_action(self, adapter, action, params):
+        self.calls.append((adapter, action, params))
+        return {"status": "success", "result": {"ok": 1}, "logs": ""}
+
+
+class TestHubErrorStatus:
+    def test_error_dict_fails_the_step_through_the_retry_path(self, sm, escalator, timers):
+        _template(sm, "e1", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        hub = ErrorDictHub()
+        engine = ExecutionEngine(sm, hub, escalator, RetryManager(sm))
+        run_id = engine.start_run("e1", {})
+
+        assert _status(sm, run_id) == "RUNNING"  # retry scheduled, not BLOCKED yet
+        assert sm.runs.get_run(run_id)["retry_count"] == 1
+        assert [t.interval for t in timers.instances] == [300]
+        assert escalator.escalations == []
+        assert "RUN_BLOCKED" not in [e["event_type"] for e in sm.runs.get_run_timeline(run_id)]
+
+    def test_error_dict_blocks_after_the_budget_with_escalation(self, sm, escalator, timers):
+        _template(sm, "e2", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        hub = ErrorDictHub()
+        engine = ExecutionEngine(sm, hub, escalator, RetryManager(sm))
+        run_id = engine.start_run("e2", {})
+
+        for _ in range(3):
+            (pending,) = _live(timers)
+            pending.fire()
+        assert len(hub.calls) == 4  # initial attempt + three retries
+        run = sm.runs.get_run(run_id)
+        assert run["status"] == "BLOCKED"
+        assert run["retry_count"] == 3
+        assert _live(timers) == []
+        assert len(escalator.escalations) == 1
+        assert escalator.escalations[0]["run_id"] == run_id
+        assert escalator.escalations[0]["step_name"] == "Fetch"
+        types = [e["event_type"] for e in sm.runs.get_run_timeline(run_id)]
+        assert "RUN_BLOCKED" in types
+
+    def test_error_dict_reason_carries_the_hub_result_text(self, sm, escalator, timers):
+        _template(sm, "e3", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        engine = ExecutionEngine(sm, ErrorDictHub(), escalator, RetryManager(sm))
+        run_id = engine.start_run("e3", {})
+        failures = [e for e in sm.runs.get_run_timeline(run_id) if e["event_type"] == "FAILURE"]
+        assert len(failures) == 1
+        assert "upstream exploded" in failures[0]["payload"]["error"]
+
+    def test_error_dict_without_retry_manager_blocks_immediately(self, sm, escalator, timers):
+        _template(sm, "e4", [{"name": "Fetch", "type": "HTTP", "config": {}}])
+        engine = ExecutionEngine(sm, ErrorDictHub(), escalator, None)
+        run_id = engine.start_run("e4", {})
+        assert _status(sm, run_id) == "BLOCKED"
+        assert timers.instances == []
+        assert len(escalator.escalations) == 1
+        assert "upstream exploded" in escalator.escalations[0]["error"]
+
+    def test_success_status_dict_advances(self, sm, escalator):
+        _template(sm, "e5", [
+            {"name": "One", "type": "HTTP", "config": {}},
+            {"name": "Two", "type": "HTTP", "config": {}},
+        ])
+        engine = ExecutionEngine(sm, SuccessDictHub(), escalator, RetryManager(sm))
+        run_id = engine.start_run("e5", {})
+        run = sm.runs.get_run(run_id)
+        assert run["status"] == "COMPLETED"
+        assert run["current_step_index"] == 2
+        assert run["context"]["One"]["status"] == "success"
+        assert escalator.escalations == []
+
+    def test_result_without_a_status_key_advances_as_before(self, sm, escalator):
+        # Legacy hub shapes (plain result dicts, the suite's FakeHub) must keep
+        # advancing; only an explicit "error" status fails the step.
+        _template(sm, "e6", [{"name": "One", "type": "HTTP", "config": {}}])
+        run_id = ExecutionEngine(sm, FakeHub(), escalator, RetryManager(sm)).start_run("e6", {})
+        assert _status(sm, run_id) == "COMPLETED"
+
+
+# ---------------------------------------------------------------------------
 # W3 (R18): the retry budget is per step, not cumulative per run
 # ---------------------------------------------------------------------------
 
