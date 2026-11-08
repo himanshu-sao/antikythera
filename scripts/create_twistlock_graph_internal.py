@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Create the Twistlock vulnerability triage graph using internal adapter for Slice-1 acceptance test."""
 
+import os
 import sys
-sys.path.insert(0, "/Users/himanshusao/Work/src/extra/himanshu-sao/antikythera")
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _REPO_ROOT)
 
 from api.managers.studio_graph_manager import StudioGraphManager
 from api.models.studio import (
@@ -13,7 +16,7 @@ from api.models.studio import (
 )
 import json
 
-base_dir = "/Users/himanshusao/Work/src/extra/himanshu-sao/antikythera/automation-ideas"
+base_dir = os.path.join(_REPO_ROOT, "automation-ideas")
 manager = StudioGraphManager(base_dir)
 
 # Delete old graph if exists

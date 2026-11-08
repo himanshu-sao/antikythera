@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from filelock import FileLock
 
@@ -40,7 +41,7 @@ class PatternStore:
             patterns[template_id].append({
                 "context": context,
                 "resolution": resolution,
-                "timestamp": os.popen('date -u +"%Y-%m-%dT%H:%M:%SZ"').read().strip()
+                "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             })
             self._save(patterns)
 

@@ -407,7 +407,7 @@ class IntegrationHub:
                     "name": name,
                     "type": type,
                     "config": config,
-                    "created_at": os.popen('date -u +"%Y-%m-%dT%H:%M:%SZ"').read().strip()
+                    "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 }
                 self._save_config(current)
             return True
