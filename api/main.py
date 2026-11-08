@@ -7,7 +7,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 # Ensure the latest version of brain_api is loaded (in case it was imported before code changes)
 import importlib, sys
@@ -175,3 +175,11 @@ app.include_router(setup_router)
 @app.get("/")
 async def root():
     return {"message": "Antikythera API is running"}
+
+
+@app.get("/help", include_in_schema=False, response_class=HTMLResponse)
+async def help_page():
+    """Self-contained instructions and examples (public, no token needed)."""
+    html_path = os.path.join(os.path.dirname(__file__), "help.html")
+    with open(html_path, "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Antikythera — Help &amp; Guide</title>
+<style>
+  :root {
+    --bg: #0f1419; --panel: #161d26; --panel2: #1c2530; --line: #2a3542;
+    --text: #d8e1ea; --muted: #8b9bab; --accent: #35b8b0; --accent2: #0b6b72;
+    --warn: #e0a458; --err: #e07a5f; --ok: #7fb069; --code: #0b0f14;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.65 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 20px 80px; }
+  header { border-bottom: 1px solid var(--line); padding: 28px 0 20px; margin-bottom: 28px; }
+  header h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: .5px; }
+  header h1 .gear { color: var(--accent); }
+  header p { margin: 0; color: var(--muted); }
+  nav.toc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+            padding: 14px 18px; margin-bottom: 30px; columns: 2; column-gap: 30px; }
+  nav.toc .t { font-weight: 700; color: var(--muted); text-transform: uppercase;
+               font-size: 12px; letter-spacing: 1px; margin-bottom: 6px; column-span: all; }
+  nav.toc a { display: block; padding: 2px 0; color: var(--text); font-size: 14px; }
+  nav.toc a:hover { color: var(--accent); text-decoration: none; }
+  section { margin-bottom: 38px; }
+  h2 { font-size: 21px; border-left: 4px solid var(--accent); padding-left: 12px; margin: 0 0 14px; }
+  h3 { font-size: 16px; color: var(--accent); margin: 22px 0 8px; }
+  p { margin: 8px 0; }
+  ul, ol { margin: 8px 0; padding-left: 24px; }
+  li { margin: 4px 0; }
+  code { background: var(--code); border: 1px solid var(--line); border-radius: 4px;
+         padding: 1px 6px; font-size: 13.5px; color: #9ee6e0; }
+  pre { background: var(--code); border: 1px solid var(--line); border-radius: 8px;
+        padding: 14px 16px; overflow-x: auto; margin: 12px 0; }
+  pre code { background: none; border: none; padding: 0; color: #c7d5e0; font-size: 13px; line-height: 1.55; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel2); color: var(--muted); font-weight: 600; }
+  tr:nth-child(even) td { background: var(--panel); }
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+          border-radius: 8px; padding: 10px 16px; margin: 12px 0; }
+  .warn { border-left-color: var(--warn); }
+  .errbox { border-left-color: var(--err); }
+  .pill { display: inline-block; background: var(--accent2); color: #cfeeee; border-radius: 20px;
+          padding: 1px 10px; font-size: 12px; font-weight: 700; margin-right: 6px; }
+  .pill.warn { background: #6b4d1f; color: #ffd9a0; }
+  .footer { color: var(--muted); font-size: 13px; border-top: 1px solid var(--line);
+            padding-top: 16px; margin-top: 40px; }
+  kbd { background: var(--panel2); border: 1px solid var(--line); border-bottom-width: 2px;
+        border-radius: 4px; padding: 0 6px; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1><span class="gear">&#9881;</span> Antikythera</h1>
+  <p>A human-in-the-loop automation platform: a Kanban pipeline of ideas refined by AI agents,
+     an Automation Studio for building automations against live data, and an integration hub
+     for Jira, GitHub and more.</p>
+  <p style="margin-top:8px">UI: <code>http://localhost:15173</code> &nbsp;&middot;&nbsp;
+     API: <code>http://localhost:18006</code> &nbsp;&middot;&nbsp;
+     This page: <code>/help</code> (no token needed)</p>
+</header>
+
+<nav class="toc">
+  <div class="t">Contents</div>
+  <a href="#start">1. Getting started</a>
+  <a href="#access">2. Access &amp; the API token</a>
+  <a href="#board">3. The board (pipeline)</a>
+  <a href="#studio">4. Automation Studio</a>
+  <a href="#workflows">5. Workflows &amp; templates</a>
+  <a href="#integrations">6. Integrations &amp; credentials</a>
+  <a href="#ai">7. AI Engine</a>
+  <a href="#settings">8. Settings</a>
+  <a href="#ops">9. Backups &amp; operations</a>
+  <a href="#trouble">10. Troubleshooting</a>
+  <a href="#api">11. API quick reference</a>
+</nav>
+
+<section id="start">
+  <h2>1. Getting started</h2>
+  <p>Antikythera runs on a Docker host (it does not run on your laptop). You reach it through
+     an SSH tunnel, so nothing is exposed to the network.</p>
+
+  <h3>Open the tunnel (once per session)</h3>
+<pre><code>ssh -N \
+  -L 18006:127.0.0.1:18006 \
+  -L 15173:127.0.0.1:15173 \
+  &lt;user&gt;@&lt;docker-host&gt;</code></pre>
+  <p>Tip: put the two <code>LocalForward</code> lines in your <code>~/.ssh/config</code> so a plain
+     <code>ssh docker-host</code> opens them. Then open <code>http://localhost:15173</code>.</p>
+
+  <h3>First run — the setup screen</h3>
+  <p>On a fresh install the UI shows a <strong>Setup</strong> screen instead of the app. It walks you
+     through everything that is missing:</p>
+  <ul>
+    <li>Provider API keys (Google/Gemma, OpenRouter, NVIDIA&hellip;) — names only, never shown again</li>
+    <li>Jira credentials (base URL + personal access token)</li>
+    <li>The Slack webhook for notifications</li>
+    <li>The API token (generated for you, shown once — copy it)</li>
+  </ul>
+  <p>Click <strong>Finish setup</strong> and the app loads. The setup screen only accepts connections
+     from the machine itself (your tunnel counts); afterwards the endpoints are locked.</p>
+
+  <h3>Where things live</h3>
+  <table>
+    <tr><th>Path (on the Docker host)</th><th>What</th></tr>
+    <tr><td><code>~/.antikythera/</code></td><td>Config: <code>.env</code>, <code>.ai_env</code> (secrets, mode 600), <code>ai_config.json</code>, <code>api_token</code>, <code>settings.json</code></td></tr>
+    <tr><td><code>~/antikythera-data/</code></td><td>Your data: the board, items, artifacts, Studio graphs, run logs</td></tr>
+  </table>
+</section>
+
+<section id="access">
+  <h2>2. Access &amp; the API token</h2>
+  <p>Every <code>/api/*</code> request needs a bearer token. The UI asks for it once (a small dialog)
+     and keeps it for the session. For scripts and curl:</p>
+<pre><code># The token (on the Docker host):
+cat ~/.antikythera/api_token
+
+# Use it:
+curl -H "Authorization: Bearer $TOKEN" http://localhost:18006/api/state</code></pre>
+  <ul>
+    <li>If <code>ANTIKYTHERA_API_TOKEN</code> is set in the environment, that value is used instead.</li>
+    <li>Missing or wrong token &rarr; <code>401</code>.</li>
+    <li>The token is never written to logs and never returned by any endpoint.</li>
+  </ul>
+  <div class="note">The API docs (Swagger) are off by default. Set <code>ANTIKYTHERA_ENABLE_DOCS=1</code>
+     and restart to get them at <code>/docs</code>.</div>
+</section>
+
+<section id="board">
+  <h2>3. The board (pipeline)</h2>
+  <p>Ideas move through ten stages. AI agents do the work; you approve at the review gates.</p>
+  <table>
+    <tr><th>Stage</th><th>Who acts</th><th>What happens</th></tr>
+    <tr><td>INTAKE &rarr; REFINEMENT</td><td>Refiner (AI)</td><td>Turns the idea into a <code>spec.md</code></td></tr>
+    <tr><td>REVIEW_SPEC</td><td><strong>You</strong></td><td>Approve or request revision</td></tr>
+    <tr><td>ARCHITECTURE</td><td>Architect (AI)</td><td>Writes <code>architecture.md</code></td></tr>
+    <tr><td>REVIEW_ARCH</td><td><strong>You</strong></td><td>Approve or request revision</td></tr>
+    <tr><td>TESTING</td><td>Tester (AI)</td><td>Writes a test plan (<code>tests.md</code>)</td></tr>
+    <tr><td>REVIEW_TEST</td><td><strong>You</strong></td><td>Approve or request revision</td></tr>
+    <tr><td>APPROVED &rarr; EXECUTING</td><td>Executor (AI)</td><td>Plans tasks and writes files into the item folder</td></tr>
+    <tr><td>DONE</td><td>—</td><td>Finished</td></tr>
+  </table>
+
+  <h3>Complexity tiers</h3>
+  <p>Each item has a complexity that decides which stages it visits. Set it when creating the item,
+     or leave it on <em>Auto</em> and the refiner picks:</p>
+  <table>
+    <tr><th>Tier</th><th>Visits</th><th>Skips</th></tr>
+    <tr><td>trivial</td><td>INTAKE, REFINEMENT, REVIEW_SPEC, EXECUTING, DONE</td><td>Architecture + testing stages</td></tr>
+    <tr><td>simple</td><td>adds ARCHITECTURE + REVIEW_ARCH</td><td>Testing stages</td></tr>
+    <tr><td>complex <span class="pill">default</span></td><td>all ten</td><td>nothing</td></tr>
+  </table>
+
+  <h3>Approving and moving</h3>
+  <p>Use the review form on an item (the drawer&rsquo;s Review tab). <strong>Approve</strong> records the
+     decision and lets the item move on; <strong>Needs revision</strong> sends it back to the previous
+     agent stage. Dragging a card works, but the board enforces the rules:</p>
+  <ul>
+    <li>You cannot drag an item out of a review stage until it is approved.</li>
+    <li>You cannot drag an item into a stage its tier skips.</li>
+    <li>Both rules can be overridden with the explicit <strong>Force move</strong> button (the API
+        equivalent is <code>"force": true</code>).</li>
+  </ul>
+  <div class="note warn">If an agent fails repeatedly (3 times at the same stage), the item is marked
+     <em>blocked</em> with the reason on the card. Fix the cause or force-move the item to retry.</div>
+</section>
+
+<section id="studio">
+  <h2>4. Automation Studio</h2>
+  <p>Studio builds an automation by working against <em>live</em> data, one step at a time — not by
+     generating a whole workflow from a prompt. Open the <strong>Studio</strong> tab.</p>
+
+  <h3>The four turns</h3>
+  <p>Each turn drafts one node: <strong>Query</strong> (fetch a list from an adapter) &rarr;
+     <strong>Fan-out</strong> (loop over the results) &rarr; <strong>AI-transform</strong> (run a script
+     over each item) &rarr; <strong>Conditional-action</strong> (test a condition, act on match).</p>
+
+  <h3>Preview, commit, run</h3>
+  <ul>
+    <li><strong>Preview</strong> runs the draft against your sandbox state — it never writes to the
+        outside world.</li>
+    <li><strong>Commit</strong> adds the node to the graph and connects it to the previous one.</li>
+    <li><strong>Run</strong> executes the saved graph. <span class="pill">dry run</span> is ON by
+        default: a run reports what it <em>would</em> do without writing. Untick the box for a live run.</li>
+  </ul>
+
+  <h3>Node reference</h3>
+  <table>
+    <tr><th>Node</th><th>Key fields</th><th>Notes</th></tr>
+    <tr><td>Query</td><td>adapter, action, params</td><td>Adapters: jira, github, internal. Params support <code>{{variable}}</code> placeholders filled from state.</td></tr>
+    <tr><td>Fan-out</td><td>source, iterator_var</td><td>Runs its child node once per item of the source list.</td></tr>
+    <tr><td>AI-transform</td><td>script or skill</td><td>A Python script with <code>input</code>, <code>state</code> and <code>loop</code> in scope; runs in a sandboxed subprocess with a time limit.</td></tr>
+    <tr><td>Conditional-action</td><td>condition, true/false actions</td><td>Condition types: equals, contains, regex, in-list, exists — combined with AND/OR. Unmatched items (no false action) go to the <em>undefined queue</em>.</td></tr>
+  </table>
+
+  <h3>Reading results</h3>
+  <p>Each run gets a log with per-node results and totals. Status is <code>completed</code>,
+     <code>partial</code> (some nodes failed) or <code>failed</code>. The undefined queue holds the
+     latest run&rsquo;s unmatched items, capped by the graph&rsquo;s setting. Run logs are kept up to the
+     graph&rsquo;s <code>max_run_logs</code> (default 50); a per-graph aggregate keeps the running totals.</p>
+</section>
+
+<section id="workflows">
+  <h2>5. Workflows &amp; templates</h2>
+  <p>Workflows are step-by-step templates run by the engine. The current step shape is
+     <code>{adapter, action, config}</code> — old templates are migrated automatically.</p>
+
+  <h3>Example: comment on merged PRs</h3>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -X POST http://localhost:18006/api/workflows/templates -d '{
+  "template_id": "pr-release-notes",
+  "name": "PR release notes",
+  "trigger": {"type": "webhook", "provider": "github"},
+  "steps": [
+    {"step_id": "S1", "name": "Fetch merged PR",
+     "adapter": "github", "action": "fetch_resource",
+     "config": {"resource_id": "{{number}}"}},
+    {"step_id": "S2", "name": "Comment",
+     "adapter": "internal", "action": "add_comment",
+     "config": {"item_id": "ID-001", "body": "Released {{number}}"},
+     "next_step": "S2"}
+  ]}'</code></pre>
+
+  <h3>Rules the save endpoint enforces</h3>
+  <ul>
+    <li>Allowed adapters: <code>internal</code>, <code>github</code>, <code>jira</code>, <code>ai</code>.
+        Shell steps are rejected.</li>
+    <li>Every step needs an <code>action</code>; a <code>type</code> key is only allowed for
+        <code>ORCHESTRATOR_TASK</code> (human-in-the-loop) steps.</li>
+    <li>Each adapter&rsquo;s <code>config</code> is schema-checked (unknown keys rejected).</li>
+  </ul>
+
+  <h3>Running and failing</h3>
+  <ul>
+    <li>Trigger with <code>POST /api/workflows/trigger</code> <code>{"template_id": "...", "inputs": {...}}</code>.</li>
+    <li><code>ORCHESTRATOR_TASK</code> steps pause the run until you resume it (the run waits in
+        <code>WAITING_FOR_HUMAN</code>).</li>
+    <li>A failed step retries after 5, 10 and 15 minutes; after that the run is <code>BLOCKED</code>
+        and a recovery card (<code>REC-*</code>) appears on the board. Resume it from the card.</li>
+    <li>On restart, runs left in flight are marked failed with &ldquo;orphaned: server restart&rdquo; —
+        resume them manually.</li>
+  </ul>
+</section>
+
+<section id="integrations">
+  <h2>6. Integrations &amp; credentials</h2>
+  <p>The Integrations tab manages connections. Two kinds: <strong>native</strong> (Jira, GitHub,
+     internal, bob shell — Python adapters) and <strong>MCP</strong> (external tools launched as
+     processes).</p>
+
+  <h3>How credentials are resolved</h3>
+  <p>Workflow and Studio steps name an adapter canonically (<code>jira</code>, <code>github</code>,
+     ...). Credentials come from, in order:</p>
+  <ol>
+    <li>An integration with exactly that name.</li>
+    <li>Any integration using the same adapter (first by name — create one in the UI with the
+        token and URL filled in).</li>
+    <li>Environment variables (<code>JIRA_PAT</code>, <code>JIRA_BASE_URL</code>, <code>GITHUB_TOKEN</code>...),
+        including what the setup screen wrote.</li>
+  </ol>
+  <div class="note">Secrets are masked as <code>*****</code> in list responses and never displayed
+     again after saving. A <code>${env:NAME}</code> value in a config field reads that variable at
+     call time.</div>
+</section>
+
+<section id="ai">
+  <h2>7. AI Engine</h2>
+  <p>The AI Engine tab picks the provider and model every agent uses (default: Google Gemma).
+     Keys live in <code>~/.antikythera/.ai_env</code> and can be set from the tab or the setup
+     screen. Changing the default model takes effect for new runs.</p>
+  <p>Providers: Google Gemma, OpenAI, NVIDIA NIM, OpenRouter, Anthropic, Ollama, LM Studio and
+     the local <code>bob</code> CLI. If the provider is unreachable the agents fall back to
+     templates and mark items blocked rather than writing junk.</p>
+</section>
+
+<section id="settings">
+  <h2>8. Settings</h2>
+  <p>Tunables live under <code>/api/settings</code> (token required) and persist in
+     <code>~/.antikythera/settings.json</code>. Every value has safe bounds; the API tells you
+     each one&rsquo;s default and whether a restart is needed.</p>
+<pre><code>curl -H "Authorization: Bearer $TOKEN" http://localhost:18006/api/settings
+
+# Change one (retry delays, in minutes):
+curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -X PATCH http://localhost:18006/api/settings \
+  -d '{"retry_delays_min": [2, 5, 10]}'</code></pre>
+  <p>Tunable today: orchestrator interval, retry delays, poison-item strikes, reap age, bob
+     timeout, executor max tasks, digest interval, Studio queue cap and run-log limit.</p>
+</section>
+
+<section id="ops">
+  <h2>9. Backups &amp; operations</h2>
+  <h3>Backup</h3>
+<pre><code># On the Docker host (nightly cron is documented in docker/README.md):
+scripts/backup_data.sh ~/antikythera-data
+
+# Restores: list the archive first, stop the stack, extract, start.
+tar -tzf ~/antikythera-backups/automation-ideas-&lt;timestamp&gt;.tar.gz | head</code></pre>
+  <p>Archives are written mode 600 and rotated (default: keep 14).</p>
+  <h3>Logs</h3>
+  <p>Backend log tail (last 200 lines) is in the AI Engine tab, or
+     <code>GET /api/ai-engine/logs?lines=200</code>. Item timelines are on each card.</p>
+  <h3>Corrupt files</h3>
+  <div class="note errbox">If a state file is ever damaged, the API refuses to serve an empty
+     board: it returns an error naming the file, keeps the original untouched, and saves a copy as
+     <code>&lt;file&gt;.corrupt-&lt;timestamp&gt;</code> beside it. Restore from backup or fix the
+     copy, then restart.</div>
+</section>
+
+<section id="trouble">
+  <h2>10. Troubleshooting</h2>
+  <table>
+    <tr><th>Symptom</th><th>Cause &amp; fix</th></tr>
+    <tr><td><code>401 Unauthorized</code></td><td>Missing/wrong token. UI: re-enter it in the dialog. Scripts: <code>Authorization: Bearer &lt;token&gt;</code> from <code>~/.antikythera/api_token</code>.</td></tr>
+    <tr><td>Page won&rsquo;t load / connection refused</td><td>The tunnel is down, or the stack is not running. Re-run the <code>ssh -N -L ...</code> command; check <code>docker-compose ps</code> on the host.</td></tr>
+    <tr><td><code>422</code> when dragging a card</td><td>The move gate: approve the item first, or use the explicit <strong>Force move</strong> button. The message says which rule tripped.</td></tr>
+    <tr><td><code>Integration github not found</code></td><td>No integration supplies that adapter. Create one in the Integrations tab (any name, matching adapter, token filled in) or set the environment variable.</td></tr>
+    <tr><td>Setup screen says &ldquo;local only&rdquo;</td><td>Setup accepts loopback connections only — your SSH tunnel qualifies; a direct remote connection does not.</td></tr>
+    <tr><td>Item stuck <em>blocked</em></td><td>The agent failed 3 times at the same stage; the reason is on the card. Often the AI provider is unreachable (check the key in the AI Engine tab).</td></tr>
+    <tr><td>Run <code>BLOCKED</code> with a <code>REC-</code> card</td><td>A workflow step exhausted its retries. Fix the cause and resume from the recovery card.</td></tr>
+    <tr><td>Run <code>FAILED</code> &ldquo;orphaned: server restart&rdquo;</td><td>The stack restarted mid-run. Resume the run; nothing was lost.</td></tr>
+    <tr><td>Logs tab shows truncated</td><td>Expected: the log endpoint caps at 2000 lines / 256&nbsp;KB and tells the UI when it did.</td></tr>
+  </table>
+</section>
+
+<section id="api">
+  <h2>11. API quick reference</h2>
+  <p>All routes below require the bearer token unless noted.</p>
+  <table>
+    <tr><th>Group</th><th>Endpoints</th></tr>
+    <tr><td>Board</td><td><code>GET /api/state</code>, <code>POST /api/items</code>, <code>PATCH /api/item/{id}</code>, <code>POST /api/item/{id}/review</code>, <code>POST /api/move</code> (gated, <code>force</code>), <code>POST /api/items/reorder</code></td></tr>
+    <tr><td>Artifacts</td><td><code>GET /api/item/{id}/artifact/{name}</code>, timeline, promote-pattern</td></tr>
+    <tr><td>Workflows</td><td><code>GET/POST /api/workflows/templates</code>, <code>POST /api/workflows/trigger</code>, runs + timelines</td></tr>
+    <tr><td>Studio</td><td><code>/api/studio/graphs</code> CRUD + <code>/run</code> (dry-run default), <code>/preview-node</code>, skills, run logs</td></tr>
+    <tr><td>Integrations</td><td><code>GET/POST /api/integrations</code>, <code>/{name}/test</code>, <code>/{name}/tools</code>, <code>/{name}/call</code></td></tr>
+    <tr><td>AI Engine</td><td><code>/api/ai-engine/config</code>, models, providers, set-default, set-api-key, logs</td></tr>
+    <tr><td>Settings</td><td><code>GET/PATCH /api/settings</code></td></tr>
+    <tr><td>Setup <span class="pill warn">no token while incomplete</span></td><td><code>GET /api/setup/status</code>, <code>POST /api/setup/config</code>, <code>POST /api/setup/complete</code> (404 once complete)</td></tr>
+    <tr><td>This page <span class="pill">no token</span></td><td><code>GET /help</code></td></tr>
+  </table>
+</section>
+
+<div class="footer">
+  Antikythera help page &middot; served locally by the backend &middot; no external resources loaded.
+  Source of truth for details: <code>README.md</code>, <code>docs/</code> in the repository.
+</div>
+
+</div>
+</body>
+</html>

@@ -107,7 +107,8 @@ docker-compose pull && docker-compose up
 **Services:**
 - Frontend UI: http://localhost:15173 (via the SSH tunnel; see [Security and access](#-security-and-access))
 - Backend API: http://localhost:18006 (via the SSH tunnel)
-- API docs: disabled by default. Set `ANTIKYTHERA_ENABLE_DOCS=1` to serve Swagger at http://localhost:8006/docs
+- Built-in help page with instructions and examples: http://localhost:18006/help (no token needed)
+- API docs: disabled by default. Set `ANTIKYTHERA_ENABLE_DOCS=1` to serve Swagger at http://localhost:18006/docs
 
 #### Option B: Local Development
 
