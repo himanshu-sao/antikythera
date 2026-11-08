@@ -133,8 +133,15 @@ class TestStudioRouterEndpoints(unittest.TestCase):
         self.client = TestClient(app)
 
     def tearDown(self):
-        app.dependency_overrides.pop(studio_router.get_studio_graph_manager, None)
-        app.dependency_overrides.pop(studio_router.get_skill_manager, None)
+        # The overrides were keyed by the ORIGINAL dependency functions (they
+        # were still the module attrs when setUp registered them). At tearDown
+        # time the module attrs are our stubs, so popping via
+        # ``studio_router.get_studio_graph_manager`` would look up the wrong
+        # key and silently leave the override installed — poisoning every
+        # later test file in the same run (graphs silently read/written from
+        # this test's already-deleted tmp dir). Pop by the saved originals.
+        app.dependency_overrides.pop(self._orig_get_graph_manager, None)
+        app.dependency_overrides.pop(self._orig_get_skill_manager, None)
         # Restore original module-level functions
         studio_router._get_base_dir = self._orig_get_base_dir
         studio_router.get_studio_graph_manager = self._orig_get_graph_manager
