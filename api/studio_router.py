@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from api.managers.studio_graph_manager import StudioGraphManager
 from api.managers.skill_manager import SkillManager
-from api.execution.studio_graph_engine import PathStepGraphEngine
+from api.execution.studio_graph_engine import GraphRunAggregate, PathStepGraphEngine
 from api.workflow_state_manager import WorkflowStateManager
 from api.models.studio import (
     StudioGraph,
@@ -180,6 +180,9 @@ class GraphResponse(BaseModel):
 class GraphDetailResponse(GraphResponse):
     nodes: List[Dict[str, Any]]
     edges: List[Dict[str, Any]]
+    # Perpetual per-graph run totals (dec #21 / P2-4): survive run-log pruning.
+    # None when the graph has never been run.
+    aggregate: Optional[GraphRunAggregate] = None
 
 
 class RunRequest(BaseModel):
@@ -327,13 +330,14 @@ async def list_graphs(manager: StudioGraphManager = Depends(get_studio_graph_man
 async def get_graph(
     graph_id: GraphIdParam,
     manager: StudioGraphManager = Depends(get_studio_graph_manager),
+    engine: PathStepGraphEngine = Depends(get_graph_engine),
 ):
-    """Get a Studio Graph by ID (full detail)."""
+    """Get a Studio Graph by ID (full detail, incl. the perpetual aggregate)."""
     with _corrupt_guard():
         graph = manager.get_graph(graph_id)
     if not graph:
         raise HTTPException(status_code=404, detail="Graph not found")
-    return _graph_to_detail_response(graph)
+    return _graph_to_detail_response(graph, engine.get_aggregate(graph_id))
 
 
 @router.put("/graphs/{graph_id}", response_model=GraphResponse)
@@ -634,12 +638,16 @@ def _graph_to_response(graph: StudioGraph) -> GraphResponse:
     )
 
 
-def _graph_to_detail_response(graph: StudioGraph) -> GraphDetailResponse:
+def _graph_to_detail_response(
+    graph: StudioGraph,
+    aggregate: Optional[GraphRunAggregate] = None,
+) -> GraphDetailResponse:
     base = _graph_to_response(graph)
     return GraphDetailResponse(
         **base.model_dump(),
         nodes=[n.model_dump(mode="json") for n in graph.nodes],
         edges=[e.model_dump(mode="json") for e in graph.edges],
+        aggregate=aggregate,
     )
 
 

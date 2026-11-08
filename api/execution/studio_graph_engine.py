@@ -28,6 +28,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
+
 from api.managers.studio_graph_manager import StudioGraphManager
 from api.managers.skill_manager import SkillManager
 from api.managers.run_manager import RunManager
@@ -57,6 +59,50 @@ from api.operator_registry import OperatorRegistry
 from api.executors.safe_executor import SafeExecutor, SafeExecutorError, SecurityError, DependencyRequiredError
 
 logger = logging.getLogger(__name__)
+
+
+# -----------------------------------------------------------------------------
+# Perpetual per-graph run aggregate (dec #21 / P2-4)
+# -----------------------------------------------------------------------------
+
+# Run logs live at ``studio_runs/<run_id>.json``; the aggregate lives next to
+# them at ``studio_runs/<graph_id>.aggregate.json``. The suffix keeps it apart
+# from run-log files by NAME, so the run-log walkers (list_run_logs and the
+# max_run_logs pruner, which both glob ``*.json``) skip it explicitly and it is
+# never deleted by pruning.
+AGGREGATE_SUFFIX = ".aggregate.json"
+
+_FINAL_STATUSES = ("completed", "partial", "failed")
+
+
+class GraphRunAggregate(BaseModel):
+    """Running totals for one graph, accumulated on every finalized run and
+    kept forever — unlike run logs, which are pruned to ``max_run_logs``.
+
+    P2-4 (dec #21): a graph's history must survive run-log pruning. The
+    aggregate is updated in ``_finalize_run`` with an atomic write, so
+    ``total_runs`` keeps counting even after the individual logs are gone.
+
+    Corruption policy (documented decision): a corrupt aggregate file is
+    quarantined (renamed to ``<name>.corrupt-<utc stamp>``, never overwritten
+    in place), a loud error is logged, and the aggregate is REBUILT from the
+    surviving run logs — so totals are recovered, never silently reset to
+    zero; the rebuild is stamped ``recovered_at`` so the recovery is visible.
+    """
+
+    graph_id: str
+    total_runs: int = 0
+    total_matched: int = 0
+    total_undefined: int = 0
+    total_escalated: int = 0
+    status_counts: Dict[str, int] = Field(
+        default_factory=lambda: {s: 0 for s in _FINAL_STATUSES}
+    )
+    last_run_id: Optional[str] = None
+    last_run_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    # Set when a corrupt aggregate was quarantined and rebuilt from run logs.
+    recovered_at: Optional[datetime] = None
 
 
 # -----------------------------------------------------------------------------
@@ -219,10 +265,14 @@ class PathStepGraphEngine:
             return None
 
     def list_run_logs(self, graph_id: str, limit: int = 50) -> List[GraphRunLog]:
-        """List recent run logs for a graph (dec #21: last 50)."""
+        """List recent run logs for a graph (dec #21: last 50).
+
+        P2-4: ``*.aggregate.json`` files live in the same directory but are not
+        run logs — skip them by name.
+        """
         logs = []
         for filename in os.listdir(self.runs_dir):
-            if filename.endswith(".json"):
+            if filename.endswith(".json") and not filename.endswith(AGGREGATE_SUFFIX):
                 run_id = filename[:-5]
                 log = self.get_run_log(run_id)
                 if log and log.graph_id == graph_id:
@@ -1048,6 +1098,7 @@ class PathStepGraphEngine:
         )
 
         self._save_run_log(run_log)
+        self._update_aggregate(graph.graph_id, run_log)
         logger.info(f"Run {run_id} finalized: status={status}, matched={total_matched}, undefined={total_undefined}")
 
     @staticmethod
@@ -1090,6 +1141,10 @@ class PathStepGraphEngine:
         R25: the directory file count is checked first. Each log is parsed only
         when the directory holds more logs than the limit, since a graph cannot
         have more logs than there are files.
+
+        P2-4: the perpetual aggregate (``<graph_id>.aggregate.json``) shares the
+        directory but is NOT a run log — it is excluded by name and never
+        pruned, so the running totals survive log pruning (dec #21).
         """
         try:
             graph = self.studio_graph_manager.get_graph(graph_id) if self.studio_graph_manager else None
@@ -1101,7 +1156,10 @@ class PathStepGraphEngine:
         limit = max(0, int(graph.max_run_logs))
 
         try:
-            names = [n for n in os.listdir(self.runs_dir) if n.endswith(".json")]
+            names = [
+                n for n in os.listdir(self.runs_dir)
+                if n.endswith(".json") and not n.endswith(AGGREGATE_SUFFIX)
+            ]
         except OSError as e:
             logger.warning(f"Run-log pruning skipped for {graph_id}: {e}")
             return
@@ -1151,6 +1209,161 @@ class PathStepGraphEngine:
             return os.path.getmtime(os.path.join(self.runs_dir, filename))
         except OSError:
             return 0.0
+
+    # -------------------------------------------------------------------------
+    # Perpetual Aggregate (dec #21 / P2-4)
+    # -------------------------------------------------------------------------
+
+    def _aggregate_path(self, graph_id: str) -> str:
+        """Path of the graph's perpetual aggregate, next to the run logs."""
+        return os.path.join(self.runs_dir, f"{graph_id}{AGGREGATE_SUFFIX}")
+
+    def get_aggregate(self, graph_id: str) -> Optional[GraphRunAggregate]:
+        """Load a graph's perpetual aggregate (None when the graph never ran).
+
+        A corrupt aggregate is quarantined and rebuilt from the surviving run
+        logs here too (same policy as the write path), so the first read after
+        a corruption repairs it instead of reporting zeros.
+        """
+        return self._load_aggregate(graph_id)
+
+    def _load_aggregate(
+        self, graph_id: str, exclude_run_id: Optional[str] = None
+    ) -> Optional[GraphRunAggregate]:
+        """Read the aggregate; missing -> None; corrupt -> quarantine + rebuild.
+
+        The quarantined copy is kept (``<file>.corrupt-<utc stamp>``) and the
+        rebuild is stamped ``recovered_at``, so a corruption is loud and the
+        totals are recovered from the surviving run logs — never silently
+        reset to zero. The rebuilt aggregate is persisted immediately so the
+        recovery is durable even if no further run happens.
+
+        ``exclude_run_id`` is used by the write path: the current run's log is
+        saved BEFORE the aggregate is updated, so the rebuild must skip it —
+        the caller folds it in right after (otherwise it would be counted
+        twice).
+        """
+        path = self._aggregate_path(graph_id)
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            aggregate = GraphRunAggregate.model_validate(data)
+            if aggregate.graph_id != graph_id:
+                raise ValueError(f"aggregate belongs to graph {aggregate.graph_id!r}")
+            return aggregate
+        except Exception as e:
+            logger.error(
+                "Corrupt run aggregate for graph %s: %s — quarantining and "
+                "rebuilding from surviving run logs",
+                graph_id, e,
+            )
+            self._quarantine_aggregate(path)
+            rebuilt = self._rebuild_aggregate(graph_id, exclude_run_id=exclude_run_id)
+            rebuilt.recovered_at = datetime.utcnow()
+            rebuilt.updated_at = rebuilt.updated_at or datetime.utcnow()
+            self._save_aggregate(rebuilt)
+            return rebuilt
+
+    def _quarantine_aggregate(self, path: str) -> None:
+        """Rename a corrupt aggregate aside; never deletes or overwrites it."""
+        try:
+            stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%S%fZ")
+            os.replace(path, f"{path}.corrupt-{stamp}")
+        except OSError as e:
+            logger.error("Failed to quarantine corrupt run aggregate %s: %s", path, e)
+
+    def _rebuild_aggregate(
+        self, graph_id: str, exclude_run_id: Optional[str] = None
+    ) -> GraphRunAggregate:
+        """Recompute the aggregate from the run logs still on disk.
+
+        Pruned logs are gone for good, so a rebuild after corruption recovers
+        at most the surviving window — that is why the aggregate is updated
+        incrementally on every run and only rebuilt as a corruption fallback.
+        ``exclude_run_id`` skips the in-flight run on the write path (its log
+        is already on disk but is folded in by the caller right after).
+        """
+        aggregate = GraphRunAggregate(graph_id=graph_id)
+        try:
+            names = [
+                n for n in os.listdir(self.runs_dir)
+                if n.endswith(".json") and not n.endswith(AGGREGATE_SUFFIX)
+            ]
+        except OSError as e:
+            logger.error("Failed to list run logs while rebuilding aggregate: %s", e)
+            return aggregate
+        logs: List[GraphRunLog] = []
+        for filename in names:
+            log = self.get_run_log(filename[:-5])
+            if log and log.graph_id == graph_id and log.run_id != exclude_run_id:
+                logs.append(log)
+        for log in logs:
+            self._accumulate(aggregate, log)
+        if logs:
+            newest = max(logs, key=lambda l: self._run_log_sort_key(l, f"{l.run_id}.json"))
+            aggregate.last_run_id = newest.run_id
+            aggregate.last_run_at = newest.started_at
+        aggregate.updated_at = datetime.utcnow()
+        return aggregate
+
+    def _update_aggregate(self, graph_id: str, run_log: GraphRunLog) -> None:
+        """Fold one finalized run into the perpetual aggregate (atomic write).
+
+        Called from ``_finalize_run`` AFTER the run log itself is saved, so the
+        run is counted even when its log is immediately pruned away by a tight
+        ``max_run_logs``. Failures are logged, never raised: a broken aggregate
+        must not turn a finished run into a "failed" one (``_execute_graph``
+        would re-finalize and double-count).
+        """
+        try:
+            aggregate = self._load_aggregate(graph_id, exclude_run_id=run_log.run_id)
+            if aggregate is None:
+                aggregate = GraphRunAggregate(graph_id=graph_id)
+            self._accumulate(aggregate, run_log)
+            if (
+                aggregate.last_run_at is None
+                or self._utc_timestamp(run_log.started_at) >= self._utc_timestamp(aggregate.last_run_at)
+            ):
+                aggregate.last_run_id = run_log.run_id
+                aggregate.last_run_at = run_log.started_at
+            aggregate.updated_at = datetime.utcnow()
+            self._save_aggregate(aggregate)
+        except Exception as e:
+            logger.error("Failed to update run aggregate for graph %s: %s", graph_id, e)
+
+    @staticmethod
+    def _accumulate(aggregate: GraphRunAggregate, run_log: GraphRunLog) -> None:
+        """Add one run log's counters/totals into ``aggregate`` (in place)."""
+        aggregate.total_runs += 1
+        aggregate.total_matched += run_log.total_matched
+        aggregate.total_undefined += run_log.total_undefined
+        aggregate.total_escalated += run_log.total_escalated
+        aggregate.status_counts[run_log.status] = (
+            aggregate.status_counts.get(run_log.status, 0) + 1
+        )
+
+    @staticmethod
+    def _utc_timestamp(value: Optional[datetime]) -> float:
+        """Epoch seconds, naive treated as UTC; None sorts oldest."""
+        if value is None:
+            return float("-inf")
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).timestamp()
+
+    def _save_aggregate(self, aggregate: GraphRunAggregate) -> None:
+        """Persist the aggregate atomically (temp file + rename), like run logs."""
+        path = self._aggregate_path(aggregate.graph_id)
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp_path = path + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(aggregate.model_dump(mode="json"), f, indent=2, default=str)
+            os.replace(tmp_path, path)
+        except Exception as e:
+            logger.error("Failed to save run aggregate for graph %s: %s", aggregate.graph_id, e)
 
     # -------------------------------------------------------------------------
     # Cron Scheduling Support (dec #7)
