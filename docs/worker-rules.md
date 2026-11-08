@@ -76,3 +76,26 @@ Cross-worker protocol for this run:
 - A6 and A7 commit their new router/component modules as their FIRST commit (minimal but valid) so A1 and A7 can wire them; A1 polls (`git log --oneline -5`, wait up to 15 minutes) for `api/settings_router.py` and `api/setup_router.py` before finishing, and registers them; if still absent, register behind `try/except ImportError` and report.
 - A8's `SetupScreen`-adjacent rule: the setup screen's own fetches stay plain `fetch` (pre-token by design). A8 must not migrate them.
 - Nobody edits a file owned by another worker. Report needed changes instead.
+
+---
+
+# Fix-session ownership map (2026-11-08, P0+P1+P2)
+
+Scope: `docs/pending-items.md` P0-1..P0-4, P1-1..P1-3, P2-1..P2-4, per the user's answers: setup = one-time secret gating the writes only; terminal env = minimal; bob_shell fetch maps to execute; direct fixes, no new decisions. Baseline is HEAD at launch.
+
+**Setup-secret contract (B3 backend, B5 frontend — build against this, do not wait):**
+- `get_or_create_setup_secret()` in `api/security.py`: like the token — file `setup_secret` under the config dir (ANTIKYTHERA_HOME-aware), mode 0600, `secrets.token_urlsafe(24)`, created only while `.setup_complete` is absent; one INFO log line naming the file path (never the value) at creation.
+- `GET /api/setup/status` stays open and gains `setup_secret_required: true` while the secret exists (presence only).
+- `POST /api/setup/config` and `POST /api/setup/complete` require the header `X-Setup-Secret` matching the secret (constant-time compare; 403 with a generic message on mismatch). The old loopback-only gate is REMOVED for these routes (it breaks under Docker NAT). The rate limit and the 404-after-complete marker stay. On successful complete, the secret file is deleted.
+- `DELETE /api/setup/complete` (reopen) keeps requiring the bearer token, not the secret.
+- Frontend (B5): SetupScreen adds a "Setup secret" field (shown when status says required), sends `X-Setup-Secret` on config and complete.
+
+| Worker | Items | Files |
+|---|---|---|
+| B1 | P0-3, P0-4 backend, P1-3, bob_shell mapping | `api/execution_engine.py`, `api/integration_hub.py`, `api/models/automation.py`, `api/builder_router.py`, `tests/test_execution_engine_*.py`, `tests/test_integration_hub.py`, `tests/test_canonical_adapters.py`, `tests/test_builder_router.py` |
+| B2 | P1-1, P1-2 | `api/executors/safe_executor.py`, `agents/executor_tools.py`, `api/executors/test_safe_executor.py`, `tests/test_executor_tools.py` |
+| B3 | P0-1 backend, P2-1 (D3), P2-2 (D4) | `api/setup_router.py`, `api/security.py`, `agents/handlers.py`, `tests/test_setup_router.py`, `tests/test_auth.py`, `tests/test_complexity_tiers.py`, `tests/test_orchestrator_*.py` |
+| B4 | P2-3, P2-4 | `api/studio_router.py`, `api/execution/studio_graph_engine.py`, `tests/test_studio_*.py` |
+| B5 | P0-2, P0-4 frontend, P0-1 frontend | `ui/src/App.tsx`, `ui/src/components/WorkflowBuilder.tsx`, `ui/src/components/SetupScreen.tsx`, their vitest files |
+
+Coordinator (after workers): `api/help.html` updates for the changed claims, progress log, vault.
