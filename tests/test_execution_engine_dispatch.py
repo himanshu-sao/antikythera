@@ -370,7 +370,9 @@ class TestMigrateStoredTemplateShapes:
         step = {"step_id": "S1", "config": {"adapter": "BOB_SHELL", "prompt": "p"}}
         m = migrate_step(step)
         assert m["adapter"] == "bob_shell"
-        assert m["action"] == "fetch_resource"  # no action anywhere -> legacy default
+        # bob_shell only implements execute (config prompt/args); its fetch
+        # raises NotImplementedError, so the legacy default action is remapped.
+        assert m["action"] == "execute"
 
     def test_internal_default_without_config_adapter(self):
         # AUTO-MOVE-TEST shape: config.action but no config.adapter.
@@ -391,3 +393,53 @@ class TestMigrateStoredTemplateShapes:
     def test_explicit_null_adapter_still_unchanged(self):
         step = {"step_id": "S1", "adapter": None, "config": {"adapter": "github"}}
         assert migrate_step(step) == step
+
+
+class TestBobShellActionMigration:
+    """The stored AI_INTEGRATION_BOB shape: config.adapter BOB_SHELL, no
+    action, config prompt/args. BobShellAdapter only implements execute, so
+    a migrated bob_shell step whose action resolves to fetch_resource (whose
+    fetch raises NotImplementedError) runs execute instead. Every other
+    migration rule is unchanged."""
+
+    def test_stored_bob_shell_shape_migrates_to_execute(self):
+        # The exact stored AI_INTEGRATION_BOB step shape.
+        step = {
+            "step_id": "S1", "name": "Run Bob Shell Analysis", "category": "ACTION",
+            "config": {"adapter": "BOB_SHELL", "prompt": "Analyze recent changes",
+                       "args": ["--yolo"], "api_key_env": "IBM_BOB_SHELL_DEFAULT_KEY"},
+            "next_step": None,
+        }
+        m = migrate_step(step)
+        assert m["adapter"] == "bob_shell"
+        assert m["action"] == "execute"
+        assert m["config"]["prompt"] == "Analyze recent changes"
+
+    def test_legacy_type_named_bob_shell_step_migrates_to_execute(self):
+        m = migrate_step({"name": "S", "type": "BOB_SHELL", "config": {"prompt": "p"}})
+        assert m["adapter"] == "BOB_SHELL"
+        assert m["action"] == "execute"
+
+    def test_bob_shell_explicit_fetch_resource_action_is_remapped(self):
+        m = migrate_step({"step_id": "S1", "config": {"adapter": "bob_shell",
+                                                      "action": "fetch_resource"}})
+        assert m["adapter"] == "bob_shell"
+        assert m["action"] == "execute"
+
+    def test_bob_shell_own_non_default_action_is_kept(self):
+        m = migrate_step({"name": "S", "type": "bob_shell", "action": "analyze",
+                          "config": {}})
+        assert m["action"] == "analyze"
+
+    def test_other_adapters_still_default_to_fetch_resource(self):
+        for adapter in ("github", "jira", "internal", "GITHUB"):
+            m = migrate_step({"name": "S", "type": adapter, "config": {}})
+            assert m["action"] == "fetch_resource", adapter
+            m = migrate_step({"step_id": "S1", "config": {"adapter": adapter}})
+            assert m["action"] == "fetch_resource", adapter
+
+    def test_internal_default_branch_is_not_affected(self):
+        # config.action with no config.adapter still resolves to internal.
+        m = migrate_step({"step_id": "S1", "config": {"action": "move_item"}})
+        assert m["adapter"] == "internal"
+        assert m["action"] == "move_item"

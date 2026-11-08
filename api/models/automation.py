@@ -142,6 +142,23 @@ def _legacy_action(step: Dict[str, Any], adapter: str) -> str:
     return LEGACY_DEFAULT_ACTION
 
 
+def _remap_bob_shell_action(step: Dict[str, Any]) -> Dict[str, Any]:
+    """bob_shell has no fetch: remap its legacy default action to execute.
+
+    The stored AI_INTEGRATION_BOB shape (config.adapter BOB_SHELL, config
+    prompt/args, no action) migrates to adapter bob_shell with the legacy
+    default action fetch_resource, but BobShellAdapter only implements
+    ``execute`` (its fetch raises NotImplementedError). A migrated bob_shell
+    step whose resolved action is fetch_resource therefore runs execute.
+    Every other adapter keeps fetch_resource.
+    """
+    if (isinstance(step.get("adapter"), str)
+            and step["adapter"].strip().lower() == "bob_shell"
+            and step.get("action") == LEGACY_DEFAULT_ACTION):
+        step["action"] = "execute"
+    return step
+
+
 def migrate_step(step: Any) -> Any:
     """Return ``step`` in the adapter + action shape. Never mutates the input.
 
@@ -181,7 +198,7 @@ def migrate_step(step: Any) -> Any:
         if isinstance(config_adapter, str) and config_adapter.strip():
             migrated["adapter"] = config_adapter.strip().lower()
             migrated["action"] = _legacy_action(migrated, migrated["adapter"])
-            return migrated
+            return _remap_bob_shell_action(migrated)
         config_action = config.get("action")
         if isinstance(config_action, str) and config_action.strip():
             migrated["adapter"] = "internal"
@@ -191,4 +208,4 @@ def migrate_step(step: Any) -> Any:
     migrated.pop("type")
     migrated["adapter"] = step_type
     migrated["action"] = _legacy_action(migrated, step_type)
-    return migrated
+    return _remap_bob_shell_action(migrated)
