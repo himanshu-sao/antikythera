@@ -162,10 +162,12 @@ function AppShell() {
     }
   }, [activeTab]);
 
+  // P0-2: authenticated via apiFetch so the bearer token is carried and a 401
+  // opens the TokenGate instead of silently rendering an empty pipeline list.
   const loadPipelines = async () => {
     setIsLoadingPipelines(true);
     try {
-      const res = await fetch(`${apiUrl}/api/pipelines`);
+      const res = await apiFetch(`${apiUrl}/api/pipelines`);
       if (res.ok) {
         const data = await res.json();
         setPipelines(data);
